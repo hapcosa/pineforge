@@ -1,0 +1,523 @@
+//@version=6
+indicator("CryptoProofit® - Oscillator 2.6", shorttitle="CP® Oscillator 2.6", overlay=false, precision=1,
+     max_lines_count=500, max_labels_count=500, max_bars_back=500)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  INPUTS — Oscillator Settings
+// ═══════════════════════════════════════════════════════════════════════════════
+
+grpOscSettings  = "⚙  OSCILLATOR SETTINGS"
+hyperWaveLen    = input.int(6,   "Hyper Wave Length",    minval=1, group=grpOscSettings)
+hyperWaveClrUp  = input.color(color.new(#00BCD4, 0), "Hyper Wave Color Up", group=grpOscSettings)
+hyperWaveClrDn  = input.color(color.new(#7B1FA2, 0), "Hyper Wave Color Dn", group=grpOscSettings)
+
+grpEOT          = "◈  EOT 1 (MAIN OSCILLATOR)"
+triggerLen      = input.int(2, "Trigger Length", minval=1, group=grpEOT)
+
+grpFast         = "◈  FAST OSCILLATOR"
+kernelFactor1   = input.float(0.8, "Kernel Setting 1", step=0.1, group=grpFast)
+kernelFactor2   = input.float(0.3, "Kernel Setting 2", step=0.1, group=grpFast)
+
+grpCandles      = "◈  OSCILLATOR CANDLES"
+showSignalBars  = input.bool(true, "Signal Bars", group=grpCandles)
+showCPBars      = input.bool(true, "CP Bars",     group=grpCandles)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  INPUTS — Signals
+// ═══════════════════════════════════════════════════════════════════════════════
+
+grpSignals       = "◉  OSCILLATOR SIGNALS"
+showBounce       = input.bool(true,  "CP Bounce",           group=grpSignals)
+showCPSignals    = input.bool(false, "CP Signals",          group=grpSignals)
+showExitSignals  = input.bool(false, "Exit Signals",        group=grpSignals)
+showMomentum     = input.bool(true,  "Momentum Signal",     group=grpSignals)
+showConfluence   = input.bool(false, "Confluence Lines",    group=grpSignals)
+confluenceSquare = input.bool(true,  "Confluence (Square)", group=grpSignals)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  INPUTS — Features
+// ═══════════════════════════════════════════════════════════════════════════════
+
+grpFeatures    = "◈  OSCILLATOR FEATURES"
+showHyperWave  = input.bool(true,  "Hyper Wave Pressure",    group=grpFeatures)
+showFibLines   = input.bool(true,  "Fibonacci Lines",        group=grpFeatures)
+showSMALine    = input.bool(true,  "SMA Line",               group=grpFeatures)
+showRVOL       = input.bool(true,  "RVOL Bars",              group=grpFeatures)
+showPivots     = input.bool(true,  "CP Pivots",              group=grpFeatures)
+showDiverg     = input.bool(true,  "Oscillator Divergences", group=grpFeatures)
+showCPLine     = input.bool(false, "CP Line (Chart)",        group=grpFeatures)
+showVolatility = input.bool(true,  "Volatility Indicator",   group=grpFeatures)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  INPUTS — General / Volume / Divergences
+// ═══════════════════════════════════════════════════════════════════════════════
+
+grpGeneral    = "⚙  GENERAL SETTINGS"
+volLookback   = input.int(30, "Lookback bars for Average", minval=1, group=grpGeneral)
+
+grpVolume     = "◈  VOLUME ANALYSIS"
+showCurVol    = input.bool(true, "Show Current Volume?",       group=grpVolume)
+showAvgVol    = input.bool(true, "Show Average",               group=grpVolume)
+showRVOLCalc  = input.bool(true, "Show RVOL Calculation?",     group=grpVolume)
+showPressDir  = input.bool(true, "Show Pressure Direction %?", group=grpVolume)
+
+grpDiv        = "◈  OSCILLATOR DIVERGENCES"
+divPivotRight = input.int(5, "Divergence Pivot Lookback Right", minval=1, group=grpDiv)
+divPivotLeft  = input.int(5, "Divergence Pivot Lookback Left",  minval=1, group=grpDiv)
+
+grpMA         = "◈  MOVING AVERAGE OVERLAY"
+maColor       = input.color(color.new(#FFB300, 0), "Line Color", group=grpMA)
+maLinewidth   = input.int(1, "Linewidth", minval=1, maxval=4,    group=grpMA)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  INPUTS — Colors (Neon Institutional Palette)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+grpColors   = "🎨  COLORS"
+bullColor   = input.color(#00E5FF, "Bullish Color",       group=grpColors)
+bearColor   = input.color(#E040FB, "Bearish Color",       group=grpColors)
+exitBearClr = input.color(#FFB300, "Exit Bearish Color",  group=grpColors)
+exitBullClr = input.color(#29B6F6, "Exit Bullish Color",  group=grpColors)
+bounceUpClr = input.color(#00E676, "Bounce Up Color",     group=grpColors)
+bounceDnClr = input.color(#FF4081, "Bounce Down Color",   group=grpColors)
+divBullClr  = input.color(#00E5FF, "Bullish Divergence",  group=grpColors)
+divBearClr  = input.color(#E040FB, "Bearish Divergence",  group=grpColors)
+smaLineClr  = input.color(#FFB300, "SMA Line Color",      group=grpColors)
+confBearClr = input.color(#FFB74D, "Bearish Confluence",  group=grpColors)
+confBullClr = input.color(#40C4FF, "Bullish Confluence",  group=grpColors)
+bgBullClr   = input.color(color.new(#00BCD4, 91), "Oscillator BG Bull", group=grpColors)
+bgBearClr   = input.color(color.new(#7B1FA2, 91), "Oscillator BG Bear", group=grpColors)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  CORE — WaveTrend Oscillator
+// ═══════════════════════════════════════════════════════════════════════════════
+
+channelLen = int(math.max(hyperWaveLen * 2, 10))
+avgLen     = int(math.max(hyperWaveLen, 4))
+
+src = hlc3
+esa = ta.ema(src, channelLen)
+d   = ta.ema(math.abs(src - esa), channelLen)
+ci  = (src - esa) / (0.015 * d)
+wt1 = ta.ema(ci, avgLen)
+wt2 = ta.sma(wt1, triggerLen)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  HYPER WAVE — Adaptive Smoothing (Kernel-style)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+hyperSmooth1 = ta.ema(wt1, int(math.max(hyperWaveLen * kernelFactor1, 2)))
+hyperSmooth2 = ta.ema(hyperSmooth1, int(math.max(hyperWaveLen * kernelFactor2, 2)))
+hyperWave    = hyperSmooth2
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  FAST OSCILLATOR
+// ═══════════════════════════════════════════════════════════════════════════════
+
+fastCI = ci * kernelFactor1
+fastWT = ta.ema(fastCI, int(math.max(avgLen * kernelFactor2, 2)))
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  NORMALIZE — Scale to 0–100
+// ═══════════════════════════════════════════════════════════════════════════════
+
+normLen   = 100
+hiNorm    = ta.highest(wt1, normLen)
+loNorm    = ta.lowest(wt1,  normLen)
+rangeNorm = hiNorm - loNorm
+safeRange = rangeNorm == 0 ? 1.0 : rangeNorm
+
+oscNorm   = (wt1 - loNorm) / safeRange * 100
+trigNorm  = (wt2 - loNorm) / safeRange * 100
+hyperNorm = (hyperWave - loNorm) / safeRange * 100
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  SMA OVERLAY
+// ═══════════════════════════════════════════════════════════════════════════════
+
+smaOsc = ta.sma(oscNorm, 21)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  MOMENTUM DETECTION
+// ═══════════════════════════════════════════════════════════════════════════════
+
+isBullMom  = oscNorm > trigNorm
+isBearMom  = oscNorm < trigNorm
+momCrossUp = ta.crossover(oscNorm, trigNorm)
+momCrossDn = ta.crossunder(oscNorm, trigNorm)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  VOLUME ANALYSIS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+avgVol      = ta.sma(volume, volLookback)
+rvol        = avgVol > 0 ? volume / avgVol : 0.0
+buyVol      = volume * (close - low)  / math.max(high - low, syminfo.mintick)
+sellVol     = volume * (high - close) / math.max(high - low, syminfo.mintick)
+isBuyVol    = buyVol >= sellVol
+pressurePct = volume > 0 ? (buyVol / volume) * 100 : 50.0
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  VOLATILITY — Oscillator Spread Ratio
+// ═══════════════════════════════════════════════════════════════════════════════
+
+oscSpread = math.abs(oscNorm - trigNorm)
+avgSpread = ta.sma(oscSpread, 20)
+volRatio  = avgSpread > 0 ? oscSpread / avgSpread : 1.0
+
+volStateStr = volRatio > 1.6 ? "Expanding" : volRatio < 0.5 ? "Compressed" : "Normal"
+volStateClr = volRatio > 1.6 ? color.new(#FFB300, 0) :
+              volRatio < 0.5  ? color.new(color.gray, 30) :
+              color.new(#40C4FF, 20)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  VISUAL STATE — Bias, Oscillator Phase, Momentum Delta
+// ═══════════════════════════════════════════════════════════════════════════════
+
+momPct = oscNorm - trigNorm
+
+biasStr = (oscNorm > 57 and isBullMom) ? "Bullish" :
+          (oscNorm < 43 and isBearMom)  ? "Bearish" : "Neutral"
+biasClr = (oscNorm > 57 and isBullMom) ? bullColor :
+          (oscNorm < 43 and isBearMom)  ? bearColor :
+          color.new(color.white, 40)
+
+oscStateStr = (oscNorm > 70 and isBullMom) ? "Expansion ▲" :
+              (oscNorm < 30 and isBearMom)  ? "Expansion ▼" :
+              (oscNorm > 70 and isBearMom)  ? "Reversal Risk" :
+              (oscNorm < 30 and isBullMom)  ? "Reversal Risk" :
+              math.abs(oscNorm - 50) < 12   ? "Compression"  :
+              isBullMom ? "Pullback ▲" : "Pullback ▼"
+
+oscStateClr = (str.contains(oscStateStr, "Expansion") and isBullMom) ? bullColor :
+              (str.contains(oscStateStr, "Expansion") and isBearMom) ? bearColor :
+              str.contains(oscStateStr, "Reversal")  ? color.new(#FFB300, 0) :
+              str.contains(oscStateStr, "Compress")  ? color.new(color.gray, 20) :
+              isBullMom ? color.new(bullColor, 30) : color.new(bearColor, 30)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  DYNAMIC LINE COLOR — intensity increases toward extremes
+// ═══════════════════════════════════════════════════════════════════════════════
+
+momIntensity = math.abs(oscNorm - 50) / 50
+dynAlpha     = int(math.max(5, math.min(55, 55 - momIntensity * 45)))
+oscLineColor = isBullMom ? color.new(bullColor, dynAlpha) : color.new(bearColor, dynAlpha)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  FIBONACCI LEVELS — subtle, elegant, conditionally visible
+// ═══════════════════════════════════════════════════════════════════════════════
+
+fib236 = 23.6
+fib382 = 38.2
+fib500 = 50.0
+fib618 = 61.8
+fib786 = 78.6
+
+fibLineClr    = showFibLines ? color.new(color.gray, 76) : color.new(color.gray, 100)
+fibMidLineClr = showFibLines ? color.new(color.gray, 58) : color.new(color.gray, 100)
+
+hline(fib236, "Fib 0.236", fibLineClr,    hline.style_dotted)
+hline(fib382, "Fib 0.382", fibLineClr,    hline.style_dotted)
+hline(fib500, "Fib 0.500", fibMidLineClr, hline.style_dashed)
+hline(fib618, "Fib 0.618", fibLineClr,    hline.style_dotted)
+hline(fib786, "Fib 0.786", fibLineClr,    hline.style_dotted)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  BACKGROUND — Oscillator Area
+// ═══════════════════════════════════════════════════════════════════════════════
+
+bgcolor(isBullMom ? bgBullClr : bgBearClr, title="Oscillator Background")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  PLOTS — Main Oscillator Lines
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Main oscillator — dynamic intensity color, thin-premium width
+pOsc  = plot(oscNorm,  "Main Oscillator", oscLineColor,                  2)
+pTrig = plot(trigNorm, "Trigger Line",    color.new(color.white, 68),    1)
+
+// Fill between oscillator and trigger — elegant, translucent
+fill(pOsc, pTrig,
+     color = isBullMom ? color.new(bullColor, 76) : color.new(bearColor, 76),
+     title = "Oscillator Fill")
+
+// Hyper Wave — subtle presence, integrated look
+plot(showHyperWave ? hyperNorm : na, "Hyper Wave",
+     color.new(color.white, 74), 1)
+
+// Hyper Wave pressure fill
+pHyper = plot(showHyperWave ? hyperNorm : na, "HW Fill Ref",
+     color.new(color.white, 100), display=display.none)
+
+hwFillColor = showHyperWave
+     ? (oscNorm > hyperNorm ? color.new(bullColor, 84) : color.new(bearColor, 84))
+     : color.new(color.white, 100)
+fill(pOsc, pHyper, color=hwFillColor, title="Hyper Wave Pressure")
+
+// SMA — institutional gold, thin
+plot(showSMALine ? smaOsc : na, "SMA Line", smaLineClr, maLinewidth)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  VOLATILITY INDICATOR — thin line tracking spread expansion in lower zone
+// ═══════════════════════════════════════════════════════════════════════════════
+
+volNormalized = math.min(volRatio * 3.0, 9.0)
+volLineColor  = volRatio > 1.6 ? color.new(#FFB300, 12) :
+                volRatio < 0.5  ? color.new(color.gray, 55) :
+                color.new(#40C4FF, 42)
+
+plot(showVolatility ? volNormalized : na, "Volatility", volLineColor, 1, plot.style_line)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  RVOL — Relative Volume Bars (refined, integrated)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+rvolScaled = math.min(rvol * 5, 15)
+rvolColor  = isBuyVol ? color.new(bullColor, 48) : color.new(bearColor, 48)
+
+plot(showRVOL ? rvolScaled : na, "RVOL Bars",    rvolColor,                  1, plot.style_columns)
+plot(showRVOL and showAvgVol ? 5.0 : na, "Avg Vol Line", color.new(color.gray, 62), 1)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  SIGNALS — CP Bounce (oversold/overbought crossovers)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+overSold   = oscNorm < fib236
+overBought = oscNorm > fib786
+
+crossUpFib236 = ta.crossover(oscNorm, fib236)
+crossDnFib786 = ta.crossunder(oscNorm, fib786)
+
+bounceUp = showBounce and crossUpFib236 and oscNorm[1] < fib236
+bounceDn = showBounce and crossDnFib786 and oscNorm[1] > fib786
+
+plotshape(bounceUp, "Bounce Up",   shape.triangleup,   location.absolute, bounceUpClr, size=size.tiny)
+plotshape(bounceDn, "Bounce Down", shape.triangledown, location.absolute, bounceDnClr, size=size.tiny)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  SIGNALS — CP Signals (cross in extreme zones)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+cpBuy  = showCPSignals and momCrossUp and oscNorm < fib382
+cpSell = showCPSignals and momCrossDn and oscNorm > fib618
+
+plotshape(cpBuy,  "CP Buy",  shape.circle, location.absolute, color.new(#26A69A, 0), size=size.tiny)
+plotshape(cpSell, "CP Sell", shape.circle, location.absolute, color.new(#7B1FA2, 0), size=size.tiny)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  SIGNALS — Exit Signals
+// ═══════════════════════════════════════════════════════════════════════════════
+
+exitBear = showExitSignals and momCrossDn and oscNorm > fib500
+exitBull = showExitSignals and momCrossUp and oscNorm < fib500
+
+plotshape(exitBear, "Exit Bearish", shape.xcross, location.absolute, exitBearClr, size=size.tiny)
+plotshape(exitBull, "Exit Bullish", shape.xcross, location.absolute, exitBullClr, size=size.tiny)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  SIGNALS — Momentum Cross (diamond markers)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+plotshape(showMomentum and momCrossUp, "Mom Cross Up", shape.diamond, location.absolute, bullColor, size=size.tiny)
+plotshape(showMomentum and momCrossDn, "Mom Cross Dn", shape.diamond, location.absolute, bearColor, size=size.tiny)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  SIGNALS — Confluence (volume-confirmed cross in extreme zone)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+confBull = showConfluence and momCrossUp and oscNorm < fib382 and rvol > 1.2
+confBear = showConfluence and momCrossDn and oscNorm > fib618 and rvol > 1.2
+
+plotshape(confBull, "Conf Bull", confluenceSquare ? shape.square : shape.circle, location.absolute, confBullClr, size=size.tiny)
+plotshape(confBear, "Conf Bear", confluenceSquare ? shape.square : shape.circle, location.absolute, confBearClr, size=size.tiny)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  PIVOTS — CP Pivots
+// ═══════════════════════════════════════════════════════════════════════════════
+
+pivHi = ta.pivothigh(oscNorm, divPivotLeft, divPivotRight)
+pivLo = ta.pivotlow(oscNorm,  divPivotLeft, divPivotRight)
+
+plotshape(showPivots and not na(pivHi), "Pivot High",
+     shape.triangledown, location.absolute, color.new(bearColor, 25),
+     offset=-divPivotRight, size=size.tiny)
+plotshape(showPivots and not na(pivLo), "Pivot Low",
+     shape.triangleup,   location.absolute, color.new(bullColor, 25),
+     offset=-divPivotRight, size=size.tiny)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  DIVERGENCES — Automatic Detection (no repaint)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+var float lastPivLoVal   = na
+var int   lastPivLoBar   = na
+var float lastPivLoPrice = na
+var float lastPivHiVal   = na
+var int   lastPivHiBar   = na
+var float lastPivHiPrice = na
+
+pivotConfirmBar = bar_index - divPivotRight
+
+if not na(pivLo) and showDiverg
+    if not na(lastPivLoVal)
+        priceAtPiv = low[divPivotRight]
+        oscAtPiv   = pivLo
+        prevPrice  = lastPivLoPrice
+        prevOsc    = lastPivLoVal
+        isBullDiv  = priceAtPiv < prevPrice and oscAtPiv > prevOsc
+        if isBullDiv
+            line.new(lastPivLoBar, lastPivLoVal, pivotConfirmBar, oscAtPiv,
+                 color=color.new(divBullClr, 18), width=1, style=line.style_solid)
+            label.new(pivotConfirmBar, oscAtPiv, "▲ Bull",
+                 color=color.new(divBullClr, 84), textcolor=divBullClr,
+                 style=label.style_label_up, size=size.tiny)
+    lastPivLoVal   := pivLo
+    lastPivLoBar   := pivotConfirmBar
+    lastPivLoPrice := low[divPivotRight]
+
+if not na(pivHi) and showDiverg
+    if not na(lastPivHiVal)
+        priceAtPiv = high[divPivotRight]
+        oscAtPiv   = pivHi
+        prevPrice  = lastPivHiPrice
+        prevOsc    = lastPivHiVal
+        isBearDiv  = priceAtPiv > prevPrice and oscAtPiv < prevOsc
+        if isBearDiv
+            line.new(lastPivHiBar, lastPivHiVal, pivotConfirmBar, oscAtPiv,
+                 color=color.new(divBearClr, 18), width=1, style=line.style_solid)
+            label.new(pivotConfirmBar, oscAtPiv, "▼ Bear",
+                 color=color.new(divBearClr, 84), textcolor=divBearClr,
+                 style=label.style_label_down, size=size.tiny)
+    lastPivHiVal   := pivHi
+    lastPivHiBar   := pivotConfirmBar
+    lastPivHiPrice := high[divPivotRight]
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD — Premium HUD (Vol · State · Bias · Volatility)
+//  Table: 2 cols × 10 rows. Max rows used = 10 when all vol stats enabled.
+//  Row map: 0=header | 1-4=vol stats (conditional) | sep | mom | volat | bias | state
+// ═══════════════════════════════════════════════════════════════════════════════
+
+var table infoTable = table.new(
+     position.top_right, 2, 10,
+     bgcolor     = color.new(#050A14, 84),
+     frame_color = color.new(#00BCD4, 60),
+     frame_width = 1,
+     border_width= 0)
+
+if barstate.islast and showRVOL
+    // Clear all cells to avoid stale renders on shorter history
+    for r = 0 to 9
+        table.cell(infoTable, 0, r, "", bgcolor=color.new(#050A14, 92))
+        table.cell(infoTable, 1, r, "", bgcolor=color.new(#050A14, 92))
+
+    // ── Header row ──────────────────────────────────────────────────────────
+    table.cell(infoTable, 0, 0, "CP®",
+         bgcolor    = color.new(#006064, 60),
+         text_color = color.new(#00E5FF, 10),
+         text_size  = size.tiny,
+         text_halign= text.align_right)
+    table.cell(infoTable, 1, 0, "2.6",
+         bgcolor    = color.new(#006064, 60),
+         text_color = color.new(color.white, 20),
+         text_size  = size.tiny,
+         text_halign= text.align_left)
+
+    row = 1
+
+    // ── Volume stats ─────────────────────────────────────────────────────────
+    if showCurVol
+        table.cell(infoTable, 0, row, "VOL",
+             bgcolor=color.new(#0A1628, 84), text_color=color.new(color.gray, 20),
+             text_size=size.tiny, text_halign=text.align_right)
+        table.cell(infoTable, 1, row, str.tostring(volume, format.volume),
+             bgcolor=color.new(#0A1628, 84), text_color=color.new(color.white, 10),
+             text_size=size.tiny)
+        row += 1
+
+    if showAvgVol
+        table.cell(infoTable, 0, row, "AVG",
+             bgcolor=color.new(#0A1628, 84), text_color=color.new(color.gray, 20),
+             text_size=size.tiny, text_halign=text.align_right)
+        table.cell(infoTable, 1, row, str.tostring(avgVol, format.volume),
+             bgcolor=color.new(#0A1628, 84), text_color=color.new(color.white, 10),
+             text_size=size.tiny)
+        row += 1
+
+    if showRVOLCalc
+        rvolClr = rvol >= 1.5 ? bullColor : rvol >= 1.0 ? color.new(#FFB300, 0) : bearColor
+        table.cell(infoTable, 0, row, "RVOL",
+             bgcolor=color.new(#0A1628, 84), text_color=color.new(color.gray, 20),
+             text_size=size.tiny, text_halign=text.align_right)
+        table.cell(infoTable, 1, row, str.tostring(rvol, "#.##") + "×",
+             bgcolor=color.new(#0A1628, 84), text_color=rvolClr, text_size=size.tiny)
+        row += 1
+
+    if showPressDir
+        presClr = pressurePct >= 55 ? bullColor : pressurePct <= 45 ? bearColor : color.new(#FFB300, 0)
+        table.cell(infoTable, 0, row, "PRESS",
+             bgcolor=color.new(#0A1628, 84), text_color=color.new(color.gray, 20),
+             text_size=size.tiny, text_halign=text.align_right)
+        table.cell(infoTable, 1, row, str.tostring(pressurePct, "#.#") + "%",
+             bgcolor=color.new(#0A1628, 84), text_color=presClr, text_size=size.tiny)
+        row += 1
+
+    // ── Separator ────────────────────────────────────────────────────────────
+    table.cell(infoTable, 0, row, "·",
+         bgcolor=color.new(#0D1F3C, 78), text_color=color.new(color.gray, 55),
+         text_size=size.tiny, text_halign=text.align_center)
+    table.cell(infoTable, 1, row, "·",
+         bgcolor=color.new(#0D1F3C, 78), text_color=color.new(color.gray, 55),
+         text_size=size.tiny)
+    row += 1
+
+    // ── Momentum ─────────────────────────────────────────────────────────────
+    momStr = momPct >= 0 ? "+" + str.tostring(momPct, "#.#") : str.tostring(momPct, "#.#")
+    momClr = isBullMom ? bullColor : bearColor
+    table.cell(infoTable, 0, row, "MOM",
+         bgcolor=color.new(#0A1628, 84), text_color=color.new(color.gray, 20),
+         text_size=size.tiny, text_halign=text.align_right)
+    table.cell(infoTable, 1, row, momStr,
+         bgcolor=color.new(#0A1628, 84), text_color=momClr, text_size=size.tiny)
+    row += 1
+
+    // ── Volatility ───────────────────────────────────────────────────────────
+    table.cell(infoTable, 0, row, "VOLAT",
+         bgcolor=color.new(#0A1628, 84), text_color=color.new(color.gray, 20),
+         text_size=size.tiny, text_halign=text.align_right)
+    table.cell(infoTable, 1, row, volStateStr,
+         bgcolor=color.new(#0A1628, 84), text_color=volStateClr, text_size=size.tiny)
+    row += 1
+
+    // ── Bias ─────────────────────────────────────────────────────────────────
+    table.cell(infoTable, 0, row, "BIAS",
+         bgcolor=color.new(#0A1628, 84), text_color=color.new(color.gray, 20),
+         text_size=size.tiny, text_halign=text.align_right)
+    table.cell(infoTable, 1, row, biasStr,
+         bgcolor=color.new(#0A1628, 84), text_color=biasClr, text_size=size.tiny)
+    row += 1
+
+    // ── Oscillator State ─────────────────────────────────────────────────────
+    table.cell(infoTable, 0, row, "STATE",
+         bgcolor=color.new(#0A1628, 84), text_color=color.new(color.gray, 20),
+         text_size=size.tiny, text_halign=text.align_right)
+    table.cell(infoTable, 1, row, oscStateStr,
+         bgcolor=color.new(#0A1628, 84), text_color=oscStateClr, text_size=size.tiny)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  BAR COLORING
+// ═══════════════════════════════════════════════════════════════════════════════
+
+barcolor(showCPBars     ? (isBullMom  ? bullColor : bearColor) : na,        title="CP Bars")
+barcolor(showSignalBars ? (momCrossUp ? #00E676   : momCrossDn ? #FF1744 : na) : na, title="Signal Bars")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  ALERTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+alertcondition(momCrossUp, "Momentum Cross Up",   "CryptoProofit: Bullish momentum cross")
+alertcondition(momCrossDn, "Momentum Cross Down", "CryptoProofit: Bearish momentum cross")
+alertcondition(bounceUp,   "Bounce Up",           "CryptoProofit: Bullish bounce from oversold")
+alertcondition(bounceDn,   "Bounce Down",         "CryptoProofit: Bearish bounce from overbought")
+alertcondition(cpBuy,      "CP Buy Signal",       "CryptoProofit: Buy signal in extreme zone")
+alertcondition(cpSell,     "CP Sell Signal",      "CryptoProofit: Sell signal in extreme zone")

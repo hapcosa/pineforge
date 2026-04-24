@@ -1,0 +1,367 @@
+//@version=6
+indicator("CryptoProofit® - Oscillator 2.5", shorttitle="CryptoProofit® - Oscillator", overlay=false, precision=1,
+     max_lines_count=500, max_labels_count=500, max_bars_back=500)
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  INPUTS — Oscillator Settings
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+grpOscSettings = "OSCILLATOR SETTINGS"
+hyperWaveLen    = input.int(6,    "Hyper Wave",       minval=1,  group=grpOscSettings)
+hyperWaveClrUp  = input.color(color.new(#00BCD4, 0), "Hyper Wave Color Up", group=grpOscSettings)
+hyperWaveClrDn  = input.color(color.new(#1A237E, 0), "Hyper Wave Color Dn", group=grpOscSettings)
+
+grpEOT = "EOT 1 (MAIN OSCILLATOR)"
+triggerLen = input.int(2, "Trigger Length", minval=1, group=grpEOT)
+
+grpFast = "FAST OSCILLATOR"
+kernelFactor1 = input.float(0.8, "Kernel Setting 1", step=0.1, group=grpFast)
+kernelFactor2 = input.float(0.3, "Kernel Setting 2", step=0.1, group=grpFast)
+
+grpCandles = "OSCILLATOR CANDLES"
+showSignalBars = input.bool(true, "Signal Bars",  group=grpCandles)
+showCPBars     = input.bool(true, "CP Bars",      group=grpCandles)
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  INPUTS — Oscillator Signals
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+grpSignals = "OSCILLATOR SIGNALS"
+showBounce       = input.bool(true,  "CP Bounce",             group=grpSignals)
+showCPSignals    = input.bool(false, "CP Signals",            group=grpSignals)
+showExitSignals  = input.bool(false, "Exit Signals",          group=grpSignals)
+showMomentum     = input.bool(true,  "Momentum Signal",       group=grpSignals)
+showConfluence   = input.bool(false, "Confluence Lines",      group=grpSignals)
+confluenceSquare = input.bool(true,  "Confluence (Square)",   group=grpSignals)
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  INPUTS — Oscillator Features
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+grpFeatures = "OSCILLATOR FEATURES"
+showHyperWave = input.bool(true,  "Hyper Wave Pressure",    group=grpFeatures)
+showFibLines  = input.bool(true,  "Fibonacci Lines",        group=grpFeatures)
+showSMALine   = input.bool(true,  "SMA Line",               group=grpFeatures)
+showRVOL      = input.bool(true,  "RVOL Bars",              group=grpFeatures)
+showPivots    = input.bool(true,  "CP Pivots",              group=grpFeatures)
+showDiverg    = input.bool(true,  "Oscillator Divergences", group=grpFeatures)
+showCPLine    = input.bool(false, "CP Line (Chart)",        group=grpFeatures)
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  INPUTS — General / Volume / Divergences
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+grpGeneral = "GENERAL SETTINGS"
+volLookback = input.int(30, "Lookback bars for Average", minval=1, group=grpGeneral)
+
+grpVolume = "VOLUME ANALYSIS"
+showCurVol     = input.bool(true, "Show Current Volume?",          group=grpVolume)
+showAvgVol     = input.bool(true, "Show Average",                  group=grpVolume)
+showRVOLCalc   = input.bool(true, "Show RVOL Calculation?",        group=grpVolume)
+showPressDir   = input.bool(true, "Show Pressure Direction %?",    group=grpVolume)
+
+grpDiv = "OSCILLATOR DIVERGENCES"
+divPivotRight = input.int(5, "Divergence Pivot Lookback Right", minval=1, group=grpDiv)
+divPivotLeft  = input.int(5, "Divergence Pivot Lookback Left",  minval=1, group=grpDiv)
+
+grpMA = "MOVING AVERAGE OVERLAY"
+maColor     = input.color(color.new(#FF9800, 0), "Line Color", group=grpMA)
+maLinewidth = input.int(2, "Linewidth", minval=1, maxval=4, group=grpMA)
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  INPUTS — Colors (OPTIMIZED FOR DEFAULT AESTHETIC)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+grpColors = "COLORS"
+bullColor     = input.color(#00E5FF, "Bullish Color",       group=grpColors)
+bearColor     = input.color(#E040FB, "Bearish Color",       group=grpColors)
+exitBearClr   = input.color(#FF9800, "Exit Bearish Color",  group=grpColors)
+exitBullClr   = input.color(#2196F3, "Exit Bullish Color",  group=grpColors)
+bounceUpClr   = input.color(#00E676, "Bounce Up Color",     group=grpColors)
+bounceDnClr   = input.color(#FF1744, "Bounce Down Color",   group=grpColors)
+divBullClr    = input.color(#00E5FF, "Bullish Divergence",  group=grpColors)
+divBearClr    = input.color(#E040FB, "Bearish Divergence",  group=grpColors)
+smaLineClr    = input.color(#FF9800, "SMA Line Color",      group=grpColors)
+confBearClr   = input.color(#FFB74D, "Bearish Confluence",  group=grpColors)
+confBullClr   = input.color(#64B5F6, "Bullish Confluence",  group=grpColors)
+bgBullClr     = input.color(color.new(#00BCD4, 85), "Oscillator BG Bull", group=grpColors)
+bgBearClr     = input.color(color.new(#7B1FA2, 85), "Oscillator BG Bear", group=grpColors)
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  CORE — WaveTrend Oscillator
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+channelLen = int(math.max(hyperWaveLen * 2, 10))
+avgLen     = int(math.max(hyperWaveLen, 4))
+
+src = hlc3
+esa = ta.ema(src, channelLen)
+d   = ta.ema(math.abs(src - esa), channelLen)
+ci  = (src - esa) / (0.015 * d)
+wt1 = ta.ema(ci, avgLen)
+wt2 = ta.sma(wt1, triggerLen)
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  HYPER WAVE — Adaptive Smoothing (Kernel-style)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+hyperSmooth1 = ta.ema(wt1, int(math.max(hyperWaveLen * kernelFactor1, 2)))
+hyperSmooth2 = ta.ema(hyperSmooth1, int(math.max(hyperWaveLen * kernelFactor2, 2)))
+hyperWave    = hyperSmooth2
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  FAST OSCILLATOR
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+fastCI  = ci * kernelFactor1
+fastWT  = ta.ema(fastCI, int(math.max(avgLen * kernelFactor2, 2)))
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  NORMALIZE — Scale oscillator to visual range (0–100)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+normLen = 100
+hiNorm  = ta.highest(wt1, normLen)
+loNorm  = ta.lowest(wt1,  normLen)
+rangeNorm = hiNorm - loNorm
+safeRange = rangeNorm == 0 ? 1.0 : rangeNorm
+
+oscNorm    = (wt1 - loNorm) / safeRange * 100
+trigNorm   = (wt2 - loNorm) / safeRange * 100
+hyperNorm  = (hyperWave - loNorm) / safeRange * 100
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  SMA Overlay
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+smaOsc = ta.sma(oscNorm, 21)
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  MOMENTUM DETECTION
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+isBullMom = oscNorm > trigNorm
+isBearMom = oscNorm < trigNorm
+
+momCrossUp = ta.crossover(oscNorm, trigNorm)
+momCrossDn = ta.crossunder(oscNorm, trigNorm)
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  FIBONACCI LEVELS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+fib236 = 23.6
+fib382 = 38.2
+fib500 = 50.0
+fib618 = 61.8
+fib786 = 78.6
+
+fibClr = color.new(color.gray, 60)
+
+hline(fib236, "Fib 0.236", fibClr, hline.style_dotted)
+hline(fib382, "Fib 0.382", fibClr, hline.style_dotted)
+hline(fib500, "Fib 0.500", color.new(color.gray, 40), hline.style_dashed)
+hline(fib618, "Fib 0.618", fibClr, hline.style_dotted)
+hline(fib786, "Fib 0.786", fibClr, hline.style_dotted)
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  BACKGROUND — Oscillator Area Fill
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+bgColor = isBullMom ? bgBullClr : bgBearClr
+bgcolor(bgColor, title="Oscillator Background")
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  PLOTS — Main Oscillator Lines
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+pOsc  = plot(oscNorm,  "Main Oscillator", color.white, 2)
+pTrig = plot(trigNorm, "Trigger Line",    color.new(color.white, 60), 1)
+
+// Fill between oscillator and trigger
+fill(pOsc, pTrig, color=isBullMom ? color.new(bullColor, 40) : color.new(bearColor, 40), title="Oscillator Fill")
+
+// Hyper Wave line
+plot(showHyperWave ? hyperNorm : na, "Hyper Wave", color.new(color.white, 70), 1)
+
+// Hyper Wave pressure fill
+pHyper = plot(showHyperWave ? hyperNorm : na, "HW Fill Ref", color.new(color.white, 100), display=display.none)
+fill(pOsc, pHyper, color=showHyperWave ? (oscNorm > hyperNorm ? color.new(bullColor, 60) : color.new(bearColor, 60)) : na, title="Hyper Wave Pressure")
+
+// SMA line
+plot(showSMALine ? smaOsc : na, "SMA Line", smaLineClr, maLinewidth)
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  RVOL — Relative Volume Bars
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+avgVol = ta.sma(volume, volLookback)
+rvol   = avgVol > 0 ? volume / avgVol : 0.0
+
+// Buy/sell volume estimation
+buyVol   = volume * (close - low)  / math.max(high - low, syminfo.mintick)
+sellVol  = volume * (high - close) / math.max(high - low, syminfo.mintick)
+isBuyVol = buyVol >= sellVol
+
+// Pressure direction percentage
+pressurePct = volume > 0 ? (buyVol / volume) * 100 : 50.0
+
+// Scale RVOL bars to fit in lower portion of oscillator (0–15 range)
+rvolScaled = math.min(rvol * 5, 15)
+
+rvolColor = isBuyVol ? color.new(bullColor, 30) : color.new(bearColor, 30)
+plot(showRVOL ? rvolScaled : na, "RVOL Bars", rvolColor, 1, plot.style_columns)
+
+// Average volume line
+plot(showRVOL and showAvgVol ? 5.0 : na, "Avg Vol Line", color.new(bearColor, 50), 1)
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  SIGNALS — CP Bounce
+//  IMPORTANT: ta.crossover/crossunder must be called OUTSIDE of conditional
+//  expressions to avoid Pine v6 short-circuit evaluation errors.
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+overSold   = oscNorm < fib236
+overBought = oscNorm > fib786
+
+// Pre-compute crossovers FIRST, then combine with bool conditions
+crossUpFib236 = ta.crossover(oscNorm, fib236)
+crossDnFib786 = ta.crossunder(oscNorm, fib786)
+
+bounceUp = showBounce and crossUpFib236 and oscNorm[1] < fib236
+bounceDn = showBounce and crossDnFib786 and oscNorm[1] > fib786
+
+plotshape(bounceUp, "Bounce Up",   shape.triangleup,   location.absolute, bounceUpClr,  size=size.tiny)
+plotshape(bounceDn, "Bounce Down",  shape.triangledown, location.absolute, bounceDnClr, size=size.tiny)
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  SIGNALS — CP Signals (cross in extreme zones)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+cpBuy  = showCPSignals and momCrossUp and oscNorm < fib382
+cpSell = showCPSignals and momCrossDn and oscNorm > fib618
+
+plotshape(cpBuy,  "CP Buy",  shape.circle, location.absolute, color.new(#26A69A, 0), size=size.tiny)
+plotshape(cpSell, "CP Sell", shape.circle, location.absolute, color.new(#7B1FA2, 0), size=size.tiny)
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  SIGNALS — Exit Signals
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+exitBear = showExitSignals and momCrossDn and oscNorm > fib500
+exitBull = showExitSignals and momCrossUp and oscNorm < fib500
+
+plotshape(exitBear, "Exit Bearish", shape.xcross, location.absolute, exitBearClr, size=size.tiny)
+plotshape(exitBull, "Exit Bullish", shape.xcross, location.absolute, exitBullClr, size=size.tiny)
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  SIGNALS — Momentum Signal
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+plotshape(showMomentum and momCrossUp, "Mom Cross Up", shape.diamond, location.absolute, bullColor,  size=size.tiny)
+plotshape(showMomentum and momCrossDn, "Mom Cross Dn", shape.diamond, location.absolute, bearColor, size=size.tiny)
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  CONFLUENCE LINES
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+confBull = showConfluence and momCrossUp and oscNorm < fib382 and rvol > 1.2
+confBear = showConfluence and momCrossDn and oscNorm > fib618 and rvol > 1.2
+
+plotshape(confBull, "Conf Bull", confluenceSquare ? shape.square : shape.circle, location.absolute, confBullClr, size=size.tiny)
+plotshape(confBear, "Conf Bear", confluenceSquare ? shape.square : shape.circle, location.absolute, confBearClr, size=size.tiny)
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  PIVOTS — CP Pivots
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+pivHi = ta.pivothigh(oscNorm, divPivotLeft, divPivotRight)
+pivLo = ta.pivotlow(oscNorm,  divPivotLeft, divPivotRight)
+
+plotshape(showPivots and not na(pivHi), "Pivot High", shape.triangledown, location.absolute, color.new(bearColor, 20), offset=-divPivotRight, size=size.tiny)
+plotshape(showPivots and not na(pivLo), "Pivot Low",  shape.triangleup,   location.absolute, color.new(bullColor, 20), offset=-divPivotRight, size=size.tiny)
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  DIVERGENCES — Automatic Detection (no repaint)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+var float lastPivLoVal   = na
+var int   lastPivLoBar   = na
+var float lastPivLoPrice = na
+var float lastPivHiVal   = na
+var int   lastPivHiBar   = na
+var float lastPivHiPrice = na
+
+pivotConfirmBar = bar_index - divPivotRight
+
+if not na(pivLo) and showDiverg
+    if not na(lastPivLoVal)
+        priceAtPiv     = low[divPivotRight]
+        oscAtPiv       = pivLo
+        prevPrice      = lastPivLoPrice
+        prevOsc        = lastPivLoVal
+        isBullDiv      = priceAtPiv < prevPrice and oscAtPiv > prevOsc
+        if isBullDiv
+            line.new(lastPivLoBar, lastPivLoVal, pivotConfirmBar, oscAtPiv, color=divBullClr, width=2, style=line.style_solid)
+            label.new(pivotConfirmBar, oscAtPiv, "Bull", color=color.new(divBullClr, 80), textcolor=divBullClr, style=label.style_label_up, size=size.tiny)
+    lastPivLoVal   := pivLo
+    lastPivLoBar   := pivotConfirmBar
+    lastPivLoPrice := low[divPivotRight]
+
+if not na(pivHi) and showDiverg
+    if not na(lastPivHiVal)
+        priceAtPiv     = high[divPivotRight]
+        oscAtPiv       = pivHi
+        prevPrice      = lastPivHiPrice
+        prevOsc        = lastPivHiVal
+        isBearDiv      = priceAtPiv > prevPrice and oscAtPiv < prevOsc
+        if isBearDiv
+            line.new(lastPivHiBar, lastPivHiVal, pivotConfirmBar, oscAtPiv, color=divBearClr, width=2, style=line.style_solid)
+            label.new(pivotConfirmBar, oscAtPiv, "Bear", color=color.new(divBearClr, 80), textcolor=divBearClr, style=label.style_label_down, size=size.tiny)
+    lastPivHiVal   := pivHi
+    lastPivHiBar   := pivotConfirmBar
+    lastPivHiPrice := high[divPivotRight]
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  INFO TABLE — RVOL & Pressure Stats
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+var table infoTable = table.new(position.top_right, 2, 5, bgcolor=color.new(color.black, 80), border_width=0)
+
+if barstate.islast and showRVOL
+    row = 0
+    if showCurVol
+        table.cell(infoTable, 0, row, "Vol",  text_color=color.gray,  text_size=size.tiny)
+        table.cell(infoTable, 1, row, str.tostring(volume, format.volume), text_color=color.white, text_size=size.tiny)
+        row += 1
+    if showAvgVol
+        table.cell(infoTable, 0, row, "Avg",  text_color=color.gray,  text_size=size.tiny)
+        table.cell(infoTable, 1, row, str.tostring(avgVol, "#.##"), text_color=color.white, text_size=size.tiny)
+        row += 1
+    if showRVOLCalc
+        rvolClr = rvol >= 1.5 ? bullColor : rvol >= 1.0 ? color.yellow : bearColor
+        table.cell(infoTable, 0, row, "RVOL", text_color=color.gray,  text_size=size.tiny)
+        table.cell(infoTable, 1, row, str.tostring(rvol, "#.##"), text_color=rvolClr, text_size=size.tiny)
+        row += 1
+    if showPressDir
+        presClr = pressurePct >= 55 ? bullColor : pressurePct <= 45 ? bearColor : color.yellow
+        table.cell(infoTable, 0, row, "Press", text_color=color.gray,  text_size=size.tiny)
+        table.cell(infoTable, 1, row, str.tostring(pressurePct, "#.##") + "%", text_color=presClr, text_size=size.tiny)
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  BAR COLORING (optional overlays for chart)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+barcolor(showCPBars ? (isBullMom ? bullColor : bearColor) : na, title="CP Bars")
+barcolor(showSignalBars  ? (momCrossUp ? #00E676 : momCrossDn ? #FF1744 : na) : na, title="Signal Bars")
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  ALERTS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+alertcondition(momCrossUp, "Momentum Cross Up",   "CryptoProofit: Bullish momentum cross")
+alertcondition(momCrossDn, "Momentum Cross Down", "CryptoProofit: Bearish momentum cross")
+alertcondition(bounceUp,   "Bounce Up",           "CryptoProofit: Bullish bounce from oversold")
+alertcondition(bounceDn,   "Bounce Down",         "CryptoProofit: Bearish bounce from overbought")
+alertcondition(cpBuy,      "CP Buy Signal",       "CryptoProofit: Buy signal in extreme zone")
+alertcondition(cpSell,     "CP Sell Signal",      "CryptoProofit: Sell signal in extreme zone")
