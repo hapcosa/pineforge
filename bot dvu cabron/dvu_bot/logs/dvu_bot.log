@@ -1,0 +1,6 @@
+2026-04-29 18:34:12,150 [INFO] dvu_bot — ═══ DVU COMPROBANTES BOT ═══
+2026-04-29 18:34:12,152 [WARNING] parser_whatsapp — Archivo chat no encontrado: C:\Users\Lenovo\OneDrive\Desktop\pinescript indicadores\pineforge\bot dvu cabron\dvu_bot\input\chat.txt
+2026-04-29 18:34:12,340 [INFO] dvu_bot — Procesando 0 mensajes y 399 imagenes...
+2026-04-29 18:34:12,341 [INFO] dvu_bot — OCR huerfano → IMG-20260310-WA0063.jpg
+2026-04-29 18:34:20,648 [INFO] ocr — Inicializando EasyOCR (puede tardar en la primera ejecucion)...
+2026-04-29 18:34:20,655 [WARNING] easyocr.easyocr — Downloading detection model, please wait. This may take several minutes depending upon your network connection.

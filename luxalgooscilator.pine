@@ -1,0 +1,93 @@
+// This work is licensed under a Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0) https://creativecommons.org/licenses/by-nc-sa/4.0/
+// © LuxAlgo
+
+//@version=6
+indicator('Adaptive Momentum Oscillator [LuxAlgo]','LuxAlgo - AMO', max_lines_count = 500, max_labels_count = 500)
+//---------------------------------------------------------------------------------------------------------------------}
+//CONSTANTS & STRINGS & INPUTS
+//---------------------------------------------------------------------------------------------------------------------{
+GREEN                   = #089981
+RED                     = #F23645
+
+STYLE_GROUP             = 'STYLE'
+
+sourceInput             = input.source( close,  'Data')
+lengthInput             = input.int(    14,     'Data Length')
+smoothingInput          = input.int(    9,      'Smoothing Length')
+divergencesInput        = input.bool(   true,   'Divergences',  inline = 'divergences')
+divergencesLengthInput  = input.int(    4,      '',             inline = 'divergences')
+
+bearishColorInput       = input.color(  RED,    '', group = STYLE_GROUP, inline = 'colors')
+bullishColorInput       = input.color(  GREEN,  '', group = STYLE_GROUP, inline = 'colors')
+
+//---------------------------------------------------------------------------------------------------------------------}
+//DATA STRUCTURES & VARIABLES
+//---------------------------------------------------------------------------------------------------------------------{
+float amo                       = na
+float ama                       = na
+color amoDefaultColor           = na
+color amoGradientColor          = na
+color amoColor                  = na
+
+var array<float> chartHighs     = array.new<float>()
+var array<float> chartLows      = array.new<float>()
+var array<chart.point> highs    = array.new<chart.point>()
+var array<chart.point> lows     = array.new<chart.point>()
+
+//---------------------------------------------------------------------------------------------------------------------}
+//USER-DEFINED FUNCTIONS
+//---------------------------------------------------------------------------------------------------------------------{
+amo(float data, int length) =>
+    float max = 0.
+    float amo = 0.
+    for index = 1 to length
+        delta             = data - data[index]
+        absoluteMomentum  = math.abs(delta)
+        max               := math.max(max, absoluteMomentum)
+        amo               := max == absoluteMomentum ? delta : amo
+    amo
+
+ama(float data, int length) =>
+    var float ama = 0.    
+    efficiencyRatio = math.abs(data)/math.sum(math.abs(ta.change(data)),length)
+    ama += nz(efficiencyRatio * (data - ama))
+
+divergences(float data, int length) =>
+    chartData   = sourceInput[length]
+    pivotHigh   = ta.pivothigh(data,length,length)
+    pivotLow    = ta.pivotlow(data,length,length)
+    
+    if not na(pivotHigh) and data > 0
+        currentHigh = chart.point.new(time[length],bar_index[length],pivotHigh)
+
+        if highs.size() > 0 and currentHigh.price < highs.last().price and chartData >= chartHighs.last()
+            line.new(highs.last(), currentHigh,xloc = xloc.bar_time, color = bearishColorInput, width = 1)
+        
+        highs.push(currentHigh)
+        chartHighs.push(chartData)
+        
+    if not na(pivotLow) and data < 0
+        currentLow = chart.point.new(time[length],bar_index[length],pivotLow)
+
+        if lows.size() > 0  and currentLow.price > lows.last().price and chartData <= chartLows.last()
+            line.new(lows.last(), currentLow, xloc = xloc.bar_time, color = bullishColorInput, width = 1)
+
+        lows.push(currentLow)
+        chartLows.push(chartData)
+
+//---------------------------------------------------------------------------------------------------------------------}
+//MUTABLE VARIABLES & EXECUTION
+//---------------------------------------------------------------------------------------------------------------------{
+amo := ta.linreg(amo(sourceInput,lengthInput),smoothingInput,0)
+ama := ama(amo,lengthInput)
+
+if divergencesInput
+    divergences(amo,divergencesLengthInput)
+
+amoPlot = plot(amo,'Adaptive Momentum Oscillator',amo > 0 ? bullishColorInput : bearishColorInput,style=plot.style_line)
+plot(ama,'Smoothed',chart.fg_color)
+basePlot = plot(0,'base line',display = display.none,color = color(na))
+
+fill(amoPlot,basePlot,math.max(amo,0),math.min(amo,0),amo > 0 ? color.new(bullishColorInput,50) : color.new(bearishColorInput,100),amo > 0 ? color.new(bullishColorInput,100) : color.new(bearishColorInput,50))
+
+//---------------------------------------------------------------------------------------------------------------------}
