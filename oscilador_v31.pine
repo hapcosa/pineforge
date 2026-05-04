@@ -1,5 +1,5 @@
 //@version=6
-indicator("CryptoProofit® - Oscillator", shorttitle="CP® Oscillator", overlay=false, precision=1,
+indicator("CryptoProofit® - Oscillator 2.6", shorttitle="CP® Oscillator 2.6", overlay=false, precision=1,
      max_lines_count=500, max_labels_count=500, max_bars_back=500)
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -30,7 +30,7 @@ grpSignals       = "◉  OSCILLATOR SIGNALS"
 showBounce       = input.bool(true,  "CP Bounce",           group=grpSignals)
 showCPSignals    = input.bool(false, "CP Signals",          group=grpSignals)
 showExitSignals  = input.bool(false, "Exit Signals",        group=grpSignals)
-showMomentum     = input.bool(false,  "Momentum Signal",     group=grpSignals)
+showMomentum     = input.bool(true,  "Momentum Signal",     group=grpSignals)
 showConfluence   = input.bool(false, "Confluence Lines",    group=grpSignals)
 confluenceSquare = input.bool(true,  "Confluence (Square)", group=grpSignals)
 
@@ -43,15 +43,11 @@ showHyperWave  = input.bool(true,  "Hyper Wave Pressure",    group=grpFeatures)
 showFibLines   = input.bool(true,  "Fibonacci Lines",        group=grpFeatures)
 showSMALine    = input.bool(true,  "SMA Line",               group=grpFeatures)
 showRVOL       = input.bool(true,  "RVOL Bars",              group=grpFeatures)
-showPivots     = input.bool(false,  "CP Pivots",              group=grpFeatures)
+showPivots     = input.bool(true,  "CP Pivots",              group=grpFeatures)
 showDiverg     = input.bool(true,  "Oscillator Divergences", group=grpFeatures)
 showCPLine     = input.bool(false, "CP Line (Chart)",        group=grpFeatures)
 showVolatility = input.bool(true,  "Volatility Indicator",   group=grpFeatures)
 showMomCloud   = input.bool(true,  "Momentum Cloud",         group=grpFeatures)
-showOscBg      = input.bool(false, "Oscillator Background",  group=grpFeatures)
-showDashboard  = input.bool(true,  "Premium Dashboard",      group=grpFeatures)
-showGlow       = input.bool(true,  "Neon Glow Effect",       group=grpFeatures)
-showMTF        = input.bool(true,  "MTF Scanner",            group=grpFeatures)
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  INPUTS — General / Volume / Divergences
@@ -219,10 +215,11 @@ hline(fib786, "Fib 0.786", fibLineClr,    hline.style_dotted)
 //  BACKGROUND — Oscillator Area
 // ═══════════════════════════════════════════════════════════════════════════════
 
-bgcolor(showOscBg ? (isBullMom ? bgBullClr : bgBearClr) : na, title="Oscillator Background")
+bgcolor(isBullMom ? bgBullClr : bgBearClr, title="Oscillator Background")
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  MOMENTUM CLOUD — LuxAlgo-style adaptive fill between oscillator and midline
+//  Gradient cloud: intense near extremes, fading near center (50)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 midLine = 50.0
@@ -265,35 +262,6 @@ fill(pOsc, pHyper, color=hwFillColor, title="Hyper Wave Pressure")
 plot(showSMALine ? smaOsc : na, "SMA Line", smaLineClr, maLinewidth)
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  NEON GLOW — Multi-layer luminous ribbon effect
-// ═══════════════════════════════════════════════════════════════════════════════
-
-glowClrInner = (isBullMom ? color.new(bullColor, 78) : color.new(bearColor, 78))
-glowClrOuter = (isBullMom ? color.new(bullColor, 91) : color.new(bearColor, 91))
-
-pGlow1Up = plot(showGlow ? oscNorm + 3.0 : na, "Glow Inner Up", color.new(color.white, 100), display=display.none)
-pGlow1Dn = plot(showGlow ? oscNorm - 3.0 : na, "Glow Inner Dn", color.new(color.white, 100), display=display.none)
-pGlow2Up = plot(showGlow ? oscNorm + 7.0 : na, "Glow Outer Up", color.new(color.white, 100), display=display.none)
-pGlow2Dn = plot(showGlow ? oscNorm - 7.0 : na, "Glow Outer Dn", color.new(color.white, 100), display=display.none)
-
-fill(pOsc, pGlow1Up,
-     top_color    = showGlow ? color.new(color.white, 100) : color.new(color.white, 100),
-     bottom_color = showGlow ? glowClrInner : color.new(color.white, 100),
-     title = "Glow Inner Up")
-fill(pGlow1Dn, pOsc,
-     top_color    = showGlow ? glowClrInner : color.new(color.white, 100),
-     bottom_color = showGlow ? color.new(color.white, 100) : color.new(color.white, 100),
-     title = "Glow Inner Dn")
-fill(pGlow1Up, pGlow2Up,
-     top_color    = showGlow ? color.new(color.white, 100) : color.new(color.white, 100),
-     bottom_color = showGlow ? glowClrOuter : color.new(color.white, 100),
-     title = "Glow Outer Up")
-fill(pGlow2Dn, pGlow1Dn,
-     top_color    = showGlow ? glowClrOuter : color.new(color.white, 100),
-     bottom_color = showGlow ? color.new(color.white, 100) : color.new(color.white, 100),
-     title = "Glow Outer Dn")
-
-// ═══════════════════════════════════════════════════════════════════════════════
 //  VOLATILITY INDICATOR
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -313,8 +281,26 @@ plot(showRVOL ? rvolScaled : na, "RVOL Bars",    rvolColor,                  1, 
 plot(showRVOL and showAvgVol ? 5.0 : na, "Avg Vol Line", color.new(color.gray, 62), 1)
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  SIGNAL LAYOUT — Fixed Y positions
+//  SIGNAL LAYOUT — Fixed Y positions to prevent overlapping
+//  ┌─────────────────────────────────────────────────────────────────────────┐
+//  │  SHORT ZONE (top)                                                       │
+//  │   Y=98  ▼ Bounce Down  (primary short — largest marker)                 │
+//  │   Y=93  ● CP Sell  /  ■ Conf Bear                                      │
+//  │   Y=88  ◆ Mom Cross Dn                                                  │
+//  │   Y=83  ✕ Exit Bear                                                     │
+//  │                                                                         │
+//  │  OSCILLATOR BODY (23.6 – 78.6)                                          │
+//  │   Pivots at actual oscillator value (inside the body)                   │
+//  │                                                                         │
+//  │  LONG ZONE (bottom)                                                     │
+//  │   Y=17  ✕ Exit Bull                                                     │
+//  │   Y=12  ◆ Mom Cross Up                                                  │
+//  │   Y=7   ● CP Buy  /  ■ Conf Bull                                       │
+//  │   Y=2   ▲ Bounce Up  (primary long — largest marker)                    │
+//  └─────────────────────────────────────────────────────────────────────────┘
 // ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── Pre-compute all conditions at global scope ──────────────────────────────
 
 overSold   = oscNorm < fib236
 overBought = oscNorm > fib786
@@ -334,30 +320,42 @@ exitBull = showExitSignals and momCrossUp and oscNorm < fib500
 confBull = showConfluence and momCrossUp and oscNorm < fib382 and rvol > 1.2
 confBear = showConfluence and momCrossDn and oscNorm > fib618 and rvol > 1.2
 
-plotshape(bounceUp ? 2.0 : na, "Bounce Up", shape.circle, location.absolute,
-     bounceUpClr, size=size.tiny, text="B", textcolor=bounceUpClr)
+// ─── LONG SIGNALS (Bottom Zone) — fixed Y positions ─────────────────────────
+
+plotshape(bounceUp ? 2.0 : na, "Bounce Up", shape.triangleup, location.absolute,
+     bounceUpClr, size=size.small, text="B", textcolor=bounceUpClr)
+
 plotshape(cpBuy ? 7.0 : na, "CP Buy", shape.circle, location.absolute,
      color.new(#26A69A, 0), size=size.tiny)
-plotshape(confBull ? 7.0 : na, "Conf Bull", confluenceSquare ? shape.square : shape.triangleup, location.absolute,
+
+plotshape(confBull ? 7.0 : na, "Conf Bull", confluenceSquare ? shape.square : shape.circle, location.absolute,
      confBullClr, size=size.tiny)
+
 plotshape(showMomentum and momCrossUp ? 12.0 : na, "Mom Cross Up", shape.diamond, location.absolute,
      bullColor, size=size.tiny)
+
 plotshape(exitBull ? 17.0 : na, "Exit Bullish", shape.xcross, location.absolute,
      exitBullClr, size=size.tiny)
 
-plotshape(bounceDn ? 98.0 : na, "Bounce Down", shape.circle, location.absolute,
-     bounceDnClr, size=size.tiny, text="B", textcolor=bounceDnClr)
+// ─── SHORT SIGNALS (Top Zone) — fixed Y positions ───────────────────────────
+
+plotshape(bounceDn ? 98.0 : na, "Bounce Down", shape.triangledown, location.absolute,
+     bounceDnClr, size=size.small, text="B", textcolor=bounceDnClr)
+
 plotshape(cpSell ? 93.0 : na, "CP Sell", shape.circle, location.absolute,
      color.new(#7B1FA2, 0), size=size.tiny)
-plotshape(confBear ? 93.0 : na, "Conf Bear", confluenceSquare ? shape.square : shape.triangledown, location.absolute,
+
+plotshape(confBear ? 93.0 : na, "Conf Bear", confluenceSquare ? shape.square : shape.circle, location.absolute,
      confBearClr, size=size.tiny)
+
 plotshape(showMomentum and momCrossDn ? 88.0 : na, "Mom Cross Dn", shape.diamond, location.absolute,
      bearColor, size=size.tiny)
+
 plotshape(exitBear ? 83.0 : na, "Exit Bearish", shape.xcross, location.absolute,
      exitBearClr, size=size.tiny)
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  PIVOTS — CP Pivots
+//  PIVOTS — CP Pivots (at actual oscillator value — inside body zone)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 pivHi = ta.pivothigh(oscNorm, divPivotLeft, divPivotRight)
@@ -418,385 +416,106 @@ if not na(pivHi) and showDiverg
     lastPivHiPrice := high[divPivotRight]
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  DASHBOARD — Pre-computations (global scope)
+//  DASHBOARD — Premium HUD
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// --- Momentum Score (-100 to +100) ---
-int momScore = int(math.round((oscNorm - 50) * 2))
-string momLabel = (math.abs(momScore) > 70 ? "Fuerte" : math.abs(momScore) > 40 ? "Moderado" : "Debil")
-color momLabelClr = (math.abs(momScore) > 70 ? color.new(#00E676, 0) : math.abs(momScore) > 40 ? color.new(#FFB300, 0) : color.new(color.gray, 20))
-
-// --- Trend Analysis ---
-string trendDir = (oscNorm > 50 and isBullMom ? "Alcista" : oscNorm < 50 and isBearMom ? "Bajista" : "Neutral")
-color trendDirClr = (oscNorm > 50 and isBullMom ? bullColor : oscNorm < 50 and isBearMom ? bearColor : color.new(color.white, 40))
-string trendDirIcon = (oscNorm > 50 and isBullMom ? "↗" : oscNorm < 50 and isBearMom ? "↘" : "→")
-string trendStrength = (math.abs(momScore) > 60 ? "Fuerte" : math.abs(momScore) > 30 ? "Moderada" : "Debil")
-string trendStrIcon = (math.abs(momScore) > 60 ? "▊▊▊" : math.abs(momScore) > 30 ? "▊▊░" : "▊░░")
-string trendPattern = (momCrossUp or momCrossDn ? "Cruce" : math.abs(oscNorm - trigNorm) < 5 ? "Compresion" : oscNorm > oscNorm[1] and isBullMom ? "Continuacion" : oscNorm < oscNorm[1] and isBearMom ? "Continuacion" : "Correccion")
-
-// --- Volatility Percentage ---
-float volPct = math.min(volRatio / 2.0 * 100, 100)
-string volPctLabel = (volPct > 65 ? "Alta" : volPct > 35 ? "Media" : "Baja")
-color volPctClr = (volPct > 65 ? color.new(#FFB300, 0) : volPct > 35 ? color.new(#40C4FF, 0) : color.new(color.gray, 20))
-
-// --- Signal Activity Tracking ---
-var int lastBounceBar = 0
-var int lastMomBar    = 0
-var int lastConfBar   = 0
-var int lastPivotBar  = 0
-
-if bounceUp or bounceDn
-    lastBounceBar := bar_index
-if momCrossUp or momCrossDn
-    lastMomBar := bar_index
-if confBull or confBear
-    lastConfBar := bar_index
-if not na(pivHi) or not na(pivLo)
-    lastPivotBar := bar_index
-
-int sigWindow = 20
-bool sigBounceActive = (bar_index - lastBounceBar) <= sigWindow
-bool sigMomActive    = (bar_index - lastMomBar) <= sigWindow
-bool sigConfActive   = (bar_index - lastConfBar) <= sigWindow
-bool sigPivotActive  = (bar_index - lastPivotBar) <= sigWindow
-int activeSignals    = (sigBounceActive ? 1 : 0) + (sigMomActive ? 1 : 0) + (sigConfActive ? 1 : 0) + (sigPivotActive ? 1 : 0)
-
-// --- Key Levels from Pivots ---
-var array<float> recentResLevels = array.new_float()
-var array<float> recentSupLevels = array.new_float()
-
-if not na(pivHi)
-    if array.size(recentResLevels) >= 4
-        array.shift(recentResLevels)
-    array.push(recentResLevels, pivHi)
-
-if not na(pivLo)
-    if array.size(recentSupLevels) >= 4
-        array.shift(recentSupLevels)
-    array.push(recentSupLevels, pivLo)
-
-float dashRes1 = (array.size(recentResLevels) >= 1 ? array.get(recentResLevels, array.size(recentResLevels) - 1) : na)
-float dashRes2 = (array.size(recentResLevels) >= 2 ? array.get(recentResLevels, array.size(recentResLevels) - 2) : na)
-float dashSup1 = (array.size(recentSupLevels) >= 1 ? array.get(recentSupLevels, array.size(recentSupLevels) - 1) : na)
-float dashSup2 = (array.size(recentSupLevels) >= 2 ? array.get(recentSupLevels, array.size(recentSupLevels) - 2) : na)
-
-// --- Gauge Builder Functions ---
-f_gaugeBar(score) =>
-    int norm = int(math.round((math.max(-100.0, math.min(100.0, float(score))) + 100.0) / 200.0 * 16.0))
-    string s = ""
-    for i = 0 to 15
-        s := s + (i < norm ? "█" : "░")
-    s
-
-f_sigBarsStr(barsAgo, window) =>
-    int level = barsAgo <= window ? int(math.round((1.0 - float(barsAgo) / float(window)) * 8.0)) : 0
-    level := math.max(0, math.min(8, level))
-    string s = ""
-    for i = 0 to 7
-        s := s + (i < level ? "▌" : "·")
-    s
-
-f_volArc(pct) =>
-    int segs = int(math.round(math.max(0.0, math.min(100.0, pct)) / 100.0 * 10.0))
-    string s = ""
-    for i = 0 to 9
-        s := s + (i < segs ? "▓" : "░")
-    s
-
-// ═══════════════════════════════════════════════════════════════════════════════
-//  TOP BADGES — Vol / Avg / RVol / Press (horizontal)
-// ═══════════════════════════════════════════════════════════════════════════════
-
-color cBadgeBg     = color.new(#050A14, 30)
-color cBadgeLblClr = color.new(color.gray, 15)
-
-var table badgeTable = table.new(
-     position.top_right, 8, 1,
-     bgcolor     = color.new(#050A14, 92),
-     frame_color = color.new(#00BCD4, 70),
+var table infoTable = table.new(
+     position.top_right, 2, 10,
+     bgcolor     = color.new(#050A14, 84),
+     frame_color = color.new(#00BCD4, 60),
      frame_width = 1,
      border_width= 0)
 
 if barstate.islast and showRVOL
-    // Vol badge
-    table.cell(badgeTable, 0, 0, "Vol",
-         bgcolor=color.new(#00E5FF, 85), text_color=color.new(#00E5FF, 10),
+    for r = 0 to 9
+        table.cell(infoTable, 0, r, "", bgcolor=color.new(#050A14, 92))
+        table.cell(infoTable, 1, r, "", bgcolor=color.new(#050A14, 92))
+
+    table.cell(infoTable, 0, 0, "CP®",
+         bgcolor    = color.new(#006064, 60),
+         text_color = color.new(#00E5FF, 10),
+         text_size  = size.tiny,
+         text_halign= text.align_right)
+    table.cell(infoTable, 1, 0, "2.6",
+         bgcolor    = color.new(#006064, 60),
+         text_color = color.new(color.white, 20),
+         text_size  = size.tiny,
+         text_halign= text.align_left)
+
+    row = 1
+
+    if showCurVol
+        table.cell(infoTable, 0, row, "VOL",
+             bgcolor=color.new(#0A1628, 84), text_color=color.new(color.gray, 20),
+             text_size=size.tiny, text_halign=text.align_right)
+        table.cell(infoTable, 1, row, str.tostring(volume, format.volume),
+             bgcolor=color.new(#0A1628, 84), text_color=color.new(color.white, 10),
+             text_size=size.tiny)
+        row += 1
+
+    if showAvgVol
+        table.cell(infoTable, 0, row, "AVG",
+             bgcolor=color.new(#0A1628, 84), text_color=color.new(color.gray, 20),
+             text_size=size.tiny, text_halign=text.align_right)
+        table.cell(infoTable, 1, row, str.tostring(avgVol, format.volume),
+             bgcolor=color.new(#0A1628, 84), text_color=color.new(color.white, 10),
+             text_size=size.tiny)
+        row += 1
+
+    if showRVOLCalc
+        rvolClr = rvol >= 1.5 ? bullColor : rvol >= 1.0 ? color.new(#FFB300, 0) : bearColor
+        table.cell(infoTable, 0, row, "RVOL",
+             bgcolor=color.new(#0A1628, 84), text_color=color.new(color.gray, 20),
+             text_size=size.tiny, text_halign=text.align_right)
+        table.cell(infoTable, 1, row, str.tostring(rvol, "#.##") + "×",
+             bgcolor=color.new(#0A1628, 84), text_color=rvolClr, text_size=size.tiny)
+        row += 1
+
+    if showPressDir
+        presClr = pressurePct >= 55 ? bullColor : pressurePct <= 45 ? bearColor : color.new(#FFB300, 0)
+        table.cell(infoTable, 0, row, "PRESS",
+             bgcolor=color.new(#0A1628, 84), text_color=color.new(color.gray, 20),
+             text_size=size.tiny, text_halign=text.align_right)
+        table.cell(infoTable, 1, row, str.tostring(pressurePct, "#.#") + "%",
+             bgcolor=color.new(#0A1628, 84), text_color=presClr, text_size=size.tiny)
+        row += 1
+
+    table.cell(infoTable, 0, row, "·",
+         bgcolor=color.new(#0D1F3C, 78), text_color=color.new(color.gray, 55),
          text_size=size.tiny, text_halign=text.align_center)
-    table.cell(badgeTable, 1, 0, str.tostring(volume, format.volume),
-         bgcolor=cBadgeBg, text_color=color.new(color.white, 10),
-         text_size=size.tiny, text_halign=text.align_center)
+    table.cell(infoTable, 1, row, "·",
+         bgcolor=color.new(#0D1F3C, 78), text_color=color.new(color.gray, 55),
+         text_size=size.tiny)
+    row += 1
 
-    // Avg badge
-    table.cell(badgeTable, 2, 0, "Avg",
-         bgcolor=color.new(#00E5FF, 85), text_color=color.new(#00E5FF, 10),
-         text_size=size.tiny, text_halign=text.align_center)
-    table.cell(badgeTable, 3, 0, str.tostring(avgVol, format.volume),
-         bgcolor=cBadgeBg, text_color=color.new(color.white, 10),
-         text_size=size.tiny, text_halign=text.align_center)
+    momStr = momPct >= 0 ? "+" + str.tostring(momPct, "#.#") : str.tostring(momPct, "#.#")
+    momClr = isBullMom ? bullColor : bearColor
+    table.cell(infoTable, 0, row, "MOM",
+         bgcolor=color.new(#0A1628, 84), text_color=color.new(color.gray, 20),
+         text_size=size.tiny, text_halign=text.align_right)
+    table.cell(infoTable, 1, row, momStr,
+         bgcolor=color.new(#0A1628, 84), text_color=momClr, text_size=size.tiny)
+    row += 1
 
-    // RVol badge
-    rvolBadgeClr = rvol >= 1.5 ? color.new(#00E676, 0) : rvol >= 1.0 ? color.new(#FFB300, 0) : color.new(#FF1744, 0)
-    table.cell(badgeTable, 4, 0, "RVol",
-         bgcolor=color.new(#FFB300, 85), text_color=color.new(#FFB300, 10),
-         text_size=size.tiny, text_halign=text.align_center)
-    table.cell(badgeTable, 5, 0, str.tostring(rvol, "#.##"),
-         bgcolor=cBadgeBg, text_color=rvolBadgeClr,
-         text_size=size.tiny, text_halign=text.align_center)
+    table.cell(infoTable, 0, row, "VOLAT",
+         bgcolor=color.new(#0A1628, 84), text_color=color.new(color.gray, 20),
+         text_size=size.tiny, text_halign=text.align_right)
+    table.cell(infoTable, 1, row, volStateStr,
+         bgcolor=color.new(#0A1628, 84), text_color=volStateClr, text_size=size.tiny)
+    row += 1
 
-    // Press badge
-    pressBadgeClr = pressurePct >= 55 ? color.new(#00E676, 0) : pressurePct <= 45 ? color.new(#FF1744, 0) : color.new(#FFB300, 0)
-    table.cell(badgeTable, 6, 0, "Press",
-         bgcolor=color.new(#E040FB, 85), text_color=color.new(#E040FB, 10),
-         text_size=size.tiny, text_halign=text.align_center)
-    table.cell(badgeTable, 7, 0, str.tostring(pressurePct, "#.##") + "%",
-         bgcolor=cBadgeBg, text_color=pressBadgeClr,
-         text_size=size.tiny, text_halign=text.align_center)
+    table.cell(infoTable, 0, row, "BIAS",
+         bgcolor=color.new(#0A1628, 84), text_color=color.new(color.gray, 20),
+         text_size=size.tiny, text_halign=text.align_right)
+    table.cell(infoTable, 1, row, biasStr,
+         bgcolor=color.new(#0A1628, 84), text_color=biasClr, text_size=size.tiny)
+    row += 1
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//  PREMIUM DASHBOARD — Compact Horizontal Strip (transparent)
-//  ┌────────────┬──────────────┬────────────┬────────────────┬───────────────────┐
-//  │ MOMENTUM   │ SEÑALES      │ VOLATILIDAD│ TENDENCIA      │ NIVELES CLAVE     │
-//  │ ██ 86 Fuer │ ● ▲ ◆ ○ act │ 87% Alta   │ ↗ Alc ▊▊ Fuer │ R1:82 R2:65 S:59 │
-//  └────────────┴──────────────┴────────────┴────────────────┴───────────────────┘
-//  │ ⊙ CP®  │ Momento: 86 │ Vol: 87% │ Tend: Alcista │ Señales: 3  v1.0        │
-// ═══════════════════════════════════════════════════════════════════════════════
-
-color cDashBg      = color.new(#050A14, 85)
-color cDashSection = color.new(#0A1628, 80)
-color cDashHeader  = color.new(#0D1830, 75)
-color cDashSpacer  = color.new(#00E5FF, 93)
-color cDimTxt      = color.new(color.gray, 25)
-color cBrightTxt   = color.new(color.white, 5)
-color cStatusBg    = color.new(#050A14, 82)
-color cNeonCyan    = color.new(#00E5FF, 0)
-
-var table dashTable = table.new(
-     position.top_right, 11, 4,
-     bgcolor     = color.new(#050A14, 92),
-     frame_color = color.new(#E040FB, 78),
-     frame_width = 1,
-     border_width= 0)
-
-if barstate.islast and showDashboard
-    // ─── Initialize all cells ───────────────────────────────────────────
-    for c = 0 to 10
-        for r = 0 to 3
-            color cellBg = cDashSection
-            if c == 1 or c == 3 or c == 5 or c == 7
-                cellBg := cDashSpacer
-            if r == 0
-                cellBg := cDashHeader
-            if r == 3
-                cellBg := cStatusBg
-            table.cell(dashTable, c, r, "",
-                 bgcolor=cellBg, text_color=cDimTxt,
-                 text_size=size.tiny, text_halign=text.align_center)
-
-    // ═════════════════════════════════════════════════════════════════════
-    //  COL 0 — MOMENTUM
-    // ═════════════════════════════════════════════════════════════════════
-
-    table.cell(dashTable, 0, 0, "MOMENTUM", bgcolor=cDashHeader,
-         text_color=cNeonCyan, text_size=size.tiny, text_halign=text.align_center)
-
-    // Gauge + Score
-    string gaugeStr = f_gaugeBar(momScore)
-    color gaugeClr = (momScore > 0 ? color.new(#00E676, 0) : color.new(#FF1744, 0))
-    table.cell(dashTable, 0, 1, gaugeStr + "  " + str.tostring(momScore), bgcolor=cDashSection,
-         text_color=gaugeClr, text_size=size.tiny, text_halign=text.align_center)
-
-    // Label
-    table.cell(dashTable, 0, 2, momLabel, bgcolor=cDashSection,
-         text_color=momLabelClr, text_size=size.tiny, text_halign=text.align_center)
-
-    // ═════════════════════════════════════════════════════════════════════
-    //  COL 2 — SEÑALES ACTIVAS
-    // ═════════════════════════════════════════════════════════════════════
-
-    table.cell(dashTable, 2, 0, "SEÑALES ACTIVAS", bgcolor=cDashHeader,
-         text_color=cNeonCyan, text_size=size.tiny, text_halign=text.align_center)
-
-    // Signal icons row — compact
-    color cBounce = sigBounceActive ? color.new(#00E676, 0) : cDimTxt
-    color cMom    = sigMomActive    ? color.new(#00E676, 0) : cDimTxt
-    color cConf   = sigConfActive   ? color.new(#E040FB, 0) : cDimTxt
-    color cPiv    = sigPivotActive  ? color.new(#40C4FF, 0) : cDimTxt
-
-    // Build activity bars for each signal
-    int bounceBarsAgo = bar_index - lastBounceBar
-    int momBarsAgo    = bar_index - lastMomBar
-    int confBarsAgo   = bar_index - lastConfBar
-    int pivotBarsAgo  = bar_index - lastPivotBar
-
-    string bounceLine = "● Bounce " + f_sigBarsStr(bounceBarsAgo, sigWindow) + "   ▲ Mom " + f_sigBarsStr(momBarsAgo, sigWindow)
-    string confLine   = "◆ Conf " + f_sigBarsStr(confBarsAgo, sigWindow) + "   ○ Pivots " + f_sigBarsStr(pivotBarsAgo, sigWindow)
-
-    color topLineClr  = (sigBounceActive or sigMomActive ? color.new(#00E676, 0) : cDimTxt)
-    color botLineClr  = (sigConfActive or sigPivotActive ? color.new(#40C4FF, 0) : cDimTxt)
-
-    table.cell(dashTable, 2, 1, bounceLine, bgcolor=cDashSection,
-         text_color=topLineClr, text_size=size.tiny, text_halign=text.align_center)
-    table.cell(dashTable, 2, 2, confLine, bgcolor=cDashSection,
-         text_color=botLineClr, text_size=size.tiny, text_halign=text.align_center)
-
-    // ═════════════════════════════════════════════════════════════════════
-    //  COL 4 — VOLATILIDAD
-    // ═════════════════════════════════════════════════════════════════════
-
-    table.cell(dashTable, 4, 0, "VOLATILIDAD", bgcolor=cDashHeader,
-         text_color=cNeonCyan, text_size=size.tiny, text_halign=text.align_center)
-
-    table.cell(dashTable, 4, 1, str.tostring(volPct, "#.#") + "%", bgcolor=cDashSection,
-         text_color=cBrightTxt, text_size=size.normal, text_halign=text.align_center)
-
-    table.cell(dashTable, 4, 2, volPctLabel, bgcolor=cDashSection,
-         text_color=volPctClr, text_size=size.tiny, text_halign=text.align_center)
-
-    // ═════════════════════════════════════════════════════════════════════
-    //  COL 6 — TENDENCIA
-    // ═════════════════════════════════════════════════════════════════════
-
-    table.cell(dashTable, 6, 0, "TENDENCIA", bgcolor=cDashHeader,
-         text_color=cNeonCyan, text_size=size.tiny, text_halign=text.align_center)
-
-    table.cell(dashTable, 6, 1, trendDirIcon + "  " + trendDir + "   " + trendStrIcon + " " + trendStrength,
-         bgcolor=cDashSection, text_color=trendDirClr, text_size=size.tiny, text_halign=text.align_center)
-
-    table.cell(dashTable, 6, 2, "∿ " + trendPattern + "   " + oscStateStr,
-         bgcolor=cDashSection, text_color=oscStateClr, text_size=size.tiny, text_halign=text.align_center)
-
-    // ═════════════════════════════════════════════════════════════════════
-    //  COLS 8-10 — NIVELES CLAVE
-    // ═════════════════════════════════════════════════════════════════════
-
-    table.cell(dashTable, 8, 0, "NIVELES CLAVE", bgcolor=cDashHeader,
-         text_color=cNeonCyan, text_size=size.tiny, text_halign=text.align_center)
-    table.cell(dashTable, 9, 0, "", bgcolor=cDashHeader)
-    table.cell(dashTable, 10, 0, "", bgcolor=cDashHeader)
-
-    // Resistencias
-    string res1Str = not na(dashRes1) ? str.tostring(dashRes1, "#.#") : "—"
-    string res2Str = not na(dashRes2) ? str.tostring(dashRes2, "#.#") : "—"
-    table.cell(dashTable, 8, 1, "R1", bgcolor=cDashSection,
-         text_color=color.new(#FF1744, 0), text_size=size.tiny, text_halign=text.align_right)
-    table.cell(dashTable, 9, 1, res1Str, bgcolor=cDashSection,
-         text_color=cBrightTxt, text_size=size.tiny, text_halign=text.align_center)
-    table.cell(dashTable, 10, 1, "R2  " + res2Str, bgcolor=cDashSection,
-         text_color=color.new(#FF5252, 10), text_size=size.tiny, text_halign=text.align_left)
-
-    // Soportes
-    string sup1Str = not na(dashSup1) ? str.tostring(dashSup1, "#.#") : "—"
-    string sup2Str = not na(dashSup2) ? str.tostring(dashSup2, "#.#") : "—"
-    table.cell(dashTable, 8, 2, "S1", bgcolor=cDashSection,
-         text_color=color.new(#00E676, 0), text_size=size.tiny, text_halign=text.align_right)
-    table.cell(dashTable, 9, 2, sup1Str, bgcolor=cDashSection,
-         text_color=cBrightTxt, text_size=size.tiny, text_halign=text.align_center)
-    table.cell(dashTable, 10, 2, "S2  " + sup2Str, bgcolor=cDashSection,
-         text_color=color.new(#40C4FF, 10), text_size=size.tiny, text_halign=text.align_left)
-
-    // ═════════════════════════════════════════════════════════════════════
-    //  ROW 3 — STATUS BAR
-    // ═════════════════════════════════════════════════════════════════════
-
-    table.cell(dashTable, 0, 3, "⊙ CryptoProofit®", bgcolor=cStatusBg,
-         text_color=cDimTxt, text_size=size.tiny, text_halign=text.align_center)
-    table.cell(dashTable, 2, 3, "Momento: " + str.tostring(momScore), bgcolor=cStatusBg,
-         text_color=isBullMom ? bullColor : bearColor, text_size=size.tiny, text_halign=text.align_center)
-    table.cell(dashTable, 4, 3, "Volatilidad: " + str.tostring(volPct, "#.#") + "%", bgcolor=cStatusBg,
-         text_color=volPctClr, text_size=size.tiny, text_halign=text.align_center)
-    table.cell(dashTable, 6, 3, "Tendencia: " + trendDir, bgcolor=cStatusBg,
-         text_color=trendDirClr, text_size=size.tiny, text_halign=text.align_center)
-    table.cell(dashTable, 8, 3, "Señales: " + str.tostring(activeSignals), bgcolor=cStatusBg,
-         text_color=cDimTxt, text_size=size.tiny, text_halign=text.align_center)
-    table.cell(dashTable, 9, 3, "∿∿", bgcolor=cStatusBg,
-         text_color=cDimTxt, text_size=size.tiny, text_halign=text.align_center)
-    table.cell(dashTable, 10, 3, "v1.0", bgcolor=cStatusBg,
-         text_color=cDimTxt, text_size=size.tiny, text_halign=text.align_center)
-
-// ═══════════════════════════════════════════════════════════════════════════════
-//  MTF SCANNER — Multi-Timeframe Heatmap
-// ═══════════════════════════════════════════════════════════════════════════════
-
-// --- MTF Trend Calculation Function ---
-f_mtfTrend() =>
-    _src    = hlc3
-    _chLen  = int(math.max(hyperWaveLen * 2, 10))
-    _avgLen = int(math.max(hyperWaveLen, 4))
-    _esa    = ta.ema(_src, _chLen)
-    _d      = ta.ema(math.abs(_src - _esa), _chLen)
-    _ci     = (_src - _esa) / (0.015 * _d)
-    _wt1    = ta.ema(_ci, _avgLen)
-    _wt2    = ta.sma(_wt1, triggerLen)
-    _nLen   = 100
-    _hi     = ta.highest(_wt1, _nLen)
-    _lo     = ta.lowest(_wt1, _nLen)
-    _rng    = _hi - _lo
-    _safe   = _rng == 0 ? 1.0 : _rng
-    _osc    = (_wt1 - _lo) / _safe * 100
-    _trg    = (_wt2 - _lo) / _safe * 100
-    _bull   = _osc > _trg
-    _trend  = _osc > 50 and _bull ? 1.0 : _osc < 50 and not _bull ? -1.0 : 0.0
-    _trend
-
-// --- Request each TF individually (scalar, no tuples) ---
-float mtf5m  = request.security(syminfo.tickerid, "5",   f_mtfTrend(), lookahead = barmerge.lookahead_off)
-float mtf15m = request.security(syminfo.tickerid, "15",  f_mtfTrend(), lookahead = barmerge.lookahead_off)
-float mtf1h  = request.security(syminfo.tickerid, "60",  f_mtfTrend(), lookahead = barmerge.lookahead_off)
-float mtf4h  = request.security(syminfo.tickerid, "240", f_mtfTrend(), lookahead = barmerge.lookahead_off)
-float mtf1d  = request.security(syminfo.tickerid, "D",   f_mtfTrend(), lookahead = barmerge.lookahead_off)
-float mtf1w  = request.security(syminfo.tickerid, "W",   f_mtfTrend(), lookahead = barmerge.lookahead_off)
-
-// --- MTF Helper: trend color and label ---
-f_mtfColor(trendVal) =>
-    trendVal > 0 ? color.new(#00E676, 15) : trendVal < 0 ? color.new(#FF1744, 15) : color.new(color.gray, 40)
-
-f_mtfTextClr(trendVal) =>
-    trendVal > 0 ? color.new(#00E676, 0) : trendVal < 0 ? color.new(#FF1744, 0) : color.new(color.white, 30)
-
-f_mtfLabel(trendVal) =>
-    trendVal > 0 ? "ALCISTA" : trendVal < 0 ? "BAJISTA" : "NEUTRAL"
-
-f_mtfIcon(trendVal) =>
-    trendVal > 0 ? "▲" : trendVal < 0 ? "▼" : "●"
-
-// --- Current TF trend for status row ---
-string currentTFName = (timeframe.period == "1"   ? "M1"  : timeframe.period == "3"   ? "M3"  : timeframe.period == "5"   ? "M5"  : timeframe.period == "15"  ? "M15" : timeframe.period == "30"  ? "M30" : timeframe.period == "60"  ? "H1"  : timeframe.period == "120" ? "H2"  : timeframe.period == "240" ? "H4"  : timeframe.period == "D"   ? "D1"  : timeframe.period == "W"   ? "W1"  : timeframe.period)
-
-float currentTFTrend = (oscNorm > 50 and isBullMom ? 1.0 : oscNorm < 50 and isBearMom ? -1.0 : 0.0)
-
-// --- MTF Heatmap Table ---
-var table mtfTable = table.new(
-     position.bottom_right, 7, 3,
-     bgcolor     = color.new(#050A14, 88),
-     frame_color = color.new(#00E5FF, 70),
-     frame_width = 1,
-     border_width= 0)
-
-if barstate.islast and showMTF
-    // Row 0: Header
-    table.cell(mtfTable, 0, 0, "─── MTF ───", bgcolor=color.new(#0D1830, 70),
-         text_color=color.new(#00E5FF, 0), text_size=size.tiny, text_halign=text.align_center)
-    table.merge_cells(mtfTable, 0, 0, 6, 0)
-
-    // Row 1: TF cells with colored backgrounds
-    string[] tfNames  = array.from("5M", "15M", "1H", "4H", "1D", "1W")
-    float[]  tfValues = array.from(mtf5m, mtf15m, mtf1h, mtf4h, mtf1d, mtf1w)
-
-    // Spacer cell col 0
-    table.cell(mtfTable, 0, 1, "", bgcolor=color.new(#050A14, 92),
-         text_color=color.new(color.white, 100), text_size=size.tiny)
-
-    for i = 0 to 5
-        float tv = array.get(tfValues, i)
-        table.cell(mtfTable, i + 1, 1, array.get(tfNames, i),
-             bgcolor=f_mtfColor(tv), text_color=f_mtfTextClr(tv),
-             text_size=size.tiny, text_halign=text.align_center)
-
-    // Row 2: Current TF status
-    string statusStr = currentTFName + ": " + f_mtfLabel(currentTFTrend) + " " + f_mtfIcon(currentTFTrend)
-    table.cell(mtfTable, 0, 2, statusStr, bgcolor=f_mtfColor(currentTFTrend),
-         text_color=f_mtfTextClr(currentTFTrend), text_size=size.tiny, text_halign=text.align_center)
-    table.merge_cells(mtfTable, 0, 2, 6, 2)
+    table.cell(infoTable, 0, row, "STATE",
+         bgcolor=color.new(#0A1628, 84), text_color=color.new(color.gray, 20),
+         text_size=size.tiny, text_halign=text.align_right)
+    table.cell(infoTable, 1, row, oscStateStr,
+         bgcolor=color.new(#0A1628, 84), text_color=oscStateClr, text_size=size.tiny)
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  BAR COLORING

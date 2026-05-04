@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pineforge-ai"
+version = "0.1.0"
+description = "Elite trading indicator analysis prompt generator"
+requires-python = ">=3.11"
+dependencies = [
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "yfinance>=0.2.40",
+    "ccxt>=4.0",
+    "scipy>=1.11",
+    "click>=8.1",
+    "python-dateutil>=2.8",
+    "pytz>=2024.1",
+]
+
+[project.scripts]
+pineforge = "pineforge_ai.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pineforge_ai*"]
