@@ -11,15 +11,26 @@ import unicodedata
 from dataclasses import dataclass, field
 from typing import List, Optional
 
-from config import (
-    ABONO_KEYWORDS,
-    BANCOS_CL,
-    KEYWORDS_MONTO,
-    KEYWORDS_OPERACION,
-    KEYWORDS_RUT,
-    KEYWORDS_ORIGEN,
-    KEYWORDS_DESTINO,
-)
+try:
+    from .config import (
+        ABONO_KEYWORDS,
+        BANCOS_CL,
+        KEYWORDS_MONTO,
+        KEYWORDS_OPERACION,
+        KEYWORDS_RUT,
+        KEYWORDS_ORIGEN,
+        KEYWORDS_DESTINO,
+    )
+except ImportError:  # Permite ejecutar python dvu_bot/main.py
+    from config import (
+        ABONO_KEYWORDS,
+        BANCOS_CL,
+        KEYWORDS_MONTO,
+        KEYWORDS_OPERACION,
+        KEYWORDS_RUT,
+        KEYWORDS_ORIGEN,
+        KEYWORDS_DESTINO,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 # Facturas: "factura 33780", "facturas 33135 y 33134", "F33780", "Fac: 33780"
 RE_FACTURA = re.compile(
-    r"(?:fac(?:tura)?s?\.?|f|n[°º]?\s*fac(?:tura)?)\s*[:\-]?\s*"
+    r"(?:fac(?:t(?:ura)?)?s?\.?|f|n[°º]?\s*fac(?:t(?:ura)?)?)\s*[:\-]?\s*"
     r"(?P<nums>[\d]{3,8}(?:\s*(?:,|y|e)\s*[\d]{3,8})*)",
     re.IGNORECASE,
 )
@@ -60,6 +71,39 @@ RE_HORA = re.compile(
 
 # Cuenta bancaria (4+ digitos, a menudo con guiones)
 RE_CUENTA = re.compile(r"\b(\d{4,}[\-\s]?\d{2,}(?:[\-\s]?\d+)*)\b")
+
+RE_FILE_TOKEN = re.compile(
+    r"\b(?:IMG[-_]?20\d{6}[-_]?WA\d+|IMGWA\d+|WA\d+|"
+    r"Comprobante[_\-\w]*|[^\n\r]*\.(?:pdf|jpg|jpeg|png|webp|bmp))\b",
+    re.IGNORECASE,
+)
+
+KNOWN_NON_AMOUNT_NUMBERS = {
+    "77185713",  # RUT DVU SPA sin digito verificador
+    "46345299",  # cuenta destino frecuente en comprobantes DVU
+}
+
+DIRECT_AMOUNT_KEYWORDS = {"monto", "total", "transferido", "importe"}
+
+BANK_ALIASES = {
+    "BANCO DE CREDITO E INVERSIONES": "BCI",
+    "BANCO DE CRÉDITO E INVERSIONES": "BCI",
+    "BCI": "BCI",
+    "BANCOESTADO": "BANCO ESTADO",
+    "BANCO ESTADO": "BANCO ESTADO",
+    "BANCO DEL ESTADO": "BANCO ESTADO",
+    "BANCO DE CHILE": "BANCO DE CHILE",
+    "BANCO SANTANDER": "SANTANDER",
+    "SANTANDER": "SANTANDER",
+    "ITAU": "ITAU",
+    "ITAÚ": "ITAU",
+    "SCOTIABANK": "SCOTIABANK",
+    "BANCO SECURITY": "SECURITY",
+    "SECURITY": "SECURITY",
+    "BANCO FALABELLA": "FALABELLA",
+    "FALABELLA": "FALABELLA",
+    "MERCADO PAGO": "MERCADO PAGO",
+}
 
 
 # ─── DATACLASS DE RESULTADO ────────────────────────────────────
@@ -135,11 +179,14 @@ def extract_cliente(body: str, facturas: List[str]) -> str:
     if not body:
         return ""
 
+    # Quitar nombres de archivo / lineas de adjunto
+    clean = RE_FILE_TOKEN.sub(" ", body)
+
     # Quitar menciones de factura
     clean = re.sub(
         r"(?:fac(?:tura)?s?\.?|f)\s*[:\-]?\s*\d{3,8}(?:\s*(?:,|y|e)\s*\d{3,8})*",
         "",
-        body,
+        clean,
         flags=re.IGNORECASE,
     )
     # Quitar numeros aislados
@@ -149,21 +196,29 @@ def extract_cliente(body: str, facturas: List[str]) -> str:
         "pago", "pagos", "factura", "facturas", "abono", "saldo", "parcial",
         "transferencia", "transferencias", "por", "de", "del", "la", "el",
         "y", "e", "cliente", "señor", "senor", "sra", "sr", "comprobante",
+        "archivo", "adjunto", "revisar", "n", "z", "ok",
     }
     tokens = [t for t in re.split(r"\s+", clean.strip()) if t]
     filtered = [t for t in tokens if _normalize(t) not in stop and len(t) > 1]
+    valid_tokens = [
+        re.sub(r"[^\wÁÉÍÓÚÜÑáéíóúüñ]", "", t)
+        for t in filtered
+    ]
+    valid_tokens = [
+        t for t in valid_tokens
+        if t and not t.isdigit() and not RE_FILE_TOKEN.search(t)
+    ]
+    if len(valid_tokens) < 2:
+        return ""
 
     # Tomar secuencia de palabras con primera letra mayuscula (nombre propio)
     # o en mayusculas completas
     name_tokens: List[str] = []
-    for t in filtered:
-        clean_t = re.sub(r"[^\wÁÉÍÓÚÜÑáéíóúüñ]", "", t)
-        if not clean_t:
-            continue
+    for clean_t in valid_tokens:
         if clean_t[0].isupper() or clean_t.isupper():
             name_tokens.append(clean_t)
 
-    if name_tokens:
+    if len(name_tokens) >= 2:
         name = " ".join(name_tokens[:6]).strip()
         return name.title() if name.isupper() else name
     return ""
@@ -191,6 +246,39 @@ def _parse_monto_str(s: str) -> Optional[int]:
     return None
 
 
+def _digits(s: str) -> str:
+    return re.sub(r"\D", "", s or "")
+
+
+def _looks_like_thousands(s: str) -> bool:
+    return bool(re.search(r"\d{1,3}[.\s]\d{3}", s or ""))
+
+
+def _is_inside_rut(text: str, start: int, end: int) -> bool:
+    for rut in RE_RUT.finditer(text):
+        if rut.start() <= start and end <= rut.end():
+            return True
+    return False
+
+
+def _is_bad_monto_candidate(text: str, match: re.Match) -> bool:
+    raw = match.group("num") if "num" in match.groupdict() else match.group(1)
+    digits = _digits(raw)
+    if digits in KNOWN_NON_AMOUNT_NUMBERS:
+        return True
+    if _is_inside_rut(text, match.start(), match.end()):
+        return True
+
+    line_start = text.rfind("\n", 0, match.start()) + 1
+    line_end = text.find("\n", match.end())
+    if line_end == -1:
+        line_end = len(text)
+    line = _normalize(text[line_start:line_end])
+    if "rut" in line or "r.u.t" in line or "cuenta" in line:
+        return True
+    return False
+
+
 def extract_monto(ocr_text: str) -> Optional[int]:
     """
     Busca el monto principal:
@@ -209,6 +297,12 @@ def extract_monto(ocr_text: str) -> Optional[int]:
         if any(k in n for k in KEYWORDS_MONTO):
             # Priorizar matches con $ o punto de miles
             for m in RE_MONTO.finditer(ln):
+                raw = m.group("num")
+                if _is_bad_monto_candidate(ln, m):
+                    continue
+                if not _looks_like_thousands(raw) and "$" not in ln:
+                    if not any(k in n for k in DIRECT_AMOUNT_KEYWORDS):
+                        continue
                 val = _parse_monto_str(m.group("num"))
                 if val is not None:
                     candidatos.append(val)
@@ -217,6 +311,8 @@ def extract_monto(ocr_text: str) -> Optional[int]:
 
     # Pasada 2: numeros con formato de miles ($xxx.xxx)
     for m in re.finditer(r"\$\s*(\d{1,3}(?:[.\s]\d{3}){1,3})", ocr_text):
+        if _is_bad_monto_candidate(ocr_text, m):
+            continue
         val = _parse_monto_str(m.group(1))
         if val is not None:
             candidatos.append(val)
@@ -225,6 +321,8 @@ def extract_monto(ocr_text: str) -> Optional[int]:
 
     # Pasada 3: cualquier formato con punto de miles
     for m in re.finditer(r"\b(\d{1,3}(?:[.\s]\d{3}){1,3})\b", ocr_text):
+        if _is_bad_monto_candidate(ocr_text, m):
+            continue
         val = _parse_monto_str(m.group(1))
         if val is not None:
             candidatos.append(val)
@@ -238,9 +336,12 @@ def extract_banco(ocr_text: str) -> str:
     if not ocr_text:
         return ""
     n = _normalize(ocr_text)
+    for alias, canonical in BANK_ALIASES.items():
+        if _normalize(alias) in n:
+            return canonical
     for banco in BANCOS_CL:
         if _normalize(banco) in n:
-            return banco.title() if banco.isupper() else banco
+            return BANK_ALIASES.get(_strip_accents(banco).upper(), banco.upper())
     return ""
 
 

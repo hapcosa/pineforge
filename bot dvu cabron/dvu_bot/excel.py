@@ -12,7 +12,10 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-from config import EXCEL_COLUMNS, STATE_COLORS
+try:
+    from .config import EXCEL_COLUMNS, STATE_COLORS
+except ImportError:  # Permite ejecutar python dvu_bot/main.py
+    from config import EXCEL_COLUMNS, STATE_COLORS
 
 logger = logging.getLogger(__name__)
 

@@ -38,6 +38,11 @@ RE_ATTACHED_GENERIC = re.compile(
     r"(?P<file>[\w\-\s\.()]+?\.(?:jpg|jpeg|png|webp|bmp|pdf|opus|mp4))",
     re.IGNORECASE,
 )
+RE_ATTACHMENT_EXPORT_LINE = re.compile(
+    r"^\s*\u200e?.*?\.(?:jpg|jpeg|png|webp|bmp|pdf|opus|mp4)\s*"
+    r"(?:\(archivo adjunto\))?\s*$",
+    re.IGNORECASE,
+)
 RE_OMITTED = re.compile(
     r"(imagen omitida|<Media omitted>|<archivo adjunto:|image omitted|sticker omitido)",
     re.IGNORECASE,
@@ -120,8 +125,26 @@ def _finalize(msg: WhatsAppMessage) -> None:
     m = RE_ATTACHED_IOS.search(body)
     if m:
         msg.attachment = m.group("file").strip()
-        return
 
-    m = RE_ATTACHED_GENERIC.search(body)
-    if m:
+    if msg.attachment is None:
+        m = RE_ATTACHED_GENERIC.search(body)
+    if msg.attachment is None and m:
         msg.attachment = m.group("file").strip()
+
+    if msg.attachment:
+        msg.body = _remove_attachment_lines(body)
+
+
+def _remove_attachment_lines(body: str) -> str:
+    """Quita lineas de adjunto exportadas por WhatsApp antes de extraer cliente."""
+    cleaned = []
+    for line in body.splitlines():
+        raw = line.strip()
+        if not raw:
+            continue
+        if RE_ATTACHED_IOS.search(raw):
+            continue
+        if RE_ATTACHMENT_EXPORT_LINE.match(raw) or RE_ATTACHED_GENERIC.fullmatch(raw):
+            continue
+        cleaned.append(line)
+    return "\n".join(cleaned).strip()

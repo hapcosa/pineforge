@@ -74,24 +74,30 @@ def validate_records(records: List[Dict]) -> List[Dict]:
         r["Estado"] = state
         r["Observación"] = " | ".join(obs) if obs else ""
 
-    # Segunda pasada: duplicados por N° operacion + monto + fecha
-    seen: Dict[tuple, int] = {}
+    # Segunda pasada: duplicados por N° operacion + monto + fecha.
+    # Reenvios literales de la misma imagen no se marcan como duplicado.
+    seen: Dict[tuple, List[int]] = {}
     for i, r in enumerate(records):
         key = _dup_key(r)
         # Ignorar claves muy vacias
         if not any(key) or not key[0]:
             continue
-        if key in seen:
-            # Marcar ambos
-            for idx in (seen[key], i):
-                records[idx]["Estado"] = "DUPLICADO POSIBLE"
-                prev = records[idx].get("Observación", "")
-                dup_msg = f"Posible duplicado de N°op {key[0]}"
-                records[idx]["Observación"] = (
-                    (prev + " | " + dup_msg).strip(" |") if prev else dup_msg
-                )
-        else:
-            seen[key] = i
+        seen.setdefault(key, []).append(i)
+
+    for key, idxs in seen.items():
+        archivos = {
+            (records[idx].get("Archivo Imagen") or "").strip().lower()
+            for idx in idxs
+        }
+        if len(archivos) <= 1:
+            continue
+        for idx in idxs:
+            records[idx]["Estado"] = "DUPLICADO POSIBLE"
+            prev = records[idx].get("Observación", "")
+            dup_msg = f"Posible duplicado de N°op {key[0]}"
+            records[idx]["Observación"] = (
+                (prev + " | " + dup_msg).strip(" |") if prev else dup_msg
+            )
 
     # Limpiar campos internos
     for r in records:

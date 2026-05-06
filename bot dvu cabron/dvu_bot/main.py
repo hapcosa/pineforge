@@ -14,22 +14,38 @@ from __future__ import annotations
 
 import logging
 import sys
+import argparse
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from config import (
-    CHAT_FILE,
-    IMAGE_EXTENSIONS,
-    LOG_DIR,
-    LOG_FILE,
-    MEDIA_DIR,
-    OUTPUT_XLSX,
-)
-from excel import write_excel
-from extractor import extract_from_ocr, extract_from_whatsapp
-from ocr import ocr_image
-from parser_whatsapp import WhatsAppMessage, parse_chat
-from validator import validate_records
+try:
+    from .config import (
+        CHAT_FILE,
+        LOG_DIR,
+        LOG_FILE,
+        MEDIA_DIR,
+        MEDIA_EXTENSIONS,
+        OUTPUT_XLSX,
+    )
+    from .excel import write_excel
+    from .extractor import extract_from_ocr, extract_from_whatsapp
+    from .ocr import extract_text
+    from .parser_whatsapp import WhatsAppMessage, parse_chat
+    from .validator import validate_records
+except ImportError:  # Permite ejecutar python dvu_bot/main.py
+    from config import (
+        CHAT_FILE,
+        LOG_DIR,
+        LOG_FILE,
+        MEDIA_DIR,
+        MEDIA_EXTENSIONS,
+        OUTPUT_XLSX,
+    )
+    from excel import write_excel
+    from extractor import extract_from_ocr, extract_from_whatsapp
+    from ocr import extract_text
+    from parser_whatsapp import WhatsAppMessage, parse_chat
+    from validator import validate_records
 
 
 # ─── LOGGING ───────────────────────────────────────────────────
@@ -58,7 +74,7 @@ def _index_media(media_dir: Path) -> Dict[str, Path]:
     if not media_dir.exists():
         return idx
     for p in media_dir.iterdir():
-        if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS:
+        if p.is_file() and p.suffix.lower() in MEDIA_EXTENSIONS:
             idx[p.name.lower()] = p
     return idx
 
@@ -84,7 +100,7 @@ def build_records(messages: List[WhatsAppMessage], media_dir: Path) -> List[Dict
     records: List[Dict] = []
 
     logger.info(
-        f"Procesando {len(messages)} mensajes y {len(media_idx)} imagenes..."
+        f"Procesando {len(messages)} mensajes y {len(media_idx)} adjuntos..."
     )
 
     for msg in messages:
@@ -103,8 +119,8 @@ def build_records(messages: List[WhatsAppMessage], media_dir: Path) -> List[Dict
 
         if img_path is not None:
             orphan_images.discard(img_path)
-            logger.info(f"OCR → {img_path.name}")
-            ocr_text = ocr_image(img_path)
+            logger.info(f"Extrayendo texto → {img_path.name}")
+            ocr_text = extract_text(img_path)
             if ocr_text:
                 ocr_data = extract_from_ocr(ocr_text)
 
@@ -130,10 +146,10 @@ def build_records(messages: List[WhatsAppMessage], media_dir: Path) -> List[Dict
             "_es_abono": wa["es_abono"],
         })
 
-    # Imagenes huerfanas (sin mensaje asociado): se incluyen como filas sueltas
+    # Adjuntos huerfanos (sin mensaje asociado): se incluyen como filas sueltas
     for orphan in orphan_images:
-        logger.info(f"OCR huerfano → {orphan.name}")
-        ocr_text = ocr_image(orphan)
+        logger.info(f"Texto huerfano → {orphan.name}")
+        ocr_text = extract_text(orphan)
         ocr_data = extract_from_ocr(ocr_text) if ocr_text else {
             "monto": None, "banco": "", "rut": "", "n_operacion": "",
             "cuenta_origen": "", "cuenta_destino": "", "fecha_tx": "", "hora_tx": "",
@@ -163,7 +179,15 @@ def build_records(messages: List[WhatsAppMessage], media_dir: Path) -> List[Dict
     return records
 
 
-def main() -> int:
+def main(argv: Optional[List[str]] = None) -> int:
+    parser = argparse.ArgumentParser(description="Procesa comprobantes DVU desde WhatsApp.")
+    parser.add_argument(
+        "--reconciliar",
+        action="store_true",
+        help="Al terminar el bot, cruza comprobantes contra input/cartola.xlsx.",
+    )
+    args = parser.parse_args(argv)
+
     setup_logging()
     logger.info("═══ DVU COMPROBANTES BOT ═══")
 
@@ -205,6 +229,20 @@ def main() -> int:
         logger.info(f"  {estado}: {n}")
 
     logger.info(f"Listo. Excel en: {OUTPUT_XLSX}")
+
+    if args.reconciliar:
+        try:
+            try:
+                from .reconciliar import reconciliar
+            except ImportError:
+                from reconciliar import reconciliar
+
+            output_path = reconciliar()
+            logger.info(f"Reconciliacion lista en: {output_path}")
+        except Exception as e:
+            logger.exception(f"Error ejecutando reconciliacion: {e}")
+            return 4
+
     return 0
 
 

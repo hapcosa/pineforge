@@ -12,6 +12,8 @@ MEDIA_DIR = INPUT_DIR / "media"
 CHAT_FILE = INPUT_DIR / "chat.txt"
 OUTPUT_DIR = BASE_DIR / "output"
 OUTPUT_XLSX = OUTPUT_DIR / "comprobantes_dvu.xlsx"
+RECONCILIACION_XLSX = OUTPUT_DIR / "reconciliacion_dvu.xlsx"
+CARTOLA_XLSX = INPUT_DIR / "cartola.xlsx"
 LOG_DIR = BASE_DIR / "logs"
 LOG_FILE = LOG_DIR / "dvu_bot.log"
 
@@ -21,6 +23,10 @@ OCR_GPU = False  # True si hay CUDA disponible
 
 # Extensiones de imagen aceptadas
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+# Extensiones de PDF aceptadas (procesadas por extract_pdf_text)
+PDF_EXTENSIONS = {".pdf"}
+# Conjunto total de adjuntos procesables
+MEDIA_EXTENSIONS = IMAGE_EXTENSIONS | PDF_EXTENSIONS
 
 # ─── REGEX / PARSING ───────────────────────────────────────────
 # Umbral de confianza para detectar cliente
