@@ -1,0 +1,533 @@
+//@version=6
+// ════════════════════════════════════════════════════════════════════════════
+//  JULIO NACCI  ·  Confluencia MTF  ·  Fibo + EMA + FVG + Wyckoff + Sesiones
+//  Pine Script v6 · overlay · estética cyber institucional
+// ════════════════════════════════════════════════════════════════════════════
+indicator("Julio Nacci", shorttitle="JNACCI", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=2000)
+
+// ════════════════ GRUPOS ════════════════
+G_PROF = "⓪ Perfil de Trading"
+G_EMA  = "① EMAs"
+G_FIB  = "② Fibonacci Auto"
+G_FVG  = "③ FVG Multiframe"
+G_WY   = "④ Pivots & Fases Wyckoff"
+G_SES  = "⑤ Sesiones"
+G_SIG  = "⑥ Señales Buy/Sell"
+G_LVL  = "⑦ Niveles PDH/PDL"
+G_VIS  = "⑧ Dashboard"
+
+// ════════════════ ⓪ PERFIL ════════════════
+profile = input.string("Swing Trading", "Perfil", options=["Scalping (NY)","Swing Trading","Manual"], group=G_PROF, tooltip="Scalping (NY): EMA 9/21/50, pivots cortos, FVG 15m/1H/4H, opera SOLO en sesión NY. Swing: EMA 50/100/200, pivots largos, FVG 4H/1D/1W. Manual: usa los valores configurados abajo.")
+
+// ════════════════ ① INPUTS EMA ════════════════
+emaLen1   = input.int(50,  "EMA rápida",  minval=1, group=G_EMA, inline="e1")
+emaLen2   = input.int(100, "EMA media",   minval=1, group=G_EMA, inline="e1")
+emaLen3   = input.int(200, "EMA lenta",   minval=1, group=G_EMA, inline="e1")
+showEMA   = input.bool(true, "Mostrar EMAs", group=G_EMA)
+showCloud = input.bool(true, "Cloud entre EMA50/EMA200", group=G_EMA)
+emaUpCol  = input.color(#00e676, "Alcista", group=G_EMA, inline="ec")
+emaDnCol  = input.color(#ff1744, "Bajista", group=G_EMA, inline="ec")
+
+// ════════════════ ② INPUTS FIBO ════════════════
+showFib   = input.bool(true, "Mostrar Fibonacci", group=G_FIB)
+fibPivL   = input.int(15, "Pivot izq", minval=1, maxval=50, group=G_FIB, inline="fp")
+fibPivR   = input.int(15, "Pivot der", minval=1, maxval=50, group=G_FIB, inline="fp")
+fibCol    = input.color(color.new(#787b86, 25), "Color niveles", group=G_FIB, inline="fd")
+fibGold   = input.color(color.new(#ffb300, 0),  "Color 0.618",   group=G_FIB, inline="fd")
+fibLabels = input.bool(true, "Mostrar etiquetas", group=G_FIB)
+
+// ════════════════ ③ INPUTS FVG MTF ════════════════
+showFVG  = input.bool(true, "Activar FVG MTF (solo no mitigados)", group=G_FVG)
+fvgUse1  = input.bool(true,  "FVG TF1", group=G_FVG, inline="fv1")
+fvgTf1in = input.timeframe("240", "", group=G_FVG, inline="fv1")
+col1     = input.color(color.new(#26c6da, 80), "", group=G_FVG, inline="fv1")
+fvgUse2  = input.bool(true,  "FVG TF2", group=G_FVG, inline="fv2")
+fvgTf2in = input.timeframe("D", "", group=G_FVG, inline="fv2")
+col2     = input.color(color.new(#ab47bc, 80), "", group=G_FVG, inline="fv2")
+fvgUse3  = input.bool(true,  "FVG TF3", group=G_FVG, inline="fv3")
+fvgTf3in = input.timeframe("W", "", group=G_FVG, inline="fv3")
+col3     = input.color(color.new(#ffa726, 78), "", group=G_FVG, inline="fv3")
+fvgExt   = input.int(8, "Extensión der (velas)", minval=1, maxval=100, group=G_FVG)
+fvgMax   = input.int(60, "Máx cajas FVG", minval=5, maxval=200, group=G_FVG)
+
+// ════════════════ ④ INPUTS WYCKOFF ════════════════
+showPhase = input.bool(true, "Mostrar fase Wyckoff", group=G_WY)
+wyPivL    = input.int(8, "Pivot izq", minval=1, maxval=50, group=G_WY, inline="wp")
+wyPivR    = input.int(8, "Pivot der", minval=1, maxval=50, group=G_WY, inline="wp")
+showPivots= input.bool(true, "Marcar pivots HH/LL", group=G_WY)
+
+// ════════════════ ⑤ INPUTS SESIONES ════════════════
+showSes              = input.bool(true,  "Mostrar sesiones",              group=G_SES)
+showSessionNames     = input.bool(true,  "Nombres de sesión",             group=G_SES)
+showSessionOC        = input.bool(true,  "Líneas open/close",             group=G_SES)
+showSessionTickRange = input.bool(false, "Rango (ticks) por sesión",      group=G_SES)
+showSessionAverage   = input.bool(false, "Precio promedio por sesión",    group=G_SES)
+showSessionOpen      = input.bool(true,  "Precio de entrada (open sesión)", group=G_SES)
+const string TZ_TT   = "Zona horaria: GMT (ej 'GMT-5') o IANA (ej 'America/New_York')."
+
+showFirst         = input.bool(true, "Sesión 1", group=G_SES, inline="se1")
+firstSessionName  = input.string("Tokyo", "", group=G_SES, inline="se1")
+firstSessionTime  = input.session("0900-1500", "", group=G_SES, inline="se1")
+firstSessionTZ    = input.string("Asia/Tokyo", "TZ", group=G_SES, inline="se1b", tooltip=TZ_TT)
+firstSessionColor = input.color(color.new(#2962FF, 85), "Color", group=G_SES, inline="se1b")
+
+showSecond         = input.bool(true, "Sesión 2", group=G_SES, inline="se2")
+secondSessionName  = input.string("London", "", group=G_SES, inline="se2")
+secondSessionTime  = input.session("0800-1630", "", group=G_SES, inline="se2")
+secondSessionTZ    = input.string("Europe/London", "TZ", group=G_SES, inline="se2b", tooltip=TZ_TT)
+secondSessionColor = input.color(color.new(#FF9800, 85), "Color", group=G_SES, inline="se2b")
+
+showThird         = input.bool(true, "Sesión 3", group=G_SES, inline="se3")
+thirdSessionName  = input.string("New York", "", group=G_SES, inline="se3")
+thirdSessionTime  = input.session("0930-1600", "", group=G_SES, inline="se3")
+thirdSessionTZ    = input.string("America/New_York", "TZ", group=G_SES, inline="se3b", tooltip=TZ_TT)
+thirdSessionColor = input.color(color.new(#089981, 85), "Color", group=G_SES, inline="se3b")
+
+// ════════════════ ⑥ INPUTS SEÑALES ════════════════
+showSignals = input.bool(true, "Mostrar señales Buy/Sell", group=G_SIG)
+useSig1     = input.bool(true, "S1 · Golden Pocket + FVG", group=G_SIG)
+useSig2     = input.bool(true, "S2 · EMA + sesión NY",     group=G_SIG)
+useSig3     = input.bool(true, "S3 · Wyckoff + FVG",       group=G_SIG)
+useSig4     = input.bool(true, "S4 · Liquidity sweep PDH/PDL", group=G_SIG)
+
+// ════════════════ ⑦ INPUTS NIVELES ════════════════
+showPDHL = input.bool(true, "Mostrar PDH / PDL", group=G_LVL)
+pdCol    = input.color(color.new(#b0bec5, 0), "Color", group=G_LVL)
+
+// ════════════════ ⑧ INPUTS DASHBOARD ════════════════
+showDash  = input.bool(true, "Mostrar dashboard", group=G_VIS)
+dashPos   = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PARÁMETROS EFECTIVOS SEGÚN PERFIL
+// ════════════════════════════════════════════════════════════════════════════
+bool isScalp  = profile == "Scalping (NY)"
+bool isManual = profile == "Manual"
+int    eL1   = isManual ? emaLen1 : isScalp ? 9   : 50
+int    eL2   = isManual ? emaLen2 : isScalp ? 21  : 100
+int    eL3   = isManual ? emaLen3 : isScalp ? 50  : 200
+int    fPivL = isManual ? fibPivL : isScalp ? 5   : 20
+int    fPivR = isManual ? fibPivR : isScalp ? 5   : 20
+int    wPivL = isManual ? wyPivL  : isScalp ? 4   : 10
+int    wPivR = isManual ? wyPivR  : isScalp ? 4   : 10
+string fvgTf1 = isManual ? fvgTf1in : isScalp ? "15"  : "240"
+string fvgTf2 = isManual ? fvgTf2in : isScalp ? "60"  : "D"
+string fvgTf3 = isManual ? fvgTf3in : isScalp ? "240" : "W"
+
+f_tfName(tf) => tf == "15" ? "15m" : tf == "30" ? "30m" : tf == "60" ? "1H" : tf == "120" ? "2H" : tf == "240" ? "4H" : tf == "D" ? "1D" : tf == "W" ? "1W" : tf
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ① EMAs
+// ════════════════════════════════════════════════════════════════════════════
+float ema1 = ta.ema(close, eL1)
+float ema2 = ta.ema(close, eL2)
+float ema3 = ta.ema(close, eL3)
+
+int emaTrend = (ema1 > ema2 and ema2 > ema3) ? 1 : (ema1 < ema2 and ema2 < ema3) ? -1 : 0
+color emaTrendCol = (emaTrend > 0 ? emaUpCol : emaTrend < 0 ? emaDnCol : color.gray)
+
+p1 = plot(showEMA ? ema1 : na, "EMA 50",  color=color.new(#90caf9, 0),  linewidth=1)
+plot(showEMA ? ema2 : na,      "EMA 100", color=color.new(#ce93d8, 0),  linewidth=1)
+p3 = plot(showEMA ? ema3 : na, "EMA 200", color=color.new(#ffcc80, 0),  linewidth=2)
+fill(p1, p3, color=(showEMA and showCloud) ? color.new(emaTrendCol, 88) : na, title="EMA Cloud")
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ② PIVOTS + FIBONACCI AUTO
+// ════════════════════════════════════════════════════════════════════════════
+float pvHiFib = ta.pivothigh(high, fPivL, fPivR)
+float pvLoFib = ta.pivotlow(low,  fPivL, fPivR)
+
+var float swHigh  = na
+var float swLow   = na
+var int   swHighT = na
+var int   swLowT  = na
+
+if not na(pvHiFib)
+    swHigh  := pvHiFib
+    swHighT := time[fPivR]
+if not na(pvLoFib)
+    swLow  := pvLoFib
+    swLowT := time[fPivR]
+
+var array<line>  fibLines  = array.new_line()
+var array<label> fibLblArr = array.new_label()
+var float fib500 = na
+var float fib618 = na
+
+f_clearFib() =>
+    if array.size(fibLines) > 0
+        for i = 0 to array.size(fibLines) - 1
+            line.delete(array.get(fibLines, i))
+        array.clear(fibLines)
+    if array.size(fibLblArr) > 0
+        for i = 0 to array.size(fibLblArr) - 1
+            label.delete(array.get(fibLblArr, i))
+        array.clear(fibLblArr)
+
+f_addFib(ratio, price, isGold, x1t) =>
+    color c = isGold ? fibGold : fibCol
+    int   w = isGold ? 2 : 1
+    ln = line.new(x1t, price, time, price, xloc=xloc.bar_time, extend=extend.right, color=c, width=w, style=line.style_solid)
+    array.push(fibLines, ln)
+    if fibLabels
+        lbl = label.new(time, price, str.tostring(ratio, "#.###"), xloc=xloc.bar_time, style=label.style_none, textcolor=c, size=size.small)
+        array.push(fibLblArr, lbl)
+
+bool newPivot = (not na(pvHiFib)) or (not na(pvLoFib))
+
+if showFib and newPivot and not na(swHigh) and not na(swLow)
+    f_clearFib()
+    float hi  = math.max(swHigh, swLow)
+    float lo  = math.min(swHigh, swLow)
+    float rng = hi - lo
+    bool  up  = swHighT >= swLowT
+    int   x1t = swHighT < swLowT ? swHighT : swLowT
+    // minimalista: solo 0.382 / 0.5 / 0.618 (0 = extremo del movimiento, 1 = origen)
+    fib500 := up ? hi - rng * 0.5   : lo + rng * 0.5
+    fib618 := up ? hi - rng * 0.618 : lo + rng * 0.618
+    f_addFib(0.382, up ? hi - rng * 0.382 : lo + rng * 0.382, false, x1t)
+    f_addFib(0.5,   fib500, false, x1t)
+    f_addFib(0.618, fib618, true,  x1t)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ③ FVG MULTIFRAME (4H / 1D / Semanal) — cajas, solo no mitigados
+// ════════════════════════════════════════════════════════════════════════════
+// Devuelve [bullFlag, bullBot, bullTop, bearFlag, bearBot, bearTop]
+f_fvg() =>
+    bool  bull = low > high[2]
+    bool  bear = high < low[2]
+    [bull ? 1.0 : 0.0, high[2], low, bear ? 1.0 : 0.0, high, low[2]]
+
+[t1bf, t1bb, t1bt, t1sf, t1sb, t1st] = request.security(syminfo.tickerid, fvgTf1, f_fvg(), lookahead=barmerge.lookahead_off)
+[t2bf, t2bb, t2bt, t2sf, t2sb, t2st] = request.security(syminfo.tickerid, fvgTf2, f_fvg(), lookahead=barmerge.lookahead_off)
+[t3bf, t3bb, t3bt, t3sf, t3sb, t3st] = request.security(syminfo.tickerid, fvgTf3, f_fvg(), lookahead=barmerge.lookahead_off)
+
+var array<box>   fvgBoxes = array.new_box()
+var array<label> fvgLbls  = array.new_label()
+var array<bool>  fvgBull  = array.new_bool()
+
+f_pushFvg(topLvl, botLvl, col, name, isBull) =>
+    if array.size(fvgBoxes) >= fvgMax
+        box.delete(array.shift(fvgBoxes))
+        label.delete(array.shift(fvgLbls))
+        array.shift(fvgBull)
+    string dirTxt = isBull ? " Bullish" : " Bearish"
+    bx = box.new(bar_index, topLvl, bar_index + fvgExt, botLvl, border_color=color.new(col, 20), bgcolor=col, border_width=1)
+    lbl = label.new(bar_index + fvgExt, topLvl, name + dirTxt, xloc=xloc.bar_index, style=label.style_label_left, color=color.new(col, 20), textcolor=color.white, size=size.tiny)
+    array.push(fvgBoxes, bx)
+    array.push(fvgLbls, lbl)
+    array.push(fvgBull, isBull)
+
+if showFVG and barstate.isconfirmed
+    // TF1
+    if fvgUse1 and t1bf == 1.0 and (t1bf[1] != 1.0 or t1bt != t1bt[1])
+        f_pushFvg(t1bt, t1bb, col1, f_tfName(fvgTf1), true)
+    if fvgUse1 and t1sf == 1.0 and (t1sf[1] != 1.0 or t1st != t1st[1])
+        f_pushFvg(t1st, t1sb, col1, f_tfName(fvgTf1), false)
+    // TF2
+    if fvgUse2 and t2bf == 1.0 and (t2bf[1] != 1.0 or t2bt != t2bt[1])
+        f_pushFvg(t2bt, t2bb, col2, f_tfName(fvgTf2), true)
+    if fvgUse2 and t2sf == 1.0 and (t2sf[1] != 1.0 or t2st != t2st[1])
+        f_pushFvg(t2st, t2sb, col2, f_tfName(fvgTf2), false)
+    // TF3
+    if fvgUse3 and t3bf == 1.0 and (t3bf[1] != 1.0 or t3bt != t3bt[1])
+        f_pushFvg(t3bt, t3bb, col3, f_tfName(fvgTf3), true)
+    if fvgUse3 and t3sf == 1.0 and (t3sf[1] != 1.0 or t3st != t3st[1])
+        f_pushFvg(t3st, t3sb, col3, f_tfName(fvgTf3), false)
+
+// mitigación (precio entra a la caja) + extensión derecha
+// flags de evento para señales: FVG tocado/mitigado esta barra
+bool bullFvgMit = false
+bool bearFvgMit = false
+if array.size(fvgBoxes) > 0
+    int i = array.size(fvgBoxes) - 1
+    while i >= 0
+        box   bx  = array.get(fvgBoxes, i)
+        label lb  = array.get(fvgLbls, i)
+        bool  isB = array.get(fvgBull, i)
+        if low <= box.get_top(bx) and high >= box.get_bottom(bx)
+            box.delete(bx)
+            label.delete(lb)
+            array.remove(fvgBoxes, i)
+            array.remove(fvgLbls, i)
+            array.remove(fvgBull, i)
+            if isB
+                bullFvgMit := true
+            else
+                bearFvgMit := true
+        else
+            box.set_right(bx, bar_index + fvgExt)
+            label.set_x(lb, bar_index + fvgExt)
+        i := i - 1
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ④ PIVOTS + FASES WYCKOFF
+// ════════════════════════════════════════════════════════════════════════════
+float pvHiWy = ta.pivothigh(high, wPivL, wPivR)
+float pvLoWy = ta.pivotlow(low,  wPivL, wPivR)
+
+var float h1 = na
+var float h2 = na
+var float l1 = na
+var float l2 = na
+
+if not na(pvHiWy)
+    h2 := h1
+    h1 := pvHiWy
+if not na(pvLoWy)
+    l2 := l1
+    l1 := pvLoWy
+
+bool HH = not na(h1) and not na(h2) and h1 > h2
+bool LH = not na(h1) and not na(h2) and h1 < h2
+bool HL = not na(l1) and not na(l2) and l1 > l2
+bool LL = not na(l1) and not na(l2) and l1 < l2
+
+// etiquetas de estructura HH / LH / HL / LL
+var array<label> structLbls = array.new_label()
+const int MAX_STRUCT = 40
+
+f_structLbl(txt, x, y, isHigh, col) =>
+    if array.size(structLbls) >= MAX_STRUCT
+        label.delete(array.shift(structLbls))
+    l = label.new(x, y, txt, xloc=xloc.bar_index, style=(isHigh ? label.style_label_down : label.style_label_up), color=color.new(col, 85), textcolor=col, size=size.tiny)
+    array.push(structLbls, l)
+
+if showPivots and not na(pvHiWy)
+    f_structLbl(HH ? "HH" : "LH", bar_index - wPivR, pvHiWy, true, HH ? emaUpCol : emaDnCol)
+if showPivots and not na(pvLoWy)
+    f_structLbl(LL ? "LL" : "HL", bar_index - wPivR, pvLoWy, false, LL ? emaDnCol : emaUpCol)
+
+var string phase = "—"
+if HH and HL
+    phase := "MARKUP"
+else if LL and LH
+    phase := "MARKDOWN"
+else if HL and LH
+    phase := (close < ema3 ? "ACUMULACION" : "DISTRIBUCION")
+else if HH and LL
+    phase := (close > ema3 ? "DISTRIBUCION" : "ACUMULACION")
+
+color phaseCol = (phase == "MARKUP" ? emaUpCol : phase == "MARKDOWN" ? emaDnCol : phase == "ACUMULACION" ? color.aqua : phase == "DISTRIBUCION" ? color.orange : color.gray)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ⑤ SESIONES (cajas estilo TradingView · timezone IANA)
+// ════════════════════════════════════════════════════════════════════════════
+// booleanos "en sesión" para el dashboard
+bool inS1 = showSes and showFirst  and not na(time(timeframe.period, firstSessionTime,  firstSessionTZ))
+bool inS2 = showSes and showSecond and not na(time(timeframe.period, secondSessionTime, secondSessionTZ))
+bool inS3 = showSes and showThird  and not na(time(timeframe.period, thirdSessionTime,  thirdSessionTZ))
+bool inOverlap = inS2 and inS3
+
+type SessionDisplay
+    box   sessionBox
+    label sessionLabel
+    line  openLine
+    line  avgLine
+    line  closeLine
+    float sumClose
+    int   numOfBars
+    float openPrice
+
+type SessionInfo
+    color  color
+    string name
+    string session
+    string timezone
+    SessionDisplay active = na
+
+method setName(SessionDisplay this, string name) =>
+    sessionLabel = this.sessionLabel
+    sessionBox = this.sessionBox
+    boxText = array.new<string>()
+    if showSessionTickRange
+        boxText.push("Range: " + str.tostring((sessionBox.get_top() - sessionBox.get_bottom()) / syminfo.mintick, format.mintick))
+    if showSessionAverage
+        boxText.push("Avg: " + str.tostring(this.sumClose / this.numOfBars, format.mintick))
+    if showSessionOpen
+        boxText.push("Entry: " + str.tostring(this.openPrice, format.mintick))
+    if showSessionNames
+        boxText.push(name)
+    sessionLabel.set_y(sessionBox.get_bottom())
+    sessionLabel.set_text(array.join(boxText, "\n"))
+
+method createSessionDisplay(SessionInfo this) =>
+    boxColor = this.color
+    opaqueColor = color.new(boxColor, 0)
+    dis = SessionDisplay.new(
+      sessionBox = box.new(bar_index, high, bar_index, low, bgcolor = boxColor, border_color = na),
+      sessionLabel = label.new(bar_index, low, "", style = label.style_label_upper_left, textalign = text.align_left, textcolor = opaqueColor, color = color(na)),
+      openLine   = showSessionOC ? line.new(bar_index, open, bar_index, open, color = opaqueColor, style = line.style_dashed, width = 1) : na,
+      closeLine  = showSessionOC ? line.new(bar_index, close, bar_index, close, color = opaqueColor, style = line.style_dashed, width = 1) : na,
+      avgLine    = showSessionAverage ? line.new(bar_index, close, bar_index, close, style = line.style_dotted, width = 2, color = opaqueColor) : na,
+      sumClose   = close,
+      numOfBars  = 1,
+      openPrice  = open
+      )
+    linefill.new(dis.openLine, dis.closeLine, boxColor)
+    dis.setName(this.name)
+    this.active := dis
+
+method updateSessionDisplay(SessionInfo this) =>
+    sessionDisp = this.active
+    sessionBox = sessionDisp.sessionBox
+    openLine = sessionDisp.openLine
+    closeLine = sessionDisp.closeLine
+    avgLine = sessionDisp.avgLine
+    sessionDisp.sumClose += close
+    sessionDisp.numOfBars += 1
+    sessionBox.set_top(math.max(sessionBox.get_top(), high))
+    sessionBox.set_bottom(math.min(sessionBox.get_bottom(), low))
+    sessionBox.set_right(bar_index)
+    sessionDisp.setName(this.name)
+    if showSessionOC
+        openLine.set_x2(bar_index)
+        closeLine.set_x2(bar_index)
+        closeLine.set_y1(close)
+        closeLine.set_y2(close)
+    if showSessionAverage
+        avgLine.set_x2(bar_index)
+        avg = sessionDisp.sumClose / sessionDisp.numOfBars
+        avgLine.set_y1(avg)
+        avgLine.set_y2(avg)
+    sessionDisp
+
+method update(SessionInfo this) =>
+    bool isChange = timeframe.change("1D")
+    if (not na(time("", this.session, this.timezone)))
+        if na(this.active) or isChange
+            this.createSessionDisplay()
+        else
+            this.updateSessionDisplay()
+    else if not na(this.active)
+        this.active := na
+
+getSessionInfos() =>
+    array<SessionInfo> sessionInfos = array.new<SessionInfo>()
+    if showFirst
+        sessionInfos.push(SessionInfo.new(firstSessionColor, firstSessionName, firstSessionTime, firstSessionTZ))
+    if showSecond
+        sessionInfos.push(SessionInfo.new(secondSessionColor, secondSessionName, secondSessionTime, secondSessionTZ))
+    if showThird
+        sessionInfos.push(SessionInfo.new(thirdSessionColor, thirdSessionName, thirdSessionTime, thirdSessionTZ))
+    sessionInfos
+
+var array<SessionInfo> sessionInfos = getSessionInfos()
+if showSes and not timeframe.isdwm
+    for info in sessionInfos
+        info.update()
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ⑦ PDH / PDL (máximo y mínimo del día previo)
+// ════════════════════════════════════════════════════════════════════════════
+[pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead=barmerge.lookahead_off)
+
+var line  pdhLine = na
+var line  pdlLine = na
+var label pdhLb   = na
+var label pdlLb   = na
+if showPDHL and not na(pdh) and not timeframe.isdwm
+    if na(pdhLine)
+        pdhLine := line.new(bar_index, pdh, bar_index + 1, pdh, extend=extend.right, color=pdCol, style=line.style_dotted, width=1)
+        pdlLine := line.new(bar_index, pdl, bar_index + 1, pdl, extend=extend.right, color=pdCol, style=line.style_dotted, width=1)
+        pdhLb   := label.new(bar_index, pdh, "PDH", xloc=xloc.bar_index, style=label.style_none, textcolor=pdCol, size=size.tiny)
+        pdlLb   := label.new(bar_index, pdl, "PDL", xloc=xloc.bar_index, style=label.style_none, textcolor=pdCol, size=size.tiny)
+    else
+        line.set_xy1(pdhLine, bar_index, pdh)
+        line.set_xy2(pdhLine, bar_index + 1, pdh)
+        line.set_xy1(pdlLine, bar_index, pdl)
+        line.set_xy2(pdlLine, bar_index + 1, pdl)
+        label.set_xy(pdhLb, bar_index, pdh)
+        label.set_xy(pdlLb, bar_index, pdl)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ⑧ MOTOR DE SEÑALES (4 estrategias)
+// ════════════════════════════════════════════════════════════════════════════
+bool trendUp = emaTrend > 0
+bool trendDn = emaTrend < 0
+bool inGP    = not na(fib500) and not na(fib618) and low <= math.max(fib500, fib618) and high >= math.min(fib500, fib618)
+bool tradingOK = isScalp ? inS3 : true  // scalping: solo sesión NY
+
+// S1 · Golden Pocket + FVG (a favor de tendencia)
+bool long1  = trendUp and close > ema3 and inGP and bullFvgMit
+bool short1 = trendDn and close < ema3 and inGP and bearFvgMit
+// S2 · EMA + sesión NY (pullback a EMA rápida durante NY)
+bool long2  = trendUp and inS3 and ta.crossover(close, ema1)
+bool short2 = trendDn and inS3 and ta.crossunder(close, ema1)
+// S3 · Wyckoff + FVG (reversión en fase)
+bool long3  = phase == "ACUMULACION" and bullFvgMit
+bool short3 = phase == "DISTRIBUCION" and bearFvgMit
+// S4 · Liquidity sweep PDH/PDL (turtle soup)
+bool long4  = not na(pdl) and low < pdl and close > pdl
+bool short4 = not na(pdh) and high > pdh and close < pdh
+
+bool longSig  = showSignals and tradingOK and barstate.isconfirmed and ((useSig1 and long1) or (useSig2 and long2) or (useSig3 and long3) or (useSig4 and long4))
+bool shortSig = showSignals and tradingOK and barstate.isconfirmed and ((useSig1 and short1) or (useSig2 and short2) or (useSig3 and short3) or (useSig4 and short4))
+
+plotshape(longSig,  title="BUY",  style=shape.labelup,   location=location.belowbar, color=color.new(emaUpCol, 0), textcolor=color.white, text="BUY",  size=size.tiny)
+plotshape(shortSig, title="SELL", style=shape.labeldown, location=location.abovebar, color=color.new(emaDnCol, 0), textcolor=color.white, text="SELL", size=size.tiny)
+
+var string lastSig    = "—"
+var color  lastSigCol = color.gray
+if longSig
+    lastSig    := "BUY"
+    lastSigCol := emaUpCol
+if shortSig
+    lastSig    := "SELL"
+    lastSigCol := emaDnCol
+
+alertcondition(longSig,  title="JNACCI BUY",  message="JNACCI BUY {{ticker}} @ {{close}}")
+alertcondition(shortSig, title="JNACCI SELL", message="JNACCI SELL {{ticker}} @ {{close}}")
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ⑨ DASHBOARD
+// ════════════════════════════════════════════════════════════════════════════
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+
+var table dash = table.new(f_pos(dashPos), 2, 10, bgcolor=color.new(#0d1117, 10), border_color=color.new(color.gray, 60), border_width=1, frame_color=color.new(color.gray, 40), frame_width=1)
+
+if showDash and barstate.islast
+    string emaTxt = (emaTrend > 0 ? "ALCISTA" : emaTrend < 0 ? "BAJISTA" : "RANGO")
+    string sesTxt = (inS2 and inS3) ? (secondSessionName + "+" + thirdSessionName) : inS3 ? thirdSessionName : inS2 ? secondSessionName : inS1 ? firstSessionName : "Cerrado"
+    string fibDir = (na(swHigh) or na(swLow)) ? "—" : (swHighT >= swLowT ? "Swing ▲" : "Swing ▼")
+    // FVG más cercano al precio
+    float nearDist = na
+    float nearLvl  = na
+    if array.size(fvgBoxes) > 0
+        for i = 0 to array.size(fvgBoxes) - 1
+            box   bx  = array.get(fvgBoxes, i)
+            float mid = (box.get_top(bx) + box.get_bottom(bx)) / 2.0
+            float d   = math.abs(close - mid)
+            if na(nearDist) or d < nearDist
+                nearDist := d
+                nearLvl  := mid
+    string fvgTxt = na(nearLvl) ? "ninguno" : str.tostring(nearLvl, format.mintick) + " (" + str.tostring(array.size(fvgBoxes)) + ")"
+    string pdTxt  = (na(pdh) or na(pdl)) ? "—" : str.tostring(pdh, format.mintick) + " / " + str.tostring(pdl, format.mintick)
+
+    table.cell(dash, 0, 0, "JULIO NACCI", text_color=color.white, bgcolor=color.new(#1f6feb, 20), text_size=size.normal)
+    table.cell(dash, 1, 0, syminfo.ticker + " · " + timeframe.period, text_color=color.white, bgcolor=color.new(#1f6feb, 20), text_size=size.small)
+    table.cell(dash, 0, 1, "Perfil", text_color=color.gray, text_size=size.small)
+    table.cell(dash, 1, 1, profile, text_color=color.white, text_size=size.small)
+    table.cell(dash, 0, 2, "Tendencia EMA", text_color=color.gray, text_size=size.small)
+    table.cell(dash, 1, 2, emaTxt, text_color=emaTrendCol, text_size=size.small)
+    table.cell(dash, 0, 3, "Fase Wyckoff", text_color=color.gray, text_size=size.small)
+    table.cell(dash, 1, 3, showPhase ? phase : "—", text_color=phaseCol, text_size=size.small)
+    table.cell(dash, 0, 4, "Fibo activo", text_color=color.gray, text_size=size.small)
+    table.cell(dash, 1, 4, fibDir, text_color=fibGold, text_size=size.small)
+    table.cell(dash, 0, 5, "FVG cercano", text_color=color.gray, text_size=size.small)
+    table.cell(dash, 1, 5, fvgTxt, text_color=color.aqua, text_size=size.small)
+    table.cell(dash, 0, 6, "PDH / PDL", text_color=color.gray, text_size=size.small)
+    table.cell(dash, 1, 6, pdTxt, text_color=pdCol, text_size=size.small)
+    table.cell(dash, 0, 7, "Sesión", text_color=color.gray, text_size=size.small)
+    table.cell(dash, 1, 7, sesTxt, text_color=(inOverlap ? color.yellow : color.white), text_size=size.small)
+    table.cell(dash, 0, 8, "Última señal", text_color=color.gray, text_size=size.small)
+    table.cell(dash, 1, 8, lastSig, text_color=lastSigCol, text_size=size.small)
+    table.cell(dash, 0, 9, "Precio", text_color=color.gray, text_size=size.small)
+    table.cell(dash, 1, 9, str.tostring(close, format.mintick), text_color=color.white, text_size=size.small)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(ta.crossover(ema1, ema3),  title="EMA50 cruza arriba EMA200", message="JNACCI Golden Cross: {{ticker}}")
+alertcondition(ta.crossunder(ema1, ema3), title="EMA50 cruza abajo EMA200",  message="JNACCI Death Cross: {{ticker}}")
