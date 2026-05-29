@@ -1,0 +1,570 @@
+//@version=6
+// ════════════════════════════════════════════════════════════════════════════
+//  CONFLUENCE MATRIX PRO  ·  v6  ·  Estética Cyber Institucional
+//  LÓGICA INTACTA — solo refinamiento visual, paleta y dashboard.
+// ════════════════════════════════════════════════════════════════════════════
+strategy(title="Confluence Matrix PRO", shorttitle="CMX PRO", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=2, commission_type=strategy.commission.percent, commission_value=0.05, pyramiding=0, process_orders_on_close=true, max_boxes_count=300, max_labels_count=300, max_lines_count=300, max_bars_back=2000)
+
+// ════════════════ GRUPOS ════════════════
+G_PRE = "① Preset & Confluencia"
+G_TOG = "② Motores (Toggles)"
+G_STR = "③ Estructura (PAC)"
+G_VOL = "④ Volatilidad (VEPM)"
+G_OSC = "⑤ Oscilador (OSC)"
+G_SMT = "⑥ Inter-activo (SMT)"
+G_RSK = "⑦ Gestión de Riesgo"
+G_VIS = "⑧ Visual & Dashboard"
+
+// ════════════════ ① PRESET ════════════════
+preset = input.string("Balanced", "Preset", options=["Aggressive","Balanced","Conservative","Manual"], group=G_PRE, tooltip="Aggressive: menos confluencia. Conservative: más motores y mejor R:R.")
+manConfirm = input.int(1, "Manual · Mín confirmadores (OSC/SMT)", minval=0, maxval=2, group=G_PRE, inline="man1")
+manRR      = input.float(2.0, "Manual · R:R mínimo", minval=1.0, step=0.1, group=G_PRE, inline="man1")
+minConfirmers = preset=="Manual" ? manConfirm : preset=="Aggressive" ? 1 : preset=="Conservative" ? 2 : 1
+minRR         = preset=="Manual" ? manRR : preset=="Aggressive" ? 1.5 : preset=="Conservative" ? 2.5 : 2.0
+
+// ════════════════ ② MOTORES ════════════════
+usePAC = input.bool(true,  "PAC · Estructura + OB (obligatorio)", group=G_TOG)
+useOSC = input.bool(true,  "OSC · Divergencia en OB",             group=G_TOG)
+useSMT = input.bool(false, "SMT · Divergencia inter-activo",      group=G_TOG)
+useVEPM= input.bool(true,  "VEPM · Filtro de volatilidad",        group=G_TOG)
+
+// ════════════════ ③ ESTRUCTURA ════════════════
+tfEstructura = input.timeframe("60", "TF de estructura", group=G_STR)
+pivLeft      = input.int(2, "Pivot left",  minval=1, maxval=10, group=G_STR, inline="p1")
+pivRight     = input.int(2, "Pivot right", minval=1, maxval=10, group=G_STR, inline="p1")
+obValidBars  = input.int(10, "OB válido · últimas N velas HTF", minval=2, maxval=50, group=G_STR)
+obCandles    = input.int(3,  "OB · velas previas al breakout",  minval=1, maxval=5,  group=G_STR)
+
+// ════════════════ ④ VEPM ════════════════
+periodoATR  = input.int(20,  "ATR período",      minval=2,  group=G_VOL, inline="v1")
+rankLen     = input.int(100, "ATR-rank ventana", minval=20, group=G_VOL, inline="v1")
+adxLenV     = input.int(14,  "ADX período",      minval=2,  group=G_VOL, inline="v2")
+umbralVolBaja = input.int(30, "Rank · piso CALM <", minval=1, maxval=100, group=G_VOL, inline="v3")
+umbralVolAlta = input.int(85, "Rank · CHAOS >",    minval=1, maxval=100, group=G_VOL, inline="v3")
+adxTrendThr   = input.float(22, "ADX · TRENDING >", minval=1, group=G_VOL, inline="v4")
+adxRangeThr   = input.float(16, "ADX · RANGE <",    minval=1, group=G_VOL, inline="v4")
+
+// ════════════════ ⑤ OSC ════════════════
+oscUseRSI    = input.bool(true,  "RSI",    group=G_OSC, inline="o1")
+oscUseMACD   = input.bool(true,  "MACD",   group=G_OSC, inline="o1")
+oscUseMFI    = input.bool(true,  "MFI",    group=G_OSC, inline="o1")
+oscUseFisher = input.bool(false, "Fisher", group=G_OSC, inline="o1")
+rsiLen   = input.int(14, "RSI len", minval=2, group=G_OSC, inline="o2")
+mfiLen   = input.int(14, "MFI len", minval=2, group=G_OSC, inline="o2")
+fishLen  = input.int(9,  "Fisher len", minval=2, group=G_OSC, inline="o2")
+macdFast = input.int(12, "MACD fast", minval=1, group=G_OSC, inline="o3")
+macdSlow = input.int(26, "MACD slow", minval=1, group=G_OSC, inline="o3")
+macdSig  = input.int(9,  "MACD sig",  minval=1, group=G_OSC, inline="o3")
+
+// ════════════════ ⑥ SMT ════════════════
+smtTicker  = input.symbol("BINANCE:ETHUSDT", "Activo correlacionado", group=G_SMT)
+smtInvert  = input.bool(false, "Invertir correlación (ej. DXY)", group=G_SMT)
+
+// ════════════════ ⑦ RIESGO ════════════════
+slBufferTicks = input.int(2, "SL · ticks detrás del OB", minval=0, maxval=50, group=G_RSK, inline="r1")
+tp1R          = input.float(2.0, "TP1 (×R)", minval=0.5, step=0.1, group=G_RSK, inline="r1")
+useTP2        = input.bool(true, "Usar TP2", group=G_RSK, inline="r2")
+tp2R          = input.float(3.0, "TP2 (×R)", minval=0.5, step=0.1, group=G_RSK, inline="r2")
+tp1Pct        = input.int(50, "% cerrado en TP1", minval=10, maxval=90, group=G_RSK)
+
+// ════════════════ ⑧ VISUAL & DASHBOARD ════════════════
+visualMode  = input.string("Pro", "Modo visual", options=["Minimal","Pro","Full"], group=G_VIS, tooltip="Minimal: solo OB activo + señal + dashboard. Pro: + estructura/divergencia/SL-TP. Full: todo.")
+showVepmBackground = input.bool(true, "Fondo de régimen VEPM", group=G_VIS)
+showOBLabels   = input.bool(true, "Labels en Order Blocks", group=G_VIS, inline="ob1")
+showOnlyActiveOB = input.bool(false, "Solo OB activo", group=G_VIS, inline="ob1")
+obTransparency = input.int(86, "Transparencia OB", minval=70, maxval=95, group=G_VIS, inline="ob2")
+obBorderWidth  = input.int(1, "Grosor borde OB", minval=1, maxval=3, group=G_VIS, inline="ob2")
+showStructLabels = input.bool(true, "Labels BOS/CHoCH", group=G_VIS)
+showDivLabels  = input.bool(true, "Labels de divergencia", group=G_VIS, inline="dv1")
+maxDivLines    = input.int(6, "Máx líneas diverg.", minval=2, maxval=20, group=G_VIS, inline="dv1")
+showRiskBox    = input.bool(true, "Risk Box (Entry→SL/TP)", group=G_VIS)
+showLegend     = input.bool(false, "Mostrar leyenda", group=G_VIS)
+showDash    = input.bool(true, "Mostrar Dashboard", group=G_VIS, inline="ds1")
+dashCompact = input.bool(false, "Dashboard compacto", group=G_VIS, inline="ds1")
+dashTextSize= input.string("Small", "Tamaño texto", options=["Tiny","Small","Normal"], group=G_VIS, inline="ds2")
+dashPos     = input.string("Top Right", "Posición dash", options=["Top Right","Top Left","Bottom Right","Bottom Left"], group=G_VIS, inline="ds2")
+
+// Derivados de visualMode (controlan qué se dibuja)
+vmMinimal = visualMode == "Minimal"
+vmFull    = visualMode == "Full"
+showOB      = not vmMinimal or true                          // OB siempre (al menos activo)
+showSignals = true
+showDiv     = (not vmMinimal) and (vmFull or visualMode=="Pro")
+showLevels  = (not vmMinimal)
+showStruct  = (not vmMinimal) and showStructLabels
+
+// ════════════════ PALETA CYBER ════════════════
+C_BG_DARK   = color.rgb(5, 10, 18)
+C_PANEL     = color.rgb(10, 18, 30)
+C_GRID      = color.rgb(25, 35, 50)
+C_BULL      = color.rgb(0, 255, 120)    // verde eléctrico
+C_BEAR      = color.rgb(255, 35, 75)    // rojo eléctrico
+C_LONG      = color.rgb(0, 220, 255)    // cian long
+C_SHORT     = color.rgb(255, 0, 180)    // magenta short
+C_WARN      = color.rgb(255, 190, 0)    // amarillo
+C_ORANGE    = color.rgb(255, 120, 0)
+C_HTF       = color.rgb(160, 90, 255)   // morado HTF
+C_BLUE      = color.rgb(0, 130, 255)
+C_TEXT      = color.rgb(230, 240, 255)
+C_TEXT_MUT  = color.rgb(145, 160, 180)
+C_NEUT      = color.rgb(110, 125, 145)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  VEPM — LÓGICA INTACTA
+// ════════════════════════════════════════════════════════════════════════════
+atrV     = ta.atr(periodoATR)
+atrRank  = ta.percentrank(atrV, rankLen)
+[_dip, _dim, adxV] = ta.dmi(adxLenV, adxLenV)
+enoughData = bar_index >= rankLen + periodoATR
+volRegime = not useVEPM ? "NORMAL" : not enoughData ? "WARMUP" : atrRank > umbralVolAlta ? "CHAOS" : adxV >= adxTrendThr ? "TRENDING" : adxV < adxRangeThr ? "RANGE" : "NORMAL"
+vepmBlock      = volRegime == "CHAOS" or volRegime == "WARMUP"
+vepmTrending   = volRegime == "TRENDING"
+vepmNeedsExtra = volRegime == "RANGE" or volRegime == "NORMAL"
+vepmCalm       = atrRank < umbralVolBaja
+
+// Estética del régimen
+regimeCol = volRegime=="TRENDING" ? C_BULL : volRegime=="CHAOS" ? C_BEAR : volRegime=="RANGE" ? C_WARN : volRegime=="WARMUP" ? C_NEUT : C_HTF
+regimeTxt = volRegime=="TRENDING" ? "VEPM: TENDENCIA CLARA" : volRegime=="CHAOS" ? "VEPM: ALTA VOLATILIDAD — NO TRADE" : volRegime=="RANGE" ? "VEPM: RANGO / ESPERA" : volRegime=="WARMUP" ? "VEPM: CALENTANDO DATOS" : "VEPM: NORMAL"
+// Fondo suave por régimen (no tapa el precio: transp 90-94)
+bgTransp = 92
+bgcolor(showVepmBackground ? (volRegime=="TRENDING" ? color.new(C_BULL,bgTransp) : volRegime=="CHAOS" ? color.new(C_BEAR,bgTransp) : volRegime=="RANGE" ? color.new(C_WARN,bgTransp) : volRegime=="WARMUP" ? color.new(C_NEUT,bgTransp) : color.new(C_HTF,bgTransp)) : na, title="Fondo VEPM")
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PAC — LÓGICA INTACTA (solo se enriquece el dibujo del OB)
+// ════════════════════════════════════════════════════════════════════════════
+type OrderBlock
+    box   bx
+    label lb
+    float top
+    float bot
+    int   dir
+    int   bornBar
+    bool  used
+    bool  mitigated
+
+var array<OrderBlock> obStore = array.new<OrderBlock>()
+
+f_htf() =>
+    ph = ta.pivothigh(high, pivLeft, pivRight)
+    pl = ta.pivotlow(low,  pivLeft, pivRight)
+    [high, low, close, open, ph, pl, high[pivRight], low[pivRight]]
+[hH, hL, hC, hO, hPH, hPL, hBreakRefH, hBreakRefL] = request.security(syminfo.tickerid, tfEstructura, f_htf(), lookahead=barmerge.lookahead_off)
+
+htfChange    = timeframe.change(tfEstructura)
+htfConfirmed = htfChange and barstate.isconfirmed
+
+var float lastPH = na, prevPH = na, lastPL = na, prevPL = na
+var int   lastPHbar = na, lastPLbar = na
+if htfConfirmed
+    if not na(hPH[1])
+        prevPH := lastPH
+        lastPH := hPH[1]
+        lastPHbar := bar_index
+    if not na(hPL[1])
+        prevPL := lastPL
+        lastPL := hPL[1]
+        lastPLbar := bar_index
+
+var int structBias = 0
+bosBull = false
+bosBear = false
+chochBull = false
+chochBear = false
+if usePAC and htfConfirmed
+    brokeUp = not na(lastPH) and hC[1] > lastPH and (na(prevPL) or lastPH > prevPL)
+    brokeDn = not na(lastPL) and hC[1] < lastPL and (na(prevPH) or lastPL < prevPH)
+    if brokeUp
+        if structBias < 0
+            chochBull := true
+        else
+            bosBull := true
+        structBias := 1
+    if brokeDn
+        if structBias > 0
+            chochBear := true
+        else
+            bosBear := true
+        structBias := -1
+
+f_obRange(int dir) =>
+    float t = na
+    float b = na
+    for k = 2 to obCandles + 1
+        float hi = hH[k]
+        float lo = hL[k]
+        t := na(t) ? hi : math.max(t, hi)
+        b := na(b) ? lo : math.min(b, lo)
+    [t, b]
+
+f_registerOB(int dir) =>
+    if usePAC
+        [t, b] = f_obRange(dir)
+        if not na(t) and not na(b) and t > b
+            col = dir > 0 ? C_BULL : C_BEAR
+            bx = box.new(bar_index, t, bar_index + 10, b, border_color=color.new(col,30), bgcolor=color.new(col,obTransparency), border_width=obBorderWidth)
+            lbl = showOBLabels ? label.new(bar_index, dir>0 ? b : t, dir>0 ? "OB ALCISTA" : "OB BAJISTA", style=dir>0 ? label.style_label_up : label.style_label_down, color=color.new(col,75), textcolor=color.new(col,0), size=size.tiny) : na
+            array.push(obStore, OrderBlock.new(bx, lbl, t, b, dir, bar_index, false, false))
+            if array.size(obStore) > 12
+                old = array.shift(obStore)
+                box.delete(old.bx)
+                label.delete(old.lb)
+
+if (bosBull or chochBull)
+    f_registerOB(1)
+if (bosBear or chochBear)
+    f_registerOB(-1)
+
+htfBarsToChart = math.max(1, int(timeframe.in_seconds(tfEstructura) / math.max(1, timeframe.in_seconds(timeframe.period))))
+obValidChartBars = obValidBars * htfBarsToChart
+
+priceInBullOB = false
+priceInBearOB = false
+var int activeBullIdx = -1
+var int activeBearIdx = -1
+activeBullIdx := -1
+activeBearIdx := -1
+
+if array.size(obStore) > 0
+    for i = array.size(obStore) - 1 to 0
+        ob = array.get(obStore, i)
+        age = bar_index - ob.bornBar
+        if (ob.dir > 0 and close < ob.bot) or (ob.dir < 0 and close > ob.top)
+            ob.mitigated := true
+        inside = low <= ob.top and high >= ob.bot
+        valid  = age <= obValidChartBars and not ob.mitigated and not ob.used
+        if valid and inside
+            if ob.dir > 0
+                priceInBullOB := true
+                activeBullIdx := i
+            else
+                priceInBearOB := true
+                activeBearIdx := i
+        if ob.mitigated or age > obValidChartBars
+            box.delete(ob.bx)
+            label.delete(ob.lb)
+            array.remove(obStore, i)
+        else
+            // estética: borde sólido si activo, punteado/gris si mitigado o ya usado
+            col = ob.dir > 0 ? C_BULL : C_BEAR
+            isActive = valid
+            box.set_right(ob.bx, bar_index + 10)
+            box.set_border_style(ob.bx, isActive ? line.style_solid : line.style_dotted)
+            box.set_border_color(ob.bx, isActive ? color.new(col,20) : color.new(C_NEUT,40))
+            box.set_bgcolor(ob.bx, isActive ? color.new(col,obTransparency) : color.new(C_NEUT, math.min(95, obTransparency+5)))
+            if not na(ob.lb)
+                label.set_x(ob.lb, ob.bornBar)
+            // ocultar inactivos si showOnlyActiveOB
+            if showOnlyActiveOB and not isActive
+                box.set_bgcolor(ob.bx, color.new(col,99))
+                if not na(ob.lb)
+                    label.set_textcolor(ob.lb, color.new(col,99))
+
+// Labels de estructura BOS/CHoCH
+var array<label> structLbls = array.new<label>()
+f_structLbl(string txt, float y, color col, bool up) =>
+    if showStruct
+        l = label.new(bar_index, y, txt, style=up ? label.style_label_up : label.style_label_down, color=color.new(col,25), textcolor=color.new(col,0), size=size.tiny)
+        array.push(structLbls, l)
+        if array.size(structLbls) > 8
+            label.delete(array.shift(structLbls))
+if bosBull
+    f_structLbl("BOS ↑", low, C_BULL, true)
+if bosBear
+    f_structLbl("BOS ↓", high, C_BEAR, false)
+if chochBull
+    f_structLbl("CHoCH ↑", low, C_LONG, true)
+if chochBear
+    f_structLbl("CHoCH ↓", high, C_SHORT, false)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  OSC — LÓGICA INTACTA
+// ════════════════════════════════════════════════════════════════════════════
+rsiV = ta.rsi(close, rsiLen)
+[_macdL, _macdS, macdHist] = ta.macd(close, macdFast, macdSlow, macdSig)
+mfiV = ta.mfi(hlc3, mfiLen)
+hhF = ta.highest(high, fishLen)
+llF = ta.lowest(low,  fishLen)
+var float fishVal = 0.0
+var float fishRaw = 0.0
+rngF = (hhF - llF) != 0 ? (hl2 - llF)/(hhF - llF) - 0.5 : 0.0
+fishRaw := 0.66*rngF + 0.67*nz(fishRaw[1])
+fishRaw := fishRaw > 0.999 ? 0.999 : fishRaw < -0.999 ? -0.999 : fishRaw
+fishVal := 0.5*math.log((1 + fishRaw)/(1 - fishRaw)) + 0.5*nz(fishVal[1])
+
+pLow  = ta.pivotlow(low,  pivLeft, pivRight)
+pHigh = ta.pivothigh(high, pivLeft, pivRight)
+
+var float pLowCur = na,  pLowPrev = na
+var float pHighCur = na, pHighPrev = na
+var float rsiAtLow = na, rsiAtLowP = na, rsiAtHigh = na, rsiAtHighP = na
+var float macAtLow = na, macAtLowP = na, macAtHigh = na, macAtHighP = na
+var float mfiAtLow = na, mfiAtLowP = na, mfiAtHigh = na, mfiAtHighP = na
+var float fshAtLow = na, fshAtLowP = na, fshAtHigh = na, fshAtHighP = na
+
+if not na(pLow)
+    pLowPrev := pLowCur
+    pLowCur  := pLow
+    rsiAtLowP := rsiAtLow
+    rsiAtLow := rsiV[pivRight]
+    macAtLowP := macAtLow
+    macAtLow := macdHist[pivRight]
+    mfiAtLowP := mfiAtLow
+    mfiAtLow := mfiV[pivRight]
+    fshAtLowP := fshAtLow
+    fshAtLow := fishVal[pivRight]
+if not na(pHigh)
+    pHighPrev := pHighCur
+    pHighCur  := pHigh
+    rsiAtHighP := rsiAtHigh
+    rsiAtHigh := rsiV[pivRight]
+    macAtHighP := macAtHigh
+    macAtHigh := macdHist[pivRight]
+    mfiAtHighP := mfiAtHigh
+    mfiAtHigh := mfiV[pivRight]
+    fshAtHighP := fshAtHigh
+    fshAtHigh := fishVal[pivRight]
+
+f_divBull(float pc, float pp, float oc, float op) =>
+    not na(pc) and not na(pp) and not na(oc) and not na(op) and pc < pp and oc > op
+f_divBear(float pc, float pp, float oc, float op) =>
+    not na(pc) and not na(pp) and not na(oc) and not na(op) and pc > pp and oc < op
+
+newLowPivot  = not na(pLow)
+newHighPivot = not na(pHigh)
+
+divBullRaw = newLowPivot and useOSC and ((oscUseRSI and f_divBull(pLowCur, pLowPrev, rsiAtLow, rsiAtLowP)) or (oscUseMACD and f_divBull(pLowCur, pLowPrev, macAtLow, macAtLowP)) or (oscUseMFI and f_divBull(pLowCur, pLowPrev, mfiAtLow, mfiAtLowP)) or (oscUseFisher and f_divBull(pLowCur, pLowPrev, fshAtLow, fshAtLowP)))
+divBearRaw = newHighPivot and useOSC and ((oscUseRSI and f_divBear(pHighCur, pHighPrev, rsiAtHigh, rsiAtHighP)) or (oscUseMACD and f_divBear(pHighCur, pHighPrev, macAtHigh, macAtHighP)) or (oscUseMFI and f_divBear(pHighCur, pHighPrev, mfiAtHigh, mfiAtHighP)) or (oscUseFisher and f_divBear(pHighCur, pHighPrev, fshAtHigh, fshAtHighP)))
+
+divBullOK = divBullRaw and priceInBullOB
+divBearOK = divBearRaw and priceInBearOB
+
+// Líneas de divergencia con label opcional (estética)
+var array<line>  divLines = array.new<line>()
+var array<label> divLbls  = array.new<label>()
+f_drawDiv(bool isBull) =>
+    if showDiv
+        col = isBull ? C_LONG : C_SHORT
+        y1 = isBull ? pLowPrev : pHighPrev
+        y2 = isBull ? pLowCur  : pHighCur
+        ln = line.new(bar_index - pivRight - 5, y1, bar_index - pivRight, y2, color=color.new(col,20), width=1, style=line.style_dotted)
+        array.push(divLines, ln)
+        if showDivLabels
+            lb = label.new(bar_index - pivRight, y2, isBull ? "DIV ALCISTA EN OB" : "DIV BAJISTA EN OB", style=isBull ? label.style_label_up : label.style_label_down, color=color.new(col,80), textcolor=color.new(col,0), size=size.tiny)
+            array.push(divLbls, lb)
+            if array.size(divLbls) > maxDivLines
+                label.delete(array.shift(divLbls))
+        if array.size(divLines) > maxDivLines
+            line.delete(array.shift(divLines))
+if divBullOK
+    f_drawDiv(true)
+if divBearOK
+    f_drawDiv(false)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  SMT — LÓGICA INTACTA
+// ════════════════════════════════════════════════════════════════════════════
+f_smt() =>
+    cph = ta.pivothigh(high, pivLeft, pivRight)
+    cpl = ta.pivotlow(low,  pivLeft, pivRight)
+    [high, low, cph, cpl]
+[cH, cL, cPH, cPL] = useSMT ? request.security(smtTicker, tfEstructura, f_smt(), lookahead=barmerge.lookahead_off) : [float(na), float(na), float(na), float(na)]
+
+var float cLastPH = na, cPrevPH = na, cLastPL = na, cPrevPL = na
+if useSMT and htfConfirmed
+    if not na(cPH[1])
+        cPrevPH := cLastPH
+        cLastPH := cPH[1]
+    if not na(cPL[1])
+        cPrevPL := cLastPL
+        cLastPL := cPL[1]
+
+mainNewHigh = not na(lastPH) and not na(prevPH) and lastPH > prevPH
+mainNewLow  = not na(lastPL) and not na(prevPL) and lastPL < prevPL
+corrNewHigh = not na(cLastPH) and not na(cPrevPH) and (smtInvert ? cLastPH < cPrevPH : cLastPH > cPrevPH)
+corrNewLow  = not na(cLastPL) and not na(cPrevPL) and (smtInvert ? cLastPL > cPrevPL : cLastPL < cPrevPL)
+smtBull = useSMT and mainNewLow  and not corrNewLow
+smtBear = useSMT and mainNewHigh and not corrNewHigh
+
+confLong  = (useOSC and divBullOK ? 1 : 0) + (useSMT and smtBull ? 1 : 0)
+confShort = (useOSC and divBearOK ? 1 : 0) + (useSMT and smtBear ? 1 : 0)
+activeConfirmers = (useOSC ? 1 : 0) + (useSMT ? 1 : 0)
+effMinConfirmers = math.min(minConfirmers, activeConfirmers)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ENTRY ENGINE — LÓGICA INTACTA
+// ════════════════════════════════════════════════════════════════════════════
+tick = syminfo.mintick
+f_obTop(int idx) => idx >= 0 and idx < array.size(obStore) ? array.get(obStore, idx).top : na
+f_obBot(int idx) => idx >= 0 and idx < array.size(obStore) ? array.get(obStore, idx).bot : na
+
+longOBbot = f_obBot(activeBullIdx)
+longSL    = not na(longOBbot) ? longOBbot - slBufferTicks*tick : na
+longEntry = close
+longRisk  = not na(longSL) ? longEntry - longSL : na
+longRRok  = not na(longRisk) and longRisk > 0
+longTP1   = not na(longRisk) ? longEntry + longRisk*tp1R : na
+longTP2   = not na(longRisk) ? longEntry + longRisk*tp2R : na
+
+shortOBtop = f_obTop(activeBearIdx)
+shortSL    = not na(shortOBtop) ? shortOBtop + slBufferTicks*tick : na
+shortEntry = close
+shortRisk  = not na(shortSL) ? shortSL - shortEntry : na
+shortRRok  = not na(shortRisk) and shortRisk > 0
+shortTP1   = not na(shortRisk) ? shortEntry - shortRisk*tp1R : na
+shortTP2   = not na(shortRisk) ? shortEntry - shortRisk*tp2R : na
+
+flat = strategy.position_size == 0
+longSignal = usePAC and flat and not vepmBlock and priceInBullOB and longRRok and (tp1R >= minRR) and (confLong >= effMinConfirmers)
+shortSignal= usePAC and flat and not vepmBlock and priceInBearOB and shortRRok and (tp1R >= minRR) and (confShort >= effMinConfirmers)
+
+qualLong  = (usePAC?1:0) + confLong  + (vepmTrending?1:0)
+qualShort = (usePAC?1:0) + confShort + (vepmTrending?1:0)
+classL = longSignal  ? (qualLong  >= 3 ? "OPTIMAL" : qualLong  >= 2 ? "STRONG" : "VALID") : ""
+classS = shortSignal ? (qualShort >= 3 ? "OPTIMAL" : qualShort >= 2 ? "STRONG" : "VALID") : ""
+
+if longSignal
+    if activeBullIdx >= 0 and activeBullIdx < array.size(obStore)
+        ob = array.get(obStore, activeBullIdx)
+        ob.used := true
+    strategy.entry("L", strategy.long)
+    strategy.exit("L-TP1", "L", stop=longSL, limit=longTP1, qty_percent=tp1Pct)
+    if useTP2
+        strategy.exit("L-TP2", "L", stop=longSL, limit=longTP2)
+    else
+        strategy.exit("L-SL", "L", stop=longSL)
+
+if shortSignal
+    if activeBearIdx >= 0 and activeBearIdx < array.size(obStore)
+        ob = array.get(obStore, activeBearIdx)
+        ob.used := true
+    strategy.entry("S", strategy.short)
+    strategy.exit("S-TP1", "S", stop=shortSL, limit=shortTP1, qty_percent=tp1Pct)
+    if useTP2
+        strategy.exit("S-TP2", "S", stop=shortSL, limit=shortTP2)
+    else
+        strategy.exit("S-SL", "S", stop=shortSL)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  VISUAL: flechas con clase + niveles + risk box
+// ════════════════════════════════════════════════════════════════════════════
+plotshape(showSignals and longSignal,  "Compra", shape.triangleup,   location.belowbar, C_LONG,  size=size.small, text="LONG",  textcolor=color.white)
+plotshape(showSignals and shortSignal, "Venta",  shape.triangledown, location.abovebar, C_SHORT, size=size.small, text="SHORT", textcolor=color.white)
+if showSignals and longSignal
+    label.new(bar_index, low, classL+" LONG", style=label.style_label_up, color=color.new(C_LONG,70), textcolor=color.new(C_LONG,0), size=size.tiny, yloc=yloc.belowbar)
+if showSignals and shortSignal
+    label.new(bar_index, high, classS+" SHORT", style=label.style_label_down, color=color.new(C_SHORT,70), textcolor=color.new(C_SHORT,0), size=size.tiny, yloc=yloc.abovebar)
+
+var line slLine = na, tp1Line = na, tp2Line = na, enLine = na
+var label slLbl = na, tp1Lbl = na, tp2Lbl = na, enLbl = na
+var box riskBoxLoss = na, riskBoxWin = na
+f_clearLevels() =>
+    line.delete(slLine)
+    line.delete(tp1Line)
+    line.delete(tp2Line)
+    line.delete(enLine)
+    label.delete(slLbl)
+    label.delete(tp1Lbl)
+    label.delete(tp2Lbl)
+    label.delete(enLbl)
+    box.delete(riskBoxLoss)
+    box.delete(riskBoxWin)
+
+f_drawLevels(float e, float sl, float t1, float t2, bool tp2on, bool isLong) =>
+    if showLevels
+        f_clearLevels()
+        xr = bar_index + 18
+        enLine  := line.new(bar_index, e,  xr, e,  color=color.new(C_WARN,0), width=1, style=line.style_solid)
+        slLine  := line.new(bar_index, sl, xr, sl, color=color.new(C_BEAR,0), width=2, style=line.style_dashed)
+        tp1Line := line.new(bar_index, t1, xr, t1, color=color.new(C_BULL,10), width=1)
+        tp2Line := tp2on ? line.new(bar_index, t2, xr, t2, color=color.new(C_BULL,45), width=1) : na
+        enLbl  := label.new(xr, e,  "ENTRY", style=label.style_label_left, color=color.new(C_WARN,80), textcolor=color.new(C_WARN,0), size=size.tiny)
+        slLbl  := label.new(xr, sl, "SL · detrás OB", style=label.style_label_left, color=color.new(C_BEAR,80), textcolor=color.new(C_BEAR,0), size=size.tiny)
+        tp1Lbl := label.new(xr, t1, "TP1 · "+str.tostring(tp1R,"#.0")+"R", style=label.style_label_left, color=color.new(C_BULL,80), textcolor=color.new(C_BULL,0), size=size.tiny)
+        tp2Lbl := tp2on ? label.new(xr, t2, "TP2 · "+str.tostring(tp2R,"#.0")+"R", style=label.style_label_left, color=color.new(C_BULL,85), textcolor=color.new(C_BULL,30), size=size.tiny) : na
+        if showRiskBox
+            topWin = tp2on ? t2 : t1
+            riskBoxLoss := box.new(bar_index, e, xr, sl, border_color=na, bgcolor=color.new(C_BEAR,88))
+            riskBoxWin  := box.new(bar_index, e, xr, topWin, border_color=na, bgcolor=color.new(C_BULL,88))
+if longSignal
+    f_drawLevels(longEntry, longSL, longTP1, longTP2, useTP2, true)
+if shortSignal
+    f_drawLevels(shortEntry, shortSL, shortTP1, shortTP2, useTP2, false)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD PRO (rediseñado por secciones)
+// ════════════════════════════════════════════════════════════════════════════
+f_pos() => dashPos=="Top Left" ? position.top_left : dashPos=="Bottom Right" ? position.bottom_right : dashPos=="Bottom Left" ? position.bottom_left : position.top_right
+f_dsize() => dashTextSize=="Tiny" ? size.tiny : dashTextSize=="Normal" ? size.normal : size.small
+
+var table dash = na
+if showDash and barstate.islast
+    rows = dashCompact ? 7 : 12
+    if na(dash)
+        dash := table.new(f_pos(), 2, 12, bgcolor=color.new(C_PANEL,6), border_color=color.new(C_HTF,60), border_width=1, frame_color=color.new(C_LONG,55), frame_width=1)
+    sz = f_dsize()
+    strucTxt = structBias>0 ? "Alcista" : structBias<0 ? "Bajista" : "Neutral"
+    strucCol = structBias>0 ? C_BULL : structBias<0 ? C_BEAR : C_NEUT
+    obTxt = priceInBullOB ? "En Bull OB" : priceInBearOB ? "En Bear OB" : "Fuera"
+    obCol = priceInBullOB ? C_BULL : priceInBearOB ? C_BEAR : C_NEUT
+    divTxt = divBullOK ? "Alcista ✓" : divBearOK ? "Bajista ✓" : "—"
+    divCol = divBullOK ? C_BULL : divBearOK ? C_BEAR : C_NEUT
+    smtTxt = not useSMT ? "Off" : smtBull ? "Bull (absorc.)" : smtBear ? "Bear (absorc.)" : "Sin señal"
+    smtCol = smtBull ? C_BULL : smtBear ? C_BEAR : C_NEUT
+    decTxt = longSignal ? (classL+" LONG") : shortSignal ? (classS+" SHORT") : vepmBlock ? "BLOQUEADO" : (priceInBullOB or priceInBearOB) ? "ESPERANDO" : "SIN SETUP"
+    decCol = longSignal ? C_LONG : shortSignal ? C_SHORT : vepmBlock ? C_BEAR : (priceInBullOB or priceInBearOB) ? C_WARN : C_NEUT
+
+    // Título
+    table.cell(dash,0,0,"CONFLUENCE MATRIX PRO", text_color=C_TEXT, text_size=sz, bgcolor=color.new(C_HTF,25))
+    table.cell(dash,1,0, str.tostring(int(atrRank))+"% vol", text_color=C_LONG, text_size=sz, bgcolor=color.new(C_HTF,25))
+    // VEPM
+    table.cell(dash,0,1,"VEPM", text_color=C_TEXT_MUT, text_size=sz, bgcolor=color.new(C_GRID,30))
+    table.cell(dash,1,1, volRegime, text_color=regimeCol, text_size=sz, bgcolor=color.new(C_GRID,30))
+    table.cell(dash,0,2,"ADX", text_color=C_TEXT_MUT, text_size=sz)
+    table.cell(dash,1,2, str.tostring(adxV,"#.0"), text_color=C_TEXT, text_size=sz)
+    if not dashCompact
+        // PAC
+        table.cell(dash,0,3,"PAC · Estructura", text_color=C_TEXT_MUT, text_size=sz, bgcolor=color.new(C_GRID,30))
+        table.cell(dash,1,3, strucTxt, text_color=strucCol, text_size=sz, bgcolor=color.new(C_GRID,30))
+        table.cell(dash,0,4,"Order Block", text_color=C_TEXT_MUT, text_size=sz)
+        table.cell(dash,1,4, obTxt, text_color=obCol, text_size=sz)
+        // OSC
+        table.cell(dash,0,5,"OSC · Divergencia", text_color=C_TEXT_MUT, text_size=sz, bgcolor=color.new(C_GRID,30))
+        table.cell(dash,1,5, divTxt, text_color=divCol, text_size=sz, bgcolor=color.new(C_GRID,30))
+        // SMT
+        table.cell(dash,0,6,"SMT", text_color=C_TEXT_MUT, text_size=sz)
+        table.cell(dash,1,6, smtTxt, text_color=smtCol, text_size=sz)
+        // Confluencia
+        table.cell(dash,0,7,"Confirmadores", text_color=C_TEXT_MUT, text_size=sz, bgcolor=color.new(C_GRID,30))
+        table.cell(dash,1,7, str.tostring(math.max(confLong,confShort))+"/"+str.tostring(effMinConfirmers), text_color=C_TEXT, text_size=sz, bgcolor=color.new(C_GRID,30))
+        table.cell(dash,0,8,"R:R (TP1)", text_color=C_TEXT_MUT, text_size=sz)
+        table.cell(dash,1,8, str.tostring(tp1R,"#.0")+" : 1", text_color=tp1R>=minRR?C_BULL:C_WARN, text_size=sz)
+    // Decisión (siempre, última fila visible)
+    drow = dashCompact ? 3 : 9
+    table.cell(dash,0,drow,"DECISIÓN", text_color=C_TEXT, text_size=sz, bgcolor=color.new(decCol,45))
+    table.cell(dash,1,drow, decTxt, text_color=color.white, text_size=sz, bgcolor=color.new(decCol,65))
+
+// ════════════════════════════════════════════════════════════════════════════
+//  LEYENDA (opcional)
+// ════════════════════════════════════════════════════════════════════════════
+var table legend = na
+if showLegend and barstate.islast
+    if na(legend)
+        legend := table.new(position.bottom_left, 1, 5, bgcolor=color.new(C_PANEL,10), border_color=color.new(C_GRID,40), border_width=1)
+    legend.cell(0,0,"● OB / contexto ALCISTA", text_color=C_BULL, text_size=size.tiny)
+    legend.cell(0,1,"● OB / contexto BAJISTA", text_color=C_BEAR, text_size=size.tiny)
+    legend.cell(0,2,"● Rango / espera", text_color=C_WARN, text_size=size.tiny)
+    legend.cell(0,3,"● HTF / institucional", text_color=C_HTF, text_size=size.tiny)
+    legend.cell(0,4,"● Niveles diarios", text_color=C_BLUE, text_size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS — INTACTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(longSignal,  title="Señal COMPRA", message="CMX PRO · COMPRA {{ticker}} {{interval}} · PAC+OSC/SMT en OB, R:R OK")
+alertcondition(shortSignal, title="Señal VENTA",  message="CMX PRO · VENTA {{ticker}} {{interval}} · PAC+OSC/SMT en OB, R:R OK")
+if longSignal
+    alert("CMX PRO · "+classL+" LONG "+syminfo.ticker+" "+timeframe.period+" · Régimen "+volRegime, alert.freq_once_per_bar_close)
+if shortSignal
+    alert("CMX PRO · "+classS+" SHORT "+syminfo.ticker+" "+timeframe.period+" · Régimen "+volRegime, alert.freq_once_per_bar_close)
+// ════════════════════════════════════════════════════════════════════════════
+//  FIN — Confluence Matrix PRO (estética cyber, lógica intacta)
+// ════════════════════════════════════════════════════════════════════════════

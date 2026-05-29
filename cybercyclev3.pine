@@ -1,5 +1,5 @@
 //@version=6
-indicator("Ehlers CyberCycle genz", shorttitle="cybercycle GENZ", overlay=true, max_labels_count=500)
+indicator("Ehlers CyberCycle", shorttitle="cybercycle", overlay=true, max_labels_count=500)
 
 // ── GLOBAL SETTINGS ──
 grp_global = "══════ GLOBAL SETTINGS ══════"

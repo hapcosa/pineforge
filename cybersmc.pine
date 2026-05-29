@@ -1,0 +1,949 @@
+//@version=6
+// ════════════════════════════════════════════════════════════════════════════
+//  CyberCycle GENZ SMC PRO   ·   PARTE 1/4 — Arquitectura, Presets & Inputs
+//  Núcleo: John Ehlers CyberCycle   |   Filtro: Smart Money Concepts
+//  Pine Script v6  ·  Pegar al INICIO. Partes 2,3,4 se anexan DEBAJO en orden.
+// ════════════════════════════════════════════════════════════════════════════
+indicator(title="CyberCycle GENZ SMC PRO", shorttitle="CC GENZ SMC PRO", overlay=false, max_boxes_count=500, max_labels_count=500, max_lines_count=500, max_bars_back=2000)
+
+// ─────────────────────────────────────────────────────────────
+//  GRUPOS DE INPUTS
+// ─────────────────────────────────────────────────────────────
+G_PRE = "① Preset & Scoring"
+G_TOG = "② Módulos (Toggles)"
+G_WGT = "③ Pesos del Score"
+G_VIS = "④ Límites Visuales"
+G_DSH = "⑤ Dashboard"
+
+// ─────────────────────────────────────────────────────────────
+//  ① PRESET OPERATIVO
+// ─────────────────────────────────────────────────────────────
+preset = input.string("Balanced", "Preset operativo", options=["Aggressive","Balanced","Conservative","Funded","Manual"], group=G_PRE, tooltip="Define umbrales mínimos de score. 'Manual' usa los valores de abajo.")
+
+manFinal = input.int(70, "Manual · Min Final", minval=0, maxval=100, group=G_PRE, inline="man1")
+manSMC   = input.int(65, "Min SMC",            minval=0, maxval=100, group=G_PRE, inline="man1")
+manMom   = input.int(60, "Manual · Min Mom",   minval=0, maxval=100, group=G_PRE, inline="man2")
+manVol   = input.int(55, "Min Vol",            minval=0, maxval=100, group=G_PRE, inline="man2")
+
+// Umbrales derivados del preset (Aggressive / Balanced / Conservative / Funded)
+minFinalScore = preset == "Manual" ? manFinal : preset == "Aggressive" ? 60 : preset == "Conservative" ? 78 : preset == "Funded" ? 82 : 70
+minSMCScore   = preset == "Manual" ? manSMC   : preset == "Aggressive" ? 55 : preset == "Conservative" ? 72 : preset == "Funded" ? 78 : 65
+minMomScore   = preset == "Manual" ? manMom   : preset == "Aggressive" ? 55 : preset == "Conservative" ? 65 : preset == "Funded" ? 70 : 60
+minVolScore   = preset == "Manual" ? manVol   : preset == "Aggressive" ? 50 : preset == "Conservative" ? 60 : preset == "Funded" ? 65 : 55
+
+// ─────────────────────────────────────────────────────────────
+//  ② MÓDULOS — activar / desactivar
+// ─────────────────────────────────────────────────────────────
+confirmedOnly = input.bool(true, "Confirmed Only (anti-repaint)", group=G_TOG, tooltip="Confirma señales y estructuras al cierre de la vela.")
+useMomentum   = input.bool(true, "Momentum Engine",                group=G_TOG, inline="m1")
+useVolatility = input.bool(true, "Volatility Engine",              group=G_TOG, inline="m1")
+useGaussian   = input.bool(true, "Gaussian Bias",                  group=G_TOG, inline="m2")
+useHTF        = input.bool(true, "HTF Bias",                       group=G_TOG, inline="m2")
+useFVG        = input.bool(true, "FVG MTF",                        group=G_TOG, inline="m3")
+useOB         = input.bool(true, "Order Blocks",                   group=G_TOG, inline="m3")
+useLiquidity  = input.bool(true, "Liquidity (BSL/SSL)",            group=G_TOG, inline="m4")
+useStructure  = input.bool(true, "Estructura (CHoCH/BOS/Raids)",   group=G_TOG, inline="m4")
+usePremDisc   = input.bool(true, "Premium / Discount",             group=G_TOG, inline="m5")
+showSignals   = input.bool(true, "Mostrar Señales",                group=G_TOG, inline="m5")
+
+// ─────────────────────────────────────────────────────────────
+//  ③ PESOS DEL SCORE (se normalizan automáticamente a 1.0)
+// ─────────────────────────────────────────────────────────────
+useGaussInScore = input.bool(false, "Incluir Gaussian en Final Score", group=G_WGT)
+wCyber = input.float(30, "Peso CyberCycle", minval=0, group=G_WGT, inline="w1")
+wSMC   = input.float(35, "Peso SMC",        minval=0, group=G_WGT, inline="w1")
+wMom   = input.float(20, "Peso Momentum",   minval=0, group=G_WGT, inline="w2")
+wVol   = input.float(15, "Peso Volatility", minval=0, group=G_WGT, inline="w2")
+wGauss = input.float(10, "Peso Gaussian",   minval=0, group=G_WGT, inline="w3")
+
+_sumW = wCyber + wSMC + wMom + wVol + (useGaussInScore ? wGauss : 0.0)
+_sumW := _sumW <= 0 ? 1.0 : _sumW
+nwCyber = wCyber / _sumW
+nwSMC   = wSMC   / _sumW
+nwMom   = wMom   / _sumW
+nwVol   = wVol   / _sumW
+nwGauss = (useGaussInScore ? wGauss : 0.0) / _sumW
+
+// ─────────────────────────────────────────────────────────────
+//  ④ LÍMITES VISUALES (performance)
+// ─────────────────────────────────────────────────────────────
+visualMode      = input.string("Minimal", "Modo visual", options=["Minimal","Full"], group=G_VIS)
+showOnlyNearest = input.bool(true, "Mostrar solo zonas cercanas",  group=G_VIS)
+hideMitigated   = input.bool(true, "Ocultar FVG/OB mitigados",     group=G_VIS)
+maxFVGPerTF     = input.int(2, "Máx FVG por TF",      minval=1, maxval=6,  group=G_VIS, inline="v1")
+maxOBVisible    = input.int(3, "Máx OB visibles",     minval=1, maxval=10, group=G_VIS, inline="v1")
+maxLiqLines     = input.int(4, "Máx líneas liquidez", minval=1, maxval=12, group=G_VIS, inline="v2")
+maxStructLabels = input.int(4, "Máx labels estruct.", minval=1, maxval=12, group=G_VIS, inline="v2")
+
+// ─────────────────────────────────────────────────────────────
+//  ⑤ DASHBOARD
+// ─────────────────────────────────────────────────────────────
+showDash = input.bool(true, "Mostrar Dashboard", group=G_DSH)
+dashPos  = input.string("Top Right", "Posición", options=["Top Right","Top Left","Bottom Right","Bottom Left","Middle Right"], group=G_DSH)
+dashSize = input.string("Normal", "Tamaño", options=["Tiny","Small","Normal","Large"], group=G_DSH)
+
+// ─────────────────────────────────────────────────────────────
+//  PALETA CYBERPUNK (usada por Partes 3-4)
+// ─────────────────────────────────────────────────────────────
+C_BULL  = color.rgb(0, 255, 170)    // verde eléctrico  (FVG/OB bull)
+C_BEAR  = color.rgb(255, 40, 90)    // rojo eléctrico   (FVG/OB bear)
+C_LONG  = color.rgb(0, 200, 255)    // celeste          (señal long)
+C_SHORT = color.rgb(255, 0, 160)    // magenta          (señal short)
+C_WARN  = color.rgb(255, 190, 0)    // amarillo/naranja (warning)
+C_HTF   = color.rgb(150, 90, 255)   // morado           (HTF/macro)
+C_NEUT  = color.rgb(140, 150, 165)  // gris             (neutro)
+C_BG    = color.rgb(12, 16, 24)     // fondo dashboard
+
+// ════════════════════════════════════════════════════════════════════════════
+//  FIN PARTE 1 — base de configuración. Anexar Parte 2 (CyberCycle Core) debajo.
+// ════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════
+//  PARTE 2/4 — CyberCycle Core · Momentum · Volatility · Gaussian
+//  Anexar DEBAJO de la Parte 1.
+// ════════════════════════════════════════════════════════════════════════════
+G_CC  = "⑥ CyberCycle Core"
+G_MOM = "⑦ Momentum Engine"
+G_VOL = "⑧ Volatility Engine"
+G_GAU = "⑨ Gaussian Bias"
+
+// ─────────────────────────────────────────────────────────────
+//  SOURCE & PARÁMETROS CYBERCYCLE
+// ─────────────────────────────────────────────────────────────
+src         = input.source(hl2, "Source", group=G_CC)
+alphaMethod = input.string("Homodyne", "Alpha Method", options=["Manual","Homodyne","MAMA","Autocorrelation","Kalman"], group=G_CC)
+alphaManual = input.float(0.07, "Manual Alpha", minval=0.01, maxval=0.99, step=0.01, group=G_CC)
+obMult      = input.float(1.5, "OB/OS · múltiplo σ", minval=0.5, maxval=4.0, step=0.1, group=G_CC)
+obosLen     = input.int(50, "OB/OS · ventana σ", minval=10, group=G_CC)
+bounceLB    = input.int(5, "Bounce lookback (velas)", minval=1, maxval=20, group=G_CC)
+cycMomLen   = input.int(3, "Cycle Momentum length", minval=1, group=G_CC)
+// MAMA
+mamaFast = input.float(0.5,  "MAMA FastLimit", minval=0.05, maxval=0.95, step=0.05, group=G_CC)
+mamaSlow = input.float(0.05, "MAMA SlowLimit", minval=0.01, maxval=0.50, step=0.01, group=G_CC)
+// Autocorrelation
+acMinLag = input.int(8,  "AC · lag mín", minval=4, maxval=20, group=G_CC)
+acMaxLag = input.int(40, "AC · lag máx", minval=20, maxval=60, group=G_CC)
+acWindow = input.int(20, "AC · ventana", minval=8, maxval=40, group=G_CC)
+// Kalman
+kProc = input.float(0.05, "Kalman process noise", minval=0.001, step=0.01, group=G_CC)
+kMeas = input.float(1.0,  "Kalman measure noise", minval=0.01, step=0.1, group=G_CC)
+
+// ─────────────────────────────────────────────────────────────
+//  HILBERT / HOMODYNE DISCRIMINATOR  (alimenta Homodyne y MAMA)
+// ─────────────────────────────────────────────────────────────
+var float hPeriod = 6.0
+smoothH   = (4*src + 3*nz(src[1]) + 2*nz(src[2]) + nz(src[3])) / 10.0
+mult      = 0.075 * nz(hPeriod[1], 6.0) + 0.54
+detrender = (0.0962*smoothH + 0.5769*nz(smoothH[2]) - 0.5769*nz(smoothH[4]) - 0.0962*nz(smoothH[6])) * mult
+q1   = (0.0962*detrender + 0.5769*nz(detrender[2]) - 0.5769*nz(detrender[4]) - 0.0962*nz(detrender[6])) * mult
+i1   = nz(detrender[3])
+jI   = (0.0962*i1 + 0.5769*nz(i1[2]) - 0.5769*nz(i1[4]) - 0.0962*nz(i1[6])) * mult
+jQ   = (0.0962*q1 + 0.5769*nz(q1[2]) - 0.5769*nz(q1[4]) - 0.0962*nz(q1[6])) * mult
+i2raw = i1 - jQ
+q2raw = q1 + jI
+var float i2 = 0.0
+var float q2 = 0.0
+i2 := 0.2*i2raw + 0.8*nz(i2[1])
+q2 := 0.2*q2raw + 0.8*nz(q2[1])
+reRaw = i2*nz(i2[1]) + q2*nz(q2[1])
+imRaw = i2*nz(q2[1]) - q2*nz(i2[1])
+var float reC = 0.0
+var float imC = 0.0
+reC := 0.2*reRaw + 0.8*nz(reC[1])
+imC := 0.2*imRaw + 0.8*nz(imC[1])
+float perEst = nz(hPeriod[1], 6.0)
+if imC != 0 and reC != 0
+    perEst := 2.0 * math.pi / math.atan(imC / reC)
+perEst := perEst > 1.5*nz(hPeriod[1],6.0) ? 1.5*nz(hPeriod[1],6.0) : perEst
+perEst := perEst < 0.67*nz(hPeriod[1],6.0) ? 0.67*nz(hPeriod[1],6.0) : perEst
+perEst := math.max(6.0, math.min(50.0, perEst))
+hPeriod := 0.2*perEst + 0.8*nz(hPeriod[1],6.0)
+
+// MAMA · alpha por cambio de fase
+phRaw  = i1 != 0 ? math.atan(q1/i1) * 180.0 / math.pi : 0.0
+dPhase = nz(phRaw[1]) - phRaw
+dPhase := dPhase < 1.0 ? 1.0 : dPhase
+mamaAlpha = math.max(mamaSlow, math.min(mamaFast, mamaFast / dPhase))
+
+// KALMAN · gain modula alpha
+var float kEst = na
+var float kErr = 1.0
+prevEst = na(kEst[1]) ? src : kEst[1]
+predErr = nz(kErr[1], 1.0) + kProc
+kg      = predErr / (predErr + kMeas)
+kEst := prevEst + kg*(src - prevEst)
+kErr := (1.0 - kg)*predErr
+kGain = math.max(0.01, math.min(0.99, kg))
+
+// AUTOCORRELATION · estimador acotado (solo si está seleccionado)
+var float acPeriod = 12.0
+if alphaMethod == "Autocorrelation"
+    float bestCorr = -2.0
+    int   bestLag  = acMinLag
+    for lag = acMinLag to acMaxLag
+        float sx=0.0, sy=0.0, sxx=0.0, syy=0.0, sxy=0.0
+        for i = 0 to acWindow-1
+            float x = src[i]
+            float y = src[i+lag]
+            sx += x
+            sy += y
+            sxx += x*x
+            syy += y*y
+            sxy += x*y
+        float nn    = acWindow
+        float denom = math.sqrt((nn*sxx - sx*sx)*(nn*syy - sy*sy))
+        float corr  = denom != 0 ? (nn*sxy - sx*sy)/denom : 0.0
+        if corr > bestCorr
+            bestCorr := corr
+            bestLag  := lag
+    acPeriod := bestLag
+
+// ALPHA FINAL
+float alpha = alphaMethod=="Manual" ? alphaManual : alphaMethod=="Homodyne" ? 2.0/(hPeriod+1.0) : alphaMethod=="MAMA" ? mamaAlpha : alphaMethod=="Autocorrelation" ? 2.0/(acPeriod+1.0) : kGain
+alpha := math.max(0.01, math.min(0.99, alpha))
+
+// ─────────────────────────────────────────────────────────────
+//  CYBERCYCLE + TRIGGER  (Ehlers, intacto)
+// ─────────────────────────────────────────────────────────────
+smooth = (src + 2*nz(src[1]) + 2*nz(src[2]) + nz(src[3])) / 6.0
+var float cycle = 0.0
+float cycCalc = bar_index < 7 ? (src - 2*nz(src[1]) + nz(src[2]))/4.0 : (1 - 0.5*alpha)*(1 - 0.5*alpha)*(smooth - 2*nz(smooth[1]) + nz(smooth[2])) + 2*(1-alpha)*nz(cycle[1]) - (1-alpha)*(1-alpha)*nz(cycle[2])
+cycle := cycCalc
+trigger = nz(cycle[1])
+
+// Estados
+cycStd   = ta.stdev(cycle, obosLen)
+obLevel  =  obMult * cycStd
+osLevel  = -obMult * cycStd
+overbought = cycle > obLevel
+oversold   = cycle < osLevel
+slope     = cycle - nz(cycle[1])
+cycMom    = cycle - nz(cycle[cycMomLen])
+triggerD  = math.abs(cycle - trigger)
+distNorm  = cycStd > 0 ? triggerD/cycStd : 0.0
+healthyD  = distNorm > 0.15 and distNorm < 2.5
+
+bullCrossRaw = ta.crossover(cycle, trigger)
+bearCrossRaw = ta.crossunder(cycle, trigger)
+sinceOS = nz(ta.barssince(oversold), 1e6)
+sinceOB = nz(ta.barssince(overbought), 1e6)
+bounceUp   = sinceOS <= bounceLB and (bullCrossRaw or (slope>0 and nz(slope[1])<=0) or ta.crossover(cycle, osLevel))
+bounceDown = sinceOB <= bounceLB and (bearCrossRaw or (slope<0 and nz(slope[1])>=0) or ta.crossunder(cycle, obLevel))
+
+cyberDir = bullCrossRaw or bounceUp ? 1 : bearCrossRaw or bounceDown ? -1 : cycle > trigger ? 1 : cycle < trigger ? -1 : 0
+
+// cyberScore 0-100 (en la dirección activa)
+float cs = 0.0
+dirBull = cyberDir > 0
+dirBear = cyberDir < 0
+if (dirBull and bullCrossRaw) or (dirBear and bearCrossRaw)
+    cs += 25
+if (dirBull and bounceUp) or (dirBear and bounceDown)
+    cs += 25
+if (dirBull and slope>0) or (dirBear and slope<0)
+    cs += 20
+if healthyD
+    cs += 15
+if (dirBull and sinceOS <= bounceLB*2) or (dirBear and sinceOB <= bounceLB*2)
+    cs += 15
+cyberScore = cyberDir == 0 ? 0.0 : cs
+
+// Eventos confirmados (anti-repaint)
+confOK = not confirmedOnly or barstate.isconfirmed
+bullCross     = bullCrossRaw and confOK
+bearCross     = bearCrossRaw and confOK
+bounceUpSig   = bounceUp   and confOK
+bounceDownSig = bounceDown and confOK
+
+// ─────────────────────────────────────────────────────────────
+//  ⑦ MOMENTUM ENGINE
+// ─────────────────────────────────────────────────────────────
+momUseROC      = input.bool(true,  "ROC",            group=G_MOM, inline="mm1")
+momUseMACD     = input.bool(true,  "MACD hist",      group=G_MOM, inline="mm1")
+momUseEMA      = input.bool(true,  "EMA slope",      group=G_MOM, inline="mm2")
+momUseATRn     = input.bool(true,  "Mom norm ATR",   group=G_MOM, inline="mm2")
+momUseWAE      = input.bool(false, "WAE",            group=G_MOM, inline="mm3")
+momUseFisher   = input.bool(false, "Fisher",         group=G_MOM, inline="mm3")
+momUseMultiOsc = input.bool(false, "Multi-Osc",      group=G_MOM, inline="mm3")
+rocLen   = input.int(10, "ROC len",  minval=1, group=G_MOM, inline="mm4")
+emaLenM  = input.int(20, "EMA len",  minval=1, group=G_MOM, inline="mm4")
+macdFast = input.int(12, "MACD fast", minval=1, group=G_MOM, inline="mm5")
+macdSlow = input.int(26, "MACD slow", minval=1, group=G_MOM, inline="mm5")
+macdSig  = input.int(9,  "MACD sig",  minval=1, group=G_MOM, inline="mm5")
+
+// señales auxiliares (top-scope, baratas)
+waeMacd = ta.ema(close,20) - ta.ema(close,40)
+waeT    = (waeMacd - nz(waeMacd[1])) * 150.0
+waeUp   = waeT > 0
+waeDn   = waeT < 0
+hhF = ta.highest(high, 10)
+llF = ta.lowest(low, 10)
+var float fv = 0.0
+var float fish = 0.0
+rF = (hhF-llF) != 0 ? (hl2 - llF)/(hhF - llF) - 0.5 : 0.0
+fv := 0.66*rF + 0.67*nz(fv[1])
+fv := fv > 0.999 ? 0.999 : fv < -0.999 ? -0.999 : fv
+fish := 0.5*math.log((1+fv)/(1-fv)) + 0.5*nz(fish[1])
+fishUp = fish > nz(fish[1])
+fishDn = fish < nz(fish[1])
+oscBull = (ta.rsi(close,14) > 50 ? 1:0) + (ta.stoch(close,high,low,14) > 50 ? 1:0) + (ta.cci(close,20) > 0 ? 1:0)
+oscUp = oscBull >= 2
+oscDn = oscBull <= 1
+
+float momBull = 0.0
+float momBear = 0.0
+float momW    = 0.0
+// CyberCycle slope (25) — siempre
+momW += 25
+if slope > 0
+    momBull += 25
+else if slope < 0
+    momBear += 25
+// ROC (20)
+if momUseROC
+    momW += 20
+    rocv = ta.roc(close, rocLen)
+    if rocv > 0
+        momBull += 20
+    else if rocv < 0
+        momBear += 20
+// MACD hist (20)
+if momUseMACD
+    momW += 20
+    [_ml, _sl, histL] = ta.macd(close, macdFast, macdSlow, macdSig)
+    if histL > 0
+        momBull += 20
+    else if histL < 0
+        momBear += 20
+// EMA slope (15)
+if momUseEMA
+    momW += 15
+    emav = ta.ema(close, emaLenM)
+    if emav > nz(emav[1])
+        momBull += 15
+    else if emav < nz(emav[1])
+        momBear += 15
+// Momentum normalizado por ATR (10)
+if momUseATRn
+    momW += 10
+    atrM = ta.atr(14)
+    mn = atrM > 0 ? (close - nz(close[rocLen]))/atrM : 0.0
+    if mn > 0.1
+        momBull += 10
+    else if mn < -0.1
+        momBear += 10
+// Confirmación WAE/Fisher/MultiOsc (10)
+if momUseWAE or momUseFisher or momUseMultiOsc
+    momW += 10
+    int cBull = 0
+    int cBear = 0
+    if momUseWAE
+        cBull += waeUp ? 1:0
+        cBear += waeDn ? 1:0
+    if momUseFisher
+        cBull += fishUp ? 1:0
+        cBear += fishDn ? 1:0
+    if momUseMultiOsc
+        cBull += oscUp ? 1:0
+        cBear += oscDn ? 1:0
+    if cBull > cBear
+        momBull += 10
+    else if cBear > cBull
+        momBear += 10
+
+momScoreRaw = momW > 0 ? 100.0*math.max(momBull,momBear)/momW : 0.0
+momDirRaw   = momBull > momBear ? 1 : momBear > momBull ? -1 : 0
+momScore    = useMomentum ? momScoreRaw : 100.0
+momDir      = useMomentum ? momDirRaw   : cyberDir
+
+// ─────────────────────────────────────────────────────────────
+//  ⑧ VOLATILITY ENGINE
+// ─────────────────────────────────────────────────────────────
+atrLen      = input.int(14, "ATR len",        minval=1, group=G_VOL, inline="vv1")
+volRankLen  = input.int(100,"ATR rank len",   minval=20,group=G_VOL, inline="vv1")
+adxLen      = input.int(14, "ADX len",        minval=1, group=G_VOL, inline="vv2")
+chopLen     = input.int(14, "Choppiness len", minval=2, group=G_VOL, inline="vv2")
+lowThr      = input.int(20, "Rank LOW <",     minval=1, maxval=100, group=G_VOL, inline="vv3")
+highThr     = input.int(70, "Rank HIGH >",    minval=1, maxval=100, group=G_VOL, inline="vv3")
+extremeThr  = input.int(90, "Rank EXTREME >", minval=1, maxval=100, group=G_VOL, inline="vv4")
+adxRangeThr = input.float(18,"ADX range <",   minval=1, group=G_VOL, inline="vv4")
+chopThr     = input.float(61.8,"Chop range >",minval=1, group=G_VOL, inline="vv5")
+useSqz      = input.bool(true,"Squeeze release bonus", group=G_VOL)
+
+atr     = ta.atr(atrLen)
+atrRank = ta.percentrank(atr, volRankLen)
+[_dip, _dim, adxV] = ta.dmi(adxLen, adxLen)
+tr1   = ta.tr(true)
+sumTr = math.sum(tr1, chopLen)
+rngCh = ta.highest(high, chopLen) - ta.lowest(low, chopLen)
+ci    = rngCh > 0 ? 100.0*math.log10(sumTr/rngCh)/math.log10(chopLen) : 0.0
+// Squeeze
+basis = ta.sma(close,20)
+dev   = 2.0*ta.stdev(close,20)
+kcr   = ta.ema(tr1,20)*1.5
+sqzOn = (basis-dev) > (basis-kcr) and (basis+dev) < (basis+kcr)
+int sqzOnI = sqzOn ? 1 : 0
+sqzRelease = nz(sqzOnI[1]) == 1 and not sqzOn
+
+volRegime = (adxV < adxRangeThr and ci > chopThr) ? "RANGE" : atrRank > extremeThr ? "EXTREME" : atrRank > highThr ? "HIGH" : atrRank < lowThr ? "LOW" : "NORMAL"
+volBase = volRegime=="NORMAL" ? 80.0 : volRegime=="HIGH" ? 70.0 : volRegime=="LOW" ? 30.0 : volRegime=="EXTREME" ? 35.0 : 15.0
+float vsc = volBase*0.7
+vsc += math.min(20.0, math.max(0.0, adxV-15.0))
+vsc += (useSqz and sqzRelease) ? 10.0 : 0.0
+vsc -= ci > chopThr ? 10.0 : 0.0
+volScore = useVolatility ? math.max(0.0, math.min(100.0, vsc)) : 100.0
+
+// ─────────────────────────────────────────────────────────────
+//  ⑨ GAUSSIAN BIAS
+// ─────────────────────────────────────────────────────────────
+gaussLen      = input.int(34, "Gaussian length", minval=4, maxval=200, group=G_GAU, inline="gg1")
+gaussSigma    = input.float(8.0,"Sigma",          minval=1, step=0.5,   group=G_GAU, inline="gg1")
+gaussSlopeLen = input.int(3,  "Slope length",     minval=1, group=G_GAU)
+
+f_gauss(_src, _len, _sigma) =>
+    float num = 0.0
+    float den = 0.0
+    float center = (_len - 1) / 2.0
+    for i = 0 to _len - 1
+        float w = math.exp(-0.5 * math.pow((i - center)/_sigma, 2))
+        num += _src[i] * w
+        den += w
+    den != 0 ? num/den : _src
+
+gma     = useGaussian ? f_gauss(src, gaussLen, gaussSigma) : na
+gSlope  = useGaussian ? gma - nz(gma[gaussSlopeLen]) : 0.0
+gaussDir = useGaussian ? (src > gma and gSlope > 0 ? 1 : src < gma and gSlope < 0 ? -1 : 0) : 0
+atrG    = ta.atr(14)
+gDist   = atrG > 0 and not na(gma) ? math.abs(src-gma)/atrG : 0.0
+gSlopeN = atrG > 0 ? math.abs(gSlope)/atrG : 0.0
+gscRaw  = math.min(100.0, 40.0 + math.min(30.0, gDist*30.0) + math.min(30.0, gSlopeN*60.0))
+gaussScore = not useGaussian ? 50.0 : gaussDir == 0 ? math.min(gscRaw, 50.0) : gscRaw
+
+// ─────────────────────────────────────────────────────────────
+//  PLOTS DEL PANEL (testeable ahora)
+// ─────────────────────────────────────────────────────────────
+bgcolor(overbought ? color.new(C_BEAR,88) : oversold ? color.new(C_BULL,88) : na, title="Zona OB/OS")
+plot(cycle,   "CyberCycle", color = cyberDir>0 ? C_LONG : cyberDir<0 ? C_SHORT : C_NEUT, linewidth=2)
+plot(trigger, "Trigger",    color = color.new(C_WARN,25))
+plot(obLevel, "OB",         color = color.new(C_BEAR,55))
+plot(osLevel, "OS",         color = color.new(C_BULL,55))
+hline(0, "Zero", color=color.new(C_NEUT,60))
+plotshape(bounceUpSig,   "Bounce Up",   shape.triangleup,   location.bottom, C_BULL,  size=size.tiny)
+plotshape(bounceDownSig, "Bounce Down", shape.triangledown, location.top,    C_BEAR,  size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  FIN PARTE 2 — Anexar Parte 3 (FVG/SMC/Entry Engine) debajo.
+// ════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════
+//  PARTE 3/4 — FVG MTF · Liquidez/Raids · CHoCH/BOS · OB · Prem/Disc
+//              smcScore · finalScore · Entry Engine
+//  Anexar DEBAJO de la Parte 2.
+// ════════════════════════════════════════════════════════════════════════════
+G_SMC = "⑩ SMC / Estructura"
+G_ENT = "⑪ Entry Engine"
+
+// ─────────────────────────────────────────────────────────────
+//  INPUTS SMC
+// ─────────────────────────────────────────────────────────────
+biasLen   = input.int(50, "HTF Bias EMA (Diario)", minval=5, group=G_SMC, inline="s1")
+swLen     = input.int(5,  "Swing pivot len",       minval=2, group=G_SMC, inline="s1")
+obLB      = input.int(8,  "OB lookback",           minval=2, maxval=20, group=G_SMC, inline="s2")
+pdLen     = input.int(50, "Prem/Disc rango",       minval=10, group=G_SMC, inline="s2")
+nearMult  = input.float(2.0, "Zona 'cercana' (×ATR)", minval=0.2, step=0.1, group=G_SMC, inline="s3")
+dispMult  = input.float(1.5, "Displacement (×ATR)",   minval=0.5, step=0.1, group=G_SMC, inline="s3")
+extMult   = input.float(1.3, "OB/OS extremo (×nivel)", minval=1.0, step=0.05, group=G_SMC)
+
+// ─────────────────────────────────────────────────────────────
+//  TIPOS (UDT)
+// ─────────────────────────────────────────────────────────────
+type FVG
+    box   bx
+    label lb
+    float top
+    float bot
+    int   dir
+    string tf
+    bool  htf
+    bool  mit
+type OB
+    box   bx
+    float top
+    float bot
+    int   dir
+    bool  mit
+
+var array<FVG> fvgs = array.new<FVG>()
+var array<OB>  obs  = array.new<OB>()
+var array<label> structLbls = array.new<label>()
+
+// ─────────────────────────────────────────────────────────────
+//  REQUEST.SECURITY  (4 llamadas, lookahead OFF, anti-repaint)
+//  f_fvg →  [bull, bear, bullTop, bullBot, bearTop, bearBot]
+//  bullZone = [high[2], low]   |   bearZone = [high, low[2]]
+// ─────────────────────────────────────────────────────────────
+sym = syminfo.tickerid
+[h1B,h1S,h1bT,h1bB,h1sT,h1sB] = request.security(sym, "60", [low>high[2], high<low[2], low, high[2], low[2], high], lookahead=barmerge.lookahead_off)
+[h4B,h4S,h4bT,h4bB,h4sT,h4sB] = request.security(sym, "240", [low>high[2], high<low[2], low, high[2], low[2], high], lookahead=barmerge.lookahead_off)
+[dB,dS,dbT,dbB,dsT,dsB, pdh, pdl, dEma] = request.security(sym, "D", [low>high[2], high<low[2], low, high[2], low[2], high, high[1], low[1], ta.ema(close, biasLen)], lookahead=barmerge.lookahead_off)
+[wB,wS,wbT,wbB,wsT,wsB, pwh, pwl]       = request.security(sym, "W", [low>high[2], high<low[2], low, high[2], low[2], high, high[1], low[1]], lookahead=barmerge.lookahead_off)
+
+// ─────────────────────────────────────────────────────────────
+//  HELPERS FVG / OB
+// ─────────────────────────────────────────────────────────────
+f_pushFVG(int dir, float top, float bot, string tfStr, bool isHTF) =>
+    if useFVG and not na(top) and not na(bot) and top > bot
+        col = dir > 0 ? C_BULL : C_BEAR
+        bx = box.new(bar_index-1, top, bar_index+5, bot, border_color=color.new(col,40), bgcolor=color.new(col, isHTF ? 80 : 88), force_overlay=true)
+        lb = label.new(bar_index+5, (top+bot)/2.0, "FVG "+tfStr, style=label.style_label_left, textcolor=color.new(col,0), color=color.new(C_BG,100), size=size.small, force_overlay=true)
+        array.push(fvgs, FVG.new(bx, lb, top, bot, dir, tfStr, isHTF, false))
+        // poda por timeframe
+        cnt = 0
+        if array.size(fvgs) > 0
+            for i = array.size(fvgs)-1 to 0
+                ff = array.get(fvgs, i)
+                if ff.tf == tfStr
+                    cnt += 1
+                    if cnt > maxFVGPerTF
+                        box.delete(ff.bx)
+                        label.delete(ff.lb)
+                        array.remove(fvgs, i)
+
+f_pushOB(int dir, float top, float bot) =>
+    if useOB and not na(top) and not na(bot) and top > bot
+        col = dir > 0 ? C_BULL : C_BEAR
+        bx = box.new(bar_index-1, top, bar_index+5, bot, border_color=color.new(col,30), bgcolor=color.new(col,90), border_style=line.style_dashed, force_overlay=true)
+        array.push(obs, OB.new(bx, top, bot, dir, false))
+        if array.size(obs) > maxOBVisible
+            old = array.shift(obs)
+            box.delete(old.bx)
+
+// Registro FVG al cierre de cada vela HTF (usa [1] = vela cerrada → no repaint)
+nh1 = timeframe.change("60")
+nh4 = timeframe.change("240")
+nd  = timeframe.change("D")
+nw  = timeframe.change("W")
+if nh1
+    if h1B[1]
+        f_pushFVG(1,  h1bT[1], h1bB[1], "1H", false)
+    if h1S[1]
+        f_pushFVG(-1, h1sT[1], h1sB[1], "1H", false)
+if nh4
+    if h4B[1]
+        f_pushFVG(1,  h4bT[1], h4bB[1], "4H", true)
+    if h4S[1]
+        f_pushFVG(-1, h4sT[1], h4sB[1], "4H", true)
+if nd
+    if dB[1]
+        f_pushFVG(1,  dbT[1], dbB[1], "DIARIO", true)
+    if dS[1]
+        f_pushFVG(-1, dsT[1], dsB[1], "DIARIO", true)
+if nw
+    if wB[1]
+        f_pushFVG(1,  wbT[1], wbB[1], "SEMANAL", true)
+    if wS[1]
+        f_pushFVG(-1, wsT[1], wsB[1], "SEMANAL", true)
+
+// ─────────────────────────────────────────────────────────────
+//  MANTENIMIENTO FVG: touch, near, mitigación, extender
+// ─────────────────────────────────────────────────────────────
+bullishFVGTouch = false
+bearishFVGTouch = false
+nearBullFVG = false
+nearBearFVG = false
+nearBullFVGHtf = false
+nearBearFVGHtf = false
+inBullFVG = false
+inBearFVG = false
+nearThr = atr * nearMult
+if array.size(fvgs) > 0
+    for i = array.size(fvgs)-1 to 0
+        f = array.get(fvgs, i)
+        inside = low <= f.top and high >= f.bot
+        mid = (f.top + f.bot) / 2.0
+        near = math.abs(close - mid) <= nearThr or inside
+        if f.dir > 0
+            bullishFVGTouch := bullishFVGTouch or inside
+            inBullFVG := inBullFVG or inside
+            if near
+                nearBullFVG := true
+                nearBullFVGHtf := nearBullFVGHtf or f.htf
+        else
+            bearishFVGTouch := bearishFVGTouch or inside
+            inBearFVG := inBearFVG or inside
+            if near
+                nearBearFVG := true
+                nearBearFVGHtf := nearBearFVGHtf or f.htf
+        if (f.dir > 0 and close < f.bot) or (f.dir < 0 and close > f.top)
+            f.mit := true
+        box.set_right(f.bx, bar_index + 5)
+        label.set_x(f.lb, bar_index + 5)
+        if hideMitigated and f.mit
+            box.delete(f.bx)
+            label.delete(f.lb)
+            array.remove(fvgs, i)
+
+// ─────────────────────────────────────────────────────────────
+//  ESTRUCTURA: pivotes, CHoCH/BOS, raids
+// ─────────────────────────────────────────────────────────────
+ph = ta.pivothigh(swLen, swLen)
+pl = ta.pivotlow(swLen, swLen)
+var float lastPH = na
+var float lastPL = na
+if not na(ph)
+    lastPH := ph
+if not na(pl)
+    lastPL := pl
+
+var int structBias = 0
+bosBull = false
+bosBear = false
+chochBull = false
+chochBear = false
+if useStructure and confOK
+    if not na(lastPH) and ta.crossover(close, lastPH)
+        if structBias >= 0
+            bosBull := true
+        else
+            chochBull := true
+        structBias := 1
+    if not na(lastPL) and ta.crossunder(close, lastPL)
+        if structBias <= 0
+            bosBear := true
+        else
+            chochBear := true
+        structBias := -1
+
+buysideRaid  = useLiquidity and confOK and not na(lastPH) and high > lastPH and close < lastPH
+sellsideRaid = useLiquidity and confOK and not na(lastPL) and low  < lastPL and close > lastPL
+
+// OB en BOS: última vela contraria dentro del lookback
+if bosBull and useOB
+    var bool found1 = false
+    found1 := false
+    for k = 1 to obLB
+        if close[k] < open[k] and not found1
+            f_pushOB(1, high[k], low[k])
+            found1 := true
+if bosBear and useOB
+    var bool found2 = false
+    found2 := false
+    for k = 1 to obLB
+        if close[k] > open[k] and not found2
+            f_pushOB(-1, high[k], low[k])
+            found2 := true
+
+// Mantenimiento OB: near + mitigación
+nearBullOB = false
+nearBearOB = false
+if array.size(obs) > 0
+    for i = array.size(obs)-1 to 0
+        o = array.get(obs, i)
+        mid = (o.top + o.bot)/2.0
+        near = math.abs(close - mid) <= nearThr or (low <= o.top and high >= o.bot)
+        if o.dir > 0 and near
+            nearBullOB := true
+        if o.dir < 0 and near
+            nearBearOB := true
+        if (o.dir > 0 and close < o.bot) or (o.dir < 0 and close > o.top)
+            o.mit := true
+        box.set_right(o.bx, bar_index + 5)
+        if hideMitigated and o.mit
+            box.delete(o.bx)
+            array.remove(obs, i)
+
+// ─────────────────────────────────────────────────────────────
+//  LIQUIDEZ: PDH/PDL/PWH/PWL (4 líneas fijas)
+// ─────────────────────────────────────────────────────────────
+var line lnPDH = na
+var line lnPDL = na
+var line lnPWH = na
+var line lnPWL = na
+f_liqLine(ln, price, col, sty) =>
+    line out = ln
+    if useLiquidity and not na(price)
+        if na(out)
+            out := line.new(bar_index-1, price, bar_index+5, price, color=col, style=sty, width=1, force_overlay=true)
+        else
+            line.set_xy1(out, bar_index-1, price)
+            line.set_xy2(out, bar_index+5, price)
+    out
+lnPDH := f_liqLine(lnPDH, pdh, color.new(C_BEAR,40), line.style_dotted)
+lnPDL := f_liqLine(lnPDL, pdl, color.new(C_BULL,40), line.style_dotted)
+lnPWH := f_liqLine(lnPWH, pwh, color.new(C_HTF,30),  line.style_dashed)
+lnPWL := f_liqLine(lnPWL, pwl, color.new(C_HTF,30),  line.style_dashed)
+
+bslNear = useLiquidity and not na(lastPH) and (high < lastPH) and (lastPH - close) <= nearThr*1.5
+sslNear = useLiquidity and not na(lastPL) and (low  > lastPL) and (close - lastPL) <= nearThr*1.5
+
+// ─────────────────────────────────────────────────────────────
+//  HTF BIAS  &  PREMIUM / DISCOUNT
+// ─────────────────────────────────────────────────────────────
+htfBias = not useHTF ? 0 : close > dEma + atr*0.1 ? 1 : close < dEma - atr*0.1 ? -1 : 0
+htfBiasUp = htfBias > 0
+htfBiasDn = htfBias < 0
+
+rngHi = ta.highest(high, pdLen)
+rngLo = ta.lowest(low, pdLen)
+eqLvl = (rngHi + rngLo) / 2.0
+inDiscount = usePremDisc ? close < eqLvl : true
+inPremium  = usePremDisc ? close > eqLvl : true
+disp = (high - low) > atr * dispMult
+
+// ─────────────────────────────────────────────────────────────
+//  SMC SCORE (direccional, normalizado por módulos activos)
+// ─────────────────────────────────────────────────────────────
+f_smcDir(bool isLong) =>
+    float sc = 0.0
+    float w  = 0.0
+    if useFVG
+        w += 20
+        sc += (isLong ? nearBullFVGHtf : nearBearFVGHtf) ? 20 : (isLong ? nearBullFVG : nearBearFVG) ? 12 : 0
+    if useOB
+        w += 15
+        sc += (isLong ? nearBullOB : nearBearOB) ? 15 : 0
+    if useLiquidity
+        w += 20
+        sc += (isLong ? sellsideRaid : buysideRaid) ? 20 : 0
+    if useStructure
+        w += 20
+        sc += (isLong ? (bosBull or chochBull) : (bosBear or chochBear)) ? 20 : 0
+    if usePremDisc
+        w += 10
+        sc += (isLong ? inDiscount : inPremium) ? 10 : 0
+    if useHTF
+        w += 10
+        sc += (isLong ? htfBiasUp : htfBiasDn) ? 10 : (htfBias == 0 ? 5 : 0)
+    w += 5
+    sc += (disp and (isLong ? close > open : close < open)) ? 5 : 0
+    w > 0 ? 100.0 * sc / w : 0.0
+
+smcScoreLong  = f_smcDir(true)
+smcScoreShort = f_smcDir(false)
+smcScore = cyberDir > 0 ? smcScoreLong : cyberDir < 0 ? smcScoreShort : math.max(smcScoreLong, smcScoreShort)
+
+// ─────────────────────────────────────────────────────────────
+//  FINAL SCORE
+// ─────────────────────────────────────────────────────────────
+finalScore = cyberScore*nwCyber + smcScore*nwSMC + momScore*nwMom + volScore*nwVol + (useGaussInScore ? gaussScore*nwGauss : 0.0)
+finalScore := math.max(0.0, math.min(100.0, finalScore))
+finalClass = finalScore >= 85 ? "OPTIMAL" : finalScore >= 75 ? "STRONG" : finalScore >= 60 ? "VALID" : finalScore >= 40 ? "WAIT" : "NO TRADE"
+
+// ─────────────────────────────────────────────────────────────
+//  ⑪ ENTRY ENGINE
+// ─────────────────────────────────────────────────────────────
+extremeOB = cycle > obLevel * extMult
+extremeOS = cycle < osLevel * extMult
+longTrig  = bullCross or bounceUpSig
+shortTrig = bearCross or bounceDownSig
+
+momOKLong  = not useMomentum   or (momScore >= minMomScore and momDir >= 0)
+momOKShort = not useMomentum   or (momScore >= minMomScore and momDir <= 0)
+volOK      = not useVolatility or (volScore >= minVolScore and volRegime != "RANGE")
+gaussOKLong  = not useGaussian or gaussDir >= 0
+gaussOKShort = not useGaussian or gaussDir <= 0
+htfOKLong  = not useHTF or htfBias >= 0
+htfOKShort = not useHTF or htfBias <= 0
+
+baseLong = longTrig and not extremeOB and momOKLong and volOK and gaussOKLong and htfOKLong and not inBearFVG and smcScoreLong >= minSMCScore
+baseShort = shortTrig and not extremeOS and momOKShort and volOK and gaussOKShort and htfOKShort and not inBullFVG and smcScoreShort >= minSMCScore
+
+validLong   = baseLong  and finalScore >= minFinalScore
+validShort  = baseShort and finalScore >= minFinalScore
+optimalLong  = validLong  and finalScore >= 85
+optimalShort = validShort and finalScore >= 85
+strongLong  = validLong  and finalScore >= 75 and finalScore < 85
+strongShort = validShort and finalScore >= 75 and finalScore < 85
+
+hardBlock = volRegime == "RANGE" or extremeOB or extremeOS or (useHTF and ((longTrig and htfBiasDn) or (shortTrig and htfBiasUp)))
+waitSignal = (longTrig or shortTrig) and not validLong and not validShort and not hardBlock
+noTrade = hardBlock or (not validLong and not validShort and not waitSignal)
+
+decision = optimalLong ? "OPTIMAL LONG 🚀" : optimalShort ? "OPTIMAL SHORT 🩸" : strongLong ? "STRONG LONG ✅" : strongShort ? "STRONG SHORT ✅" : validLong ? "VALID LONG ✅" : validShort ? "VALID SHORT ✅" : waitSignal ? "WAIT ⚠️" : "NO TRADE ⛔"
+
+// Razón compacta (primer bloqueo relevante)
+reason = volRegime == "RANGE" ? "Rango/Chop" : extremeOB ? "OB extremo" : extremeOS ? "OS extremo" : (longTrig and htfBiasDn) ? "HTF en contra" : (shortTrig and htfBiasUp) ? "HTF en contra" : (longTrig and inBearFVG) ? "FVG bajista en contra" : (shortTrig and inBullFVG) ? "FVG alcista en contra" : (longTrig and not momOKLong) ? "Momentum débil/contra" : (shortTrig and not momOKShort) ? "Momentum débil/contra" : (longTrig and smcScoreLong < minSMCScore) ? "SMC insuficiente" : (shortTrig and smcScoreShort < minSMCScore) ? "SMC insuficiente" : (validLong or validShort) ? "Setup OK" : (longTrig or shortTrig) ? "Score bajo" : "Sin trigger"
+
+// ─────────────────────────────────────────────────────────────
+//  MARCADORES MÍNIMOS (visual completo → Parte 4)
+// ─────────────────────────────────────────────────────────────
+if showSignals and (validLong or validShort)
+    isOpt = optimalLong or optimalShort
+    col = (validLong) ? C_LONG : C_SHORT
+    txt = optimalLong ? "OPT L" : optimalShort ? "OPT S" : validLong ? "L" : "S"
+    label.new(bar_index, validLong ? low : high, txt, style=validLong ? label.style_label_up : label.style_label_down, color=color.new(col, isOpt ? 0 : 35), textcolor=color.white, size=size.small, force_overlay=true)
+
+// Labels de estructura (FIFO)
+f_structLbl(string txt, float y, color col, bool up) =>
+    if useStructure
+        l = label.new(bar_index, y, txt, style=up ? label.style_label_up : label.style_label_down, color=color.new(col,20), textcolor=color.white, size=size.tiny, force_overlay=true)
+        array.push(structLbls, l)
+        if array.size(structLbls) > maxStructLabels
+            label.delete(array.shift(structLbls))
+if bosBull
+    f_structLbl("BOS ↑", low, C_BULL, true)
+if bosBear
+    f_structLbl("BOS ↓", high, C_BEAR, false)
+if chochBull
+    f_structLbl("CHoCH ↑", low, C_LONG, true)
+if chochBear
+    f_structLbl("CHoCH ↓", high, C_SHORT, false)
+if buysideRaid
+    f_structLbl("BSL RAID", high, C_WARN, false)
+if sellsideRaid
+    f_structLbl("SSL RAID", low, C_WARN, true)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  FIN PARTE 3 — Anexar Parte 4 (Dashboard · Alertas · Targets · strategy-ready).
+// ════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════
+//  PARTE 4/4 — Visual final · Dashboard · Targets/SL · Alertas
+//  Anexar DEBAJO de la Parte 3. Cierra el indicador.
+// ════════════════════════════════════════════════════════════════════════════
+G_TGT = "⑫ Targets / Stop Loss"
+G_ALR = "⑬ Alertas"
+
+// ─────────────────────────────────────────────────────────────
+//  INPUTS TARGETS / SL
+// ─────────────────────────────────────────────────────────────
+showTargets = input.bool(true, "Mostrar Targets/SL", group=G_TGT)
+slMode      = input.string("Hybrid", "Modo SL", options=["ATR","Structure","Hybrid","Liquidity"], group=G_TGT)
+tpProfile   = input.string("Balanced", "Perfil TP", options=["Conservative","Balanced","Trend"], group=G_TGT)
+atrSLmult   = input.float(1.5, "ATR × SL", minval=0.3, step=0.1, group=G_TGT)
+showBE      = input.bool(true, "Mostrar BE", group=G_TGT)
+
+// ─────────────────────────────────────────────────────────────
+//  ALERTAS — toggles
+// ─────────────────────────────────────────────────────────────
+aEntries = input.bool(true,  "Alertas de entrada (Optimal/Valid)", group=G_ALR)
+aBounce  = input.bool(true,  "Alertas Bounce",                     group=G_ALR)
+aStruct  = input.bool(false, "Alertas estructura (BOS/CHoCH/Raid)",group=G_ALR)
+aFVG     = input.bool(false, "Alertas FVG touch",                  group=G_ALR)
+aBlock   = input.bool(false, "Alertas No-Trade (HTF/Chop)",        group=G_ALR)
+
+// ─────────────────────────────────────────────────────────────
+//  TARGETS / SL  (solo sugerencia visual; no ejecuta nada)
+// ─────────────────────────────────────────────────────────────
+var line  lnEntry = na
+var line  lnSL    = na
+var line  lnBE    = na
+var line  lnTP1   = na
+var line  lnTP2   = na
+var line  lnTP3   = na
+var label lbSetup = na
+
+f_tpR(int idx) =>
+    tpProfile == "Conservative" ? (idx==1?1.0:idx==2?1.5:2.0) : tpProfile == "Trend" ? (idx==1?1.0:idx==2?2.0:4.0) : (idx==1?1.0:idx==2?2.0:3.0)
+
+f_delTargets() =>
+    line.delete(lnEntry), line.delete(lnSL), line.delete(lnBE)
+    line.delete(lnTP1),   line.delete(lnTP2), line.delete(lnTP3)
+    label.delete(lbSetup)
+
+if showTargets and (validLong or validShort) and barstate.isconfirmed
+    f_delTargets()
+    isLong = validLong
+    entry  = close
+    // SL según modo
+    structSL = isLong ? nz(lastPL, low - atr) : nz(lastPH, high + atr)
+    atrSL    = isLong ? entry - atr*atrSLmult : entry + atr*atrSLmult
+    liqSL    = isLong ? nz(pdl, atrSL) : nz(pdh, atrSL)
+    slP = slMode=="ATR" ? atrSL : slMode=="Structure" ? structSL : slMode=="Liquidity" ? liqSL : (isLong ? math.min(atrSL, structSL) : math.max(atrSL, structSL))
+    risk = math.abs(entry - slP)
+    risk := risk <= 0 ? atr : risk
+    dir = isLong ? 1 : -1
+    tp1 = entry + dir*risk*f_tpR(1)
+    tp2 = entry + dir*risk*f_tpR(2)
+    tp3 = entry + dir*risk*f_tpR(3)
+    x1 = bar_index, x2 = bar_index + 12
+    lnEntry := line.new(x1, entry, x2, entry, color=color.new(C_WARN,0),  width=2, force_overlay=true)
+    lnSL    := line.new(x1, slP,   x2, slP,   color=color.new(C_BEAR,0),  width=2, style=line.style_dashed, force_overlay=true)
+    lnTP1   := line.new(x1, tp1,   x2, tp1,   color=color.new(C_BULL,20), force_overlay=true)
+    lnTP2   := line.new(x1, tp2,   x2, tp2,   color=color.new(C_BULL,30), force_overlay=true)
+    lnTP3   := line.new(x1, tp3,   x2, tp3,   color=color.new(C_BULL,40), force_overlay=true)
+    lnBE    := showBE ? line.new(x1, entry+dir*risk, x2, entry+dir*risk, color=color.new(C_NEUT,30), style=line.style_dotted, force_overlay=true) : na
+    lbSetup := label.new(x2, entry, (isLong?"LONG":"SHORT")+"  R="+str.tostring(risk, format.mintick), style=label.style_label_left, color=color.new(C_BG,20), textcolor=isLong?C_LONG:C_SHORT, size=size.small, force_overlay=true)
+
+// ─────────────────────────────────────────────────────────────
+//  DASHBOARD
+// ─────────────────────────────────────────────────────────────
+f_pos() => dashPos=="Top Left" ? position.top_left : dashPos=="Bottom Right" ? position.bottom_right : dashPos=="Bottom Left" ? position.bottom_left : dashPos=="Middle Right" ? position.middle_right : position.top_right
+f_size() => dashSize=="Tiny" ? size.tiny : dashSize=="Small" ? size.small : dashSize=="Large" ? size.large : size.normal
+f_scoreCol(float s, float minv) => s >= minv+15 ? C_BULL : s >= minv ? C_WARN : C_BEAR
+
+var table dash = na
+if showDash
+    dash := table.new(f_pos(), 2, 15, bgcolor=color.new(C_BG,8), border_color=color.new(C_NEUT,70), border_width=1, frame_color=color.new(C_NEUT,50), frame_width=1)
+
+if showDash and barstate.islast
+    sz = f_size()
+    cyberTxt = cyberDir>0 ? "Bullish" : cyberDir<0 ? "Bearish" : "Neutral"
+    cyberCol = cyberDir>0 ? C_LONG : cyberDir<0 ? C_SHORT : C_NEUT
+    zoneTxt  = overbought ? "Overbought" : oversold ? "Oversold" : "Neutral"
+    zoneCol  = overbought ? C_BEAR : oversold ? C_BULL : C_NEUT
+    bounceTxt = bounceUp ? "Up ⚡" : bounceDown ? "Down ⚡" : "None"
+    gaussTxt = gaussDir>0 ? "Bull" : gaussDir<0 ? "Bear" : "Neutral"
+    htfTxt   = htfBias>0 ? "Bull" : htfBias<0 ? "Bear" : "Neutral"
+    nFVG = nearBullFVG ? "Bull FVG" : nearBearFVG ? "Bear FVG" : "—"
+    nOB  = nearBullOB ? "Bull OB" : nearBearOB ? "Bear OB" : "—"
+    liqTxt = bslNear ? "BSL ↑" : sslNear ? "SSL ↓" : "None"
+    evtTxt = bosBull ? "BOS ↑" : bosBear ? "BOS ↓" : chochBull ? "CHoCH ↑" : chochBear ? "CHoCH ↓" : buysideRaid ? "BSL Raid" : sellsideRaid ? "SSL Raid" : "None"
+    decCol = (optimalLong or strongLong or validLong) ? C_LONG : (optimalShort or strongShort or validShort) ? C_SHORT : waitSignal ? C_WARN : C_BEAR
+
+    table.cell(dash, 0, 0, "CYBERCYCLE GENZ SMC PRO", text_color=color.white, text_size=sz, bgcolor=color.new(C_HTF,30))
+    table.cell(dash, 1, 0, finalClass, text_color=decCol, text_size=sz, bgcolor=color.new(C_HTF,30))
+    table.cell(dash, 0, 1, "Cyber",  text_color=C_NEUT, text_size=sz), table.cell(dash, 1, 1, cyberTxt, text_color=cyberCol, text_size=sz)
+    table.cell(dash, 0, 2, "Zone",   text_color=C_NEUT, text_size=sz), table.cell(dash, 1, 2, zoneTxt, text_color=zoneCol, text_size=sz)
+    table.cell(dash, 0, 3, "Bounce", text_color=C_NEUT, text_size=sz), table.cell(dash, 1, 3, bounceTxt, text_color=bounceUp?C_BULL:bounceDown?C_BEAR:C_NEUT, text_size=sz)
+    table.cell(dash, 0, 4, "Cyber Score", text_color=C_NEUT, text_size=sz), table.cell(dash, 1, 4, str.tostring(cyberScore,"#"), text_color=f_scoreCol(cyberScore,50), text_size=sz)
+    table.cell(dash, 0, 5, "Momentum",    text_color=C_NEUT, text_size=sz), table.cell(dash, 1, 5, str.tostring(momScore,"#"),   text_color=f_scoreCol(momScore,minMomScore), text_size=sz)
+    table.cell(dash, 0, 6, "Volatility",  text_color=C_NEUT, text_size=sz), table.cell(dash, 1, 6, str.tostring(volScore,"#")+" ("+volRegime+")", text_color=f_scoreCol(volScore,minVolScore), text_size=sz)
+    table.cell(dash, 0, 7, "SMC Score",   text_color=C_NEUT, text_size=sz), table.cell(dash, 1, 7, str.tostring(smcScore,"#"),   text_color=f_scoreCol(smcScore,minSMCScore), text_size=sz)
+    table.cell(dash, 0, 8, "Gaussian", text_color=C_NEUT, text_size=sz), table.cell(dash, 1, 8, gaussTxt, text_color=gaussDir>0?C_LONG:gaussDir<0?C_SHORT:C_NEUT, text_size=sz)
+    table.cell(dash, 0, 9, "HTF Bias", text_color=C_NEUT, text_size=sz), table.cell(dash, 1, 9, htfTxt, text_color=htfBias>0?C_LONG:htfBias<0?C_SHORT:C_NEUT, text_size=sz)
+    table.cell(dash, 0,10, "Nearest FVG", text_color=C_NEUT, text_size=sz), table.cell(dash, 1,10, nFVG, text_color=C_NEUT, text_size=sz)
+    table.cell(dash, 0,11, "Nearest OB",  text_color=C_NEUT, text_size=sz), table.cell(dash, 1,11, nOB,  text_color=C_NEUT, text_size=sz)
+    table.cell(dash, 0,12, "Liquidity", text_color=C_NEUT, text_size=sz), table.cell(dash, 1,12, liqTxt, text_color=C_NEUT, text_size=sz)
+    table.cell(dash, 0,13, "Last Event", text_color=C_NEUT, text_size=sz), table.cell(dash, 1,13, evtTxt, text_color=C_NEUT, text_size=sz)
+    table.cell(dash, 0,14, "FINAL "+str.tostring(finalScore,"#"), text_color=color.white, text_size=sz, bgcolor=color.new(decCol,60))
+    table.cell(dash, 1,14, decision+"  ·  "+reason, text_color=decCol, text_size=sz, bgcolor=color.new(decCol,75))
+
+// ─────────────────────────────────────────────────────────────
+//  ALERTAS  (alertcondition + alert() dinámica)
+// ─────────────────────────────────────────────────────────────
+alertcondition(optimalLong,  "Optimal Long",  "CC GENZ · OPTIMAL LONG")
+alertcondition(optimalShort, "Optimal Short", "CC GENZ · OPTIMAL SHORT")
+alertcondition(validLong,    "Valid Long",    "CC GENZ · VALID LONG")
+alertcondition(validShort,   "Valid Short",   "CC GENZ · VALID SHORT")
+alertcondition(bounceUpSig,  "Bounce Up",     "CC GENZ · BOUNCE UP")
+alertcondition(bounceDownSig,"Bounce Down",   "CC GENZ · BOUNCE DOWN")
+alertcondition(buysideRaid,  "Buyside Raid",  "CC GENZ · BSL RAID")
+alertcondition(sellsideRaid, "Sellside Raid", "CC GENZ · SSL RAID")
+alertcondition(chochBull,    "CHoCH Bull",    "CC GENZ · CHoCH UP")
+alertcondition(chochBear,    "CHoCH Bear",    "CC GENZ · CHoCH DOWN")
+alertcondition(bosBull,      "BOS Bull",      "CC GENZ · BOS UP")
+alertcondition(bosBear,      "BOS Bear",      "CC GENZ · BOS DOWN")
+alertcondition(bullishFVGTouch, "FVG Bull touch", "CC GENZ · Bull FVG touch")
+alertcondition(bearishFVGTouch, "FVG Bear touch", "CC GENZ · Bear FVG touch")
+
+// alert() consolidada (una sola alerta "any") respetando toggles
+if barstate.isconfirmed
+    msg = ""
+    if aEntries and (optimalLong or validLong)
+        msg := decision + " | Final " + str.tostring(finalScore,"#") + " | " + reason
+    if aEntries and (optimalShort or validShort)
+        msg := decision + " | Final " + str.tostring(finalScore,"#") + " | " + reason
+    if aBounce and bounceUpSig
+        msg := "BOUNCE UP ⚡ | Cyber " + str.tostring(cyberScore,"#")
+    if aBounce and bounceDownSig
+        msg := "BOUNCE DOWN ⚡ | Cyber " + str.tostring(cyberScore,"#")
+    if aStruct and (bosBull or bosBear or chochBull or chochBear or buysideRaid or sellsideRaid)
+        msg := "Estructura: " + (bosBull?"BOS↑":bosBear?"BOS↓":chochBull?"CHoCH↑":chochBear?"CHoCH↓":buysideRaid?"BSL Raid":"SSL Raid")
+    if aFVG and (bullishFVGTouch or bearishFVGTouch)
+        msg := "FVG touch: " + (bullishFVGTouch?"Bull":"Bear")
+    if aBlock and noTrade and (longTrig or shortTrig)
+        msg := "NO TRADE ⛔ | " + reason
+    if msg != ""
+        alert(syminfo.ticker + " " + timeframe.period + " · " + msg, alert.freq_once_per_bar_close)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  FIN — CyberCycle GENZ SMC PRO completo (Partes 1+2+3+4)
+// ═══════════════════════════
