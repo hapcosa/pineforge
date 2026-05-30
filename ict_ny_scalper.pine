@@ -1,0 +1,441 @@
+//@version=6
+// ════════════════════════════════════════════════════════════════════════════
+//  ICT NYC SCALPER MODE  ·  cualquier activo  ·  exclusivo apertura New York
+//  Flujo: liquidez de sesión (Asia/London) → NY barre (manipulación) →
+//  MSS + FVG → entrada en descuento/premium → SL bajo liquidez · TP1/2/3
+//  Estética limpia · tiny · minimalista · Pine v6
+// ════════════════════════════════════════════════════════════════════════════
+indicator("ICT NYC SCALPER MODE", shorttitle="ICT NYC", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_bars_back=3000)
+
+// ════════════════ GRUPOS ════════════════
+G_SES = "① Sesiones"
+G_KZ  = "② Killzone NY + Campana"
+G_RNG = "③ Dealing Range / Imanes"
+G_LIQ = "④ Liquidez + FVG"
+G_ENT = "⑤ Entrada & Riesgo"
+G_VIS = "⑥ Dashboard"
+
+// ════════════════ ① SESIONES (cada una en su TZ local · auto-DST) ════════════════
+const string TZ_TT = "Zona IANA del país (ej. Asia/Tokyo, Europe/London, America/New_York). Auto-ajusta horario de verano."
+showSes  = input.bool(true, "Mostrar sesiones", group=G_SES)
+boxTrans = input.int(90, "Transparencia cajas", minval=70, maxval=99, group=G_SES)
+showSesHL= input.bool(true, "Etiqueta H/L de sesión", group=G_SES)
+useAsia  = input.bool(true, "ASIA",   group=G_SES, inline="a")
+asiaSess = input.session("0900-1500", "", group=G_SES, inline="a")
+asiaTZ   = input.string("Asia/Tokyo", "", group=G_SES, inline="a", tooltip=TZ_TT)
+asiaCol  = input.color(#2962ff, "", group=G_SES, inline="a")
+useLon   = input.bool(true, "LONDON", group=G_SES, inline="l")
+lonSess  = input.session("0800-1630", "", group=G_SES, inline="l")
+lonTZ    = input.string("Europe/London", "", group=G_SES, inline="l", tooltip=TZ_TT)
+lonCol   = input.color(#ff9800, "", group=G_SES, inline="l")
+useNY    = input.bool(true, "NYC",    group=G_SES, inline="n")
+nySess   = input.session("0930-1600", "", group=G_SES, inline="n")
+nyTZ     = input.string("America/New_York", "", group=G_SES, inline="n", tooltip=TZ_TT)
+nyCol    = input.color(#089981, "", group=G_SES, inline="n")
+
+// ════════════════ ② KILLZONE NY + CAMPANA ════════════════
+kzSess  = input.session("0930-1100", "Killzone NY (apertura)", group=G_KZ, tooltip="09:30→11:00 ET (hora New York, auto-DST). Solo se generan señales aquí, Lun-Vie.")
+kzTZ    = input.string("America/New_York", "Timezone (IANA)", group=G_KZ)
+showKZ  = input.bool(true, "Sombrear killzone", group=G_KZ, inline="kz")
+kzCol   = input.color(color.new(#ffffff, 93), "", group=G_KZ, inline="kz")
+showBell= input.bool(true, "🔔 Campana apertura Wall Street", group=G_KZ)
+wsSess  = input.session("0930-0931", "Apertura WS (NYSE)", group=G_KZ)
+
+// ════════════════ ③ DEALING RANGE / IMANES ════════════════
+rngLen   = input.int(40, "Lookback dealing range", minval=10, maxval=200, group=G_RNG)
+showZones= input.bool(true, "Zonas Premium / Descuento", group=G_RNG)
+showFib  = input.bool(true, "Fib 0 / 0.5 / 1", group=G_RNG)
+showMag  = input.bool(true, "🧲 Imanes (objetivo de liquidez)", group=G_RNG)
+premCol  = input.color(color.new(#ff1744, 95), "Premium", group=G_RNG, inline="z")
+discCol  = input.color(color.new(#00e676, 95), "Descuento", group=G_RNG, inline="z")
+
+// ════════════════ ④ LIQUIDEZ + FVG ════════════════
+showLiq  = input.bool(true, "Liquidez de sesión (BSL/SSL)", group=G_LIQ)
+usePDHL  = input.bool(true, "Incluir PDH / PDL", group=G_LIQ)
+maxLiq   = input.int(8, "Máx niveles de liquidez", minval=2, maxval=30, group=G_LIQ)
+bslCol   = input.color(#ef5350, "BSL", group=G_LIQ, inline="bs")
+sslCol   = input.color(#26a69a, "SSL", group=G_LIQ, inline="bs")
+showFvgBox = input.bool(true, "Cajas FVG (en vivo, auto-borrado)", group=G_LIQ)
+fvgMax   = input.int(8, "Máx cajas FVG", minval=2, maxval=30, group=G_LIQ)
+fvgUpCol = input.color(color.new(#26a69a, 84), "FVG alcista", group=G_LIQ, inline="fc")
+fvgDnCol = input.color(color.new(#ef5350, 84), "FVG bajista", group=G_LIQ, inline="fc")
+
+// ════════════════ ⑤ ENTRADA & RIESGO ════════════════
+asset    = input.string("Auto", "Activo (buffer SL)", options=["Auto","BTC","NASDAQ","EURUSD","Manual"], group=G_ENT, tooltip="Auto = ATR, sirve para CUALQUIER activo.")
+minConf  = input.int(2, "Mín. confluencias (de 3)", minval=1, maxval=3, group=G_ENT, tooltip="Confluencias: zona (disc/prem) + bias estructura + FVG. Sweep+MSS siempre obligatorios.")
+mLen     = input.int(2, "MSS · micro pivote (confirmación)", minval=1, maxval=10, group=G_ENT)
+rr1      = input.float(2.0, "TP1 (R)", minval=0.5, step=0.5, group=G_ENT, inline="rr")
+rr2      = input.float(3.0, "TP2 (R)", minval=0.5, step=0.5, group=G_ENT, inline="rr")
+rr3      = input.float(4.0, "TP3 (R)", minval=0.5, step=0.5, group=G_ENT, inline="rr")
+slBufIn  = input.float(0.20, "SL buffer (ATR x) · Manual", minval=0.0, step=0.05, group=G_ENT)
+oncePer  = input.bool(true, "Máx 1 setup por killzone", group=G_ENT)
+tradeExt = input.int(28, "Largo líneas SL/TP (velas)", minval=5, maxval=200, group=G_ENT)
+
+// ════════════════ ⑥ DASHBOARD ════════════════
+showSig  = input.bool(true, "Mostrar señales", group=G_VIS)
+buyCol   = input.color(#00e676, "BUY",  group=G_VIS, inline="sg")
+sellCol  = input.color(#ff1744, "SELL", group=G_VIS, inline="sg")
+showDash = input.bool(true, "Dashboard", group=G_VIS)
+dashPos  = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  BASE
+// ════════════════════════════════════════════════════════════════════════════
+float slBufMult = asset == "Manual" ? slBufIn : asset == "BTC" ? 0.30 : asset == "NASDAQ" ? 0.18 : asset == "EURUSD" ? 0.12 : 0.20
+float atr  = ta.atr(14)
+bool  conf = barstate.isconfirmed
+bool  intraday = not timeframe.isdwm
+// día de mercado en hora NY (auto-DST): sin sáb/dom; viernes solo hasta cierre 16:00 ET
+int  dowNY     = dayofweek(time, kzTZ)
+bool noWeekend = not (dowNY == dayofweek.saturday or dowNY == dayofweek.sunday)
+bool friAfter  = dowNY == dayofweek.friday and hour(time, kzTZ) >= 16
+bool isWeekday = noWeekend and not friAfter
+
+// ════════════════════════════════════════════════════════════════════════════
+//  TIPOS
+// ════════════════════════════════════════════════════════════════════════════
+type Sess
+    string name
+    string sess
+    string tz
+    color  col
+    bool   use
+    box    bx = na
+    label  lb = na
+    float  hi = na
+    float  lo = na
+    bool   active = false
+
+type Liq
+    float price
+    bool  isBSL
+    line  ln
+    label lb
+    bool  taken = false
+    string src = ""
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ① SESIONES — cajas + máx/mín · liquidez al cerrar
+// ════════════════════════════════════════════════════════════════════════════
+f_initSess() =>
+    a = array.new<Sess>()
+    a.push(Sess.new(name="ASIA",   sess=asiaSess, tz=asiaTZ, col=asiaCol, use=useAsia))
+    a.push(Sess.new(name="LONDON", sess=lonSess,  tz=lonTZ,  col=lonCol,  use=useLon))
+    a.push(Sess.new(name="NYC",    sess=nySess,   tz=nyTZ,   col=nyCol,   use=useNY))
+    a
+var array<Sess> sessArr = f_initSess()
+
+var array<Liq> liqArr = array.new<Liq>()
+f_addLiq(price, isBSL, src) =>
+    if array.size(liqArr) >= maxLiq
+        Liq old = array.shift(liqArr)
+        line.delete(old.ln)
+        label.delete(old.lb)
+    color c = isBSL ? bslCol : sslCol
+    line  nl = line.new(bar_index, price, bar_index + 2, price, extend=extend.right, color=c, style=line.style_solid, width=1)
+    label nb = label.new(bar_index + 2, price, src + (isBSL ? " BSL" : " SSL"), xloc=xloc.bar_index, style=label.style_none, textcolor=c, size=size.tiny)
+    array.push(liqArr, Liq.new(price, isBSL, nl, nb, false, src))
+
+if showSes and intraday
+    for s in sessArr
+        bool nowIn = s.use and isWeekday and not na(time(timeframe.period, s.sess, s.tz))
+        if nowIn and not s.active
+            s.active := true
+            s.hi := high
+            s.lo := low
+            s.bx := box.new(bar_index, high, bar_index, low, bgcolor=color.new(s.col, boxTrans), border_color=color.new(s.col, 75), border_width=1)
+            s.lb := label.new(bar_index, high, s.name, xloc=xloc.bar_index, style=label.style_none, textcolor=color.new(s.col, 0), size=size.tiny)
+        else if nowIn
+            s.hi := math.max(s.hi, high)
+            s.lo := math.min(s.lo, low)
+            box.set_top(s.bx, s.hi)
+            box.set_bottom(s.bx, s.lo)
+            box.set_right(s.bx, bar_index)
+            label.set_xy(s.lb, bar_index, s.hi)
+            label.set_text(s.lb, showSesHL ? s.name + "  H " + str.tostring(s.hi, format.mintick) + " · L " + str.tostring(s.lo, format.mintick) : s.name)
+        else if s.active
+            s.active := false
+            if showLiq
+                f_addLiq(s.hi, true,  s.name)
+                f_addLiq(s.lo, false, s.name)
+
+string curSes = "—"
+for s in sessArr
+    if s.active
+        curSes := s.name
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ② KILLZONE + CAMPANA WS
+// ════════════════════════════════════════════════════════════════════════════
+bool inKZ     = not na(time(timeframe.period, kzSess, kzTZ))
+bool kzActive = inKZ and isWeekday and intraday
+bgcolor(showKZ and kzActive ? kzCol : na, title="Killzone NY")
+
+bool inWS   = not na(time(timeframe.period, wsSess, kzTZ)) and isWeekday and intraday
+bool wsBell = inWS and not inWS[1]
+plotshape(showBell and wsBell, title="🔔 WS Open", style=shape.labeldown, location=location.top, color=color.new(#ffd54f, 0), text="🔔", textcolor=#0d1117, size=size.small)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ③ ESTRUCTURA (bias interno, sin saturar el chart)
+// ════════════════════════════════════════════════════════════════════════════
+float ph = ta.pivothigh(high, 5, 5)
+float pl = ta.pivotlow(low,  5, 5)
+var float lastPH = na
+var float lastPL = na
+if not na(ph)
+    lastPH := ph
+if not na(pl)
+    lastPL := pl
+var int bias = 0
+if not na(lastPH) and close > lastPH
+    bias := 1
+if not na(lastPL) and close < lastPL
+    bias := -1
+color biasCol = bias > 0 ? buyCol : bias < 0 ? sellCol : color.gray
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DEALING RANGE · PREMIUM / EQ / DESCUENTO · FIB 0/0.5/1
+// ════════════════════════════════════════════════════════════════════════════
+float drHigh = ta.highest(high, rngLen)
+float drLow  = ta.lowest(low,  rngLen)
+float eq     = (drHigh + drLow) / 2.0
+bool  discount = close < eq
+bool  premium  = close > eq
+
+var box  premBox = na
+var box  discBox = na
+var line fib0 = na
+var line fib5 = na
+var line fib1 = na
+var label fibEqLb = na
+if intraday
+    int xr = bar_index + 3
+    if showZones
+        if na(premBox)
+            premBox := box.new(bar_index, drHigh, xr, eq, bgcolor=premCol, border_color=na)
+            discBox := box.new(bar_index, eq, xr, drLow, bgcolor=discCol, border_color=na)
+        else
+            box.set_lefttop(premBox, bar_index, drHigh)
+            box.set_rightbottom(premBox, xr, eq)
+            box.set_lefttop(discBox, bar_index, eq)
+            box.set_rightbottom(discBox, xr, drLow)
+    if showFib
+        if na(fib0)
+            fib0 := line.new(bar_index, drLow,  xr, drLow,  extend=extend.right, color=color.new(#787b86,45), style=line.style_dotted)
+            fib5 := line.new(bar_index, eq,     xr, eq,     extend=extend.right, color=color.new(#ffb300,0),  style=line.style_solid, width=1)
+            fib1 := line.new(bar_index, drHigh, xr, drHigh, extend=extend.right, color=color.new(#787b86,45), style=line.style_dotted)
+            fibEqLb := label.new(xr, eq, "EQ", xloc=xloc.bar_index, style=label.style_none, textcolor=color.new(#ffb300,0), size=size.tiny)
+        else
+            line.set_xy1(fib0, bar_index, drLow)
+            line.set_xy2(fib0, xr, drLow)
+            line.set_xy1(fib5, bar_index, eq)
+            line.set_xy2(fib5, xr, eq)
+            line.set_xy1(fib1, bar_index, drHigh)
+            line.set_xy2(fib1, xr, drHigh)
+            label.set_xy(fibEqLb, xr, eq)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ④ LIQUIDEZ: PDH/PDL + barrido (manipulación) + IMANES
+// ════════════════════════════════════════════════════════════════════════════
+[pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead=barmerge.lookahead_off)
+if usePDHL and showLiq and timeframe.change("D") and not na(pdh)
+    f_addLiq(pdh, true,  "PDH")
+    f_addLiq(pdl, false, "PDL")
+
+bool sweepBSL = false   // barrió liquidez arriba → buscar SHORT
+bool sweepSSL = false   // barrió liquidez abajo  → buscar LONG
+float magUp = na        // imán: liquidez más cercana arriba (objetivo)
+float magDn = na        // imán: liquidez más cercana abajo
+if array.size(liqArr) > 0
+    int i = array.size(liqArr) - 1
+    while i >= 0
+        Liq L = array.get(liqArr, i)
+        line.set_x2(L.ln, bar_index + 2)
+        label.set_x(L.lb, bar_index + 2)
+        if not L.taken
+            if L.isBSL and high > L.price and close < L.price
+                L.taken := true
+                line.set_style(L.ln, line.style_dashed)
+                line.set_color(L.ln, color.new(bslCol, 60))
+                label.set_text(L.lb, L.src + " BSL ✗")
+                sweepBSL := true
+            if (not L.isBSL) and low < L.price and close > L.price
+                L.taken := true
+                line.set_style(L.ln, line.style_dashed)
+                line.set_color(L.ln, color.new(sslCol, 60))
+                label.set_text(L.lb, L.src + " SSL ✗")
+                sweepSSL := true
+            if L.price > close and (na(magUp) or L.price < magUp)
+                magUp := L.price
+            if L.price < close and (na(magDn) or L.price > magDn)
+                magDn := L.price
+        i := i - 1
+
+// imanes (objetivo de liquidez) — etiqueta 🧲 minimalista que sigue al precio
+var label magUpLb = na
+var label magDnLb = na
+if showMag and intraday
+    if na(magUpLb)
+        magUpLb := label.new(bar_index + 3, na, "🧲", xloc=xloc.bar_index, style=label.style_none, textcolor=color.new(bslCol, 0), size=size.small)
+        magDnLb := label.new(bar_index + 3, na, "🧲", xloc=xloc.bar_index, style=label.style_none, textcolor=color.new(sslCol, 0), size=size.small)
+    label.set_xy(magUpLb, bar_index + 3, magUp)
+    label.set_xy(magDnLb, bar_index + 3, magDn)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ⑤ FVG en vivo (entradas) + MSS + ENTRADA NY
+// ════════════════════════════════════════════════════════════════════════════
+bool fvgUp = low > high[2]
+bool fvgDn = high < low[2]
+
+var array<box> fvgBx = array.new_box()
+if showFvgBox and conf and fvgUp
+    if array.size(fvgBx) >= fvgMax
+        box.delete(array.shift(fvgBx))
+    array.push(fvgBx, box.new(bar_index - 2, low, bar_index + 3, high[2], bgcolor=fvgUpCol, border_color=color.new(fvgUpCol, 40), border_width=1))
+if showFvgBox and conf and fvgDn
+    if array.size(fvgBx) >= fvgMax
+        box.delete(array.shift(fvgBx))
+    array.push(fvgBx, box.new(bar_index - 2, low[2], bar_index + 3, high, bgcolor=fvgDnCol, border_color=color.new(fvgDnCol, 40), border_width=1))
+if array.size(fvgBx) > 0
+    int fi = array.size(fvgBx) - 1
+    while fi >= 0
+        box fb = array.get(fvgBx, fi)
+        if low <= box.get_top(fb) and high >= box.get_bottom(fb)
+            box.delete(fb)
+            array.remove(fvgBx, fi)
+        else
+            box.set_right(fb, bar_index + 3)
+        fi := fi - 1
+
+float mph = ta.pivothigh(high, mLen, mLen)
+float mpl = ta.pivotlow(low,  mLen, mLen)
+var float microPH = na
+var float microPL = na
+if not na(mph)
+    microPH := mph
+if not na(mpl)
+    microPL := mpl
+bool mssUp = not na(microPH) and close > microPH
+bool mssDn = not na(microPL) and close < microPL
+
+var int   pend     = 0
+var float sweepLvl = na
+var bool  fired    = false
+bool kzStart = kzActive and not kzActive[1]
+if kzStart or timeframe.change("D")
+    pend := 0
+    fired := false
+if kzActive
+    if sweepSSL
+        pend := 1
+        sweepLvl := low
+    if sweepBSL
+        pend := -1
+        sweepLvl := high
+if pend == 1 and low < sweepLvl
+    sweepLvl := low
+if pend == -1 and high > sweepLvl
+    sweepLvl := high
+
+// CONFLUENCIAS (3): zona · bias estructura · FVG
+int scoreL = (discount ? 1 : 0) + (bias >= 0 ? 1 : 0) + ((fvgUp or fvgUp[1]) ? 1 : 0)
+int scoreS = (premium  ? 1 : 0) + (bias <= 0 ? 1 : 0) + ((fvgDn or fvgDn[1]) ? 1 : 0)
+bool okOnce = not oncePer or not fired
+
+// solo en killzone NY · gatillo obligatorio sweep+MSS · confluencias >= mínimo
+bool entryLong  = kzActive and conf and pend == 1  and mssUp and scoreL >= minConf and okOnce
+bool entryShort = kzActive and conf and pend == -1 and mssDn and scoreS >= minConf and okOnce
+
+// dibujo del trade
+var line  ln_e  = na
+var line  ln_sl = na
+var line  ln_t1 = na
+var line  ln_t2 = na
+var line  ln_t3 = na
+var label lb_e  = na
+var label lb_sig= na
+float buf = atr * slBufMult
+bool newTrade = entryLong or entryShort
+if newTrade
+    bool  isLong = entryLong
+    float entry  = close
+    float sl     = isLong ? sweepLvl - buf : sweepLvl + buf
+    float rsk    = math.abs(entry - sl)
+    float tp1    = isLong ? entry + rsk * rr1 : entry - rsk * rr1
+    float tp2    = isLong ? entry + rsk * rr2 : entry - rsk * rr2
+    float tp3    = isLong ? entry + rsk * rr3 : entry - rsk * rr3
+    if not na(ln_e)
+        line.delete(ln_e)
+        line.delete(ln_sl)
+        line.delete(ln_t1)
+        line.delete(ln_t2)
+        line.delete(ln_t3)
+        label.delete(lb_e)
+        label.delete(lb_sig)
+    int   xL = bar_index
+    int   xR = bar_index + tradeExt
+    color cE = isLong ? buyCol : sellCol
+    int   sc = isLong ? scoreL : scoreS
+    ln_e  := line.new(xL, entry, xR, entry, color=color.new(#ffffff, 0), width=1, style=line.style_solid)
+    ln_sl := line.new(xL, sl,    xR, sl,    color=color.new(sellCol, 0), width=2, style=line.style_solid)
+    ln_t1 := line.new(xL, tp1,   xR, tp1,   color=color.new(buyCol, 35), width=1, style=line.style_dashed)
+    ln_t2 := line.new(xL, tp2,   xR, tp2,   color=color.new(buyCol, 20), width=1, style=line.style_dashed)
+    ln_t3 := line.new(xL, tp3,   xR, tp3,   color=color.new(#26c6da, 0), width=1, style=line.style_dashed)
+    lb_e  := label.new(xR, entry, "@" + str.tostring(entry, format.mintick) + "  SL " + str.tostring(sl, format.mintick) + "\nTP1 " + str.tostring(tp1, format.mintick) + " · TP2 " + str.tostring(tp2, format.mintick) + " · TP3 " + str.tostring(tp3, format.mintick), xloc=xloc.bar_index, style=label.style_label_left, color=color.new(#0d1117, 12), textcolor=color.white, size=size.tiny)
+    lb_sig := label.new(xL, isLong ? low : high, (isLong ? "▲ BULL " : "▼ BEAR ") + str.tostring(sc) + "/3", xloc=xloc.bar_index, style=(isLong ? label.style_label_up : label.style_label_down), color=cE, textcolor=color.white, size=size.small)
+    fired := true
+    pend  := 0
+
+// marcador de barrido (manipulación) en killzone
+plotshape(showSig and kzActive and sweepSSL and pend == 1,  title="Sweep SSL", style=shape.xcross, location=location.belowbar, color=color.new(sslCol, 10), size=size.tiny)
+plotshape(showSig and kzActive and sweepBSL and pend == -1, title="Sweep BSL", style=shape.xcross, location=location.abovebar, color=color.new(bslCol, 10), size=size.tiny)
+
+string amd = not kzActive ? "Espera NY" : fired ? "DISTRIBUCION" : pend != 0 ? "MANIPULACION" : "ACUMULACION"
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ⑥ DASHBOARD (compacto)
+// ════════════════════════════════════════════════════════════════════════════
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+var table dash = table.new(f_pos(dashPos), 2, 9, bgcolor=color.new(#0d1117, 8), border_color=color.new(color.gray, 60), border_width=1, frame_color=color.new(color.gray, 40), frame_width=1)
+
+var string lastSig = "—"
+var color  lastSigCol = color.gray
+if entryLong
+    lastSig := "▲ BULL " + str.tostring(scoreL) + "/3 @ " + str.tostring(close, format.mintick)
+    lastSigCol := buyCol
+if entryShort
+    lastSig := "▼ BEAR " + str.tostring(scoreS) + "/3 @ " + str.tostring(close, format.mintick)
+    lastSigCol := sellCol
+
+if showDash and barstate.islast
+    string biasTxt = bias > 0 ? "ALCISTA" : bias < 0 ? "BAJISTA" : "NEUTRO"
+    string zoneTxt = premium ? "PREMIUM (vende)" : "DESCUENTO (compra)"
+    color  zoneCol = premium ? sellCol : buyCol
+    string magTxt  = (na(magUp) ? "—" : str.tostring(magUp, format.mintick)) + " / " + (na(magDn) ? "—" : str.tostring(magDn, format.mintick))
+    string fvgNow  = (fvgUp or fvgUp[1]) ? "▲ alcista" : (fvgDn or fvgDn[1]) ? "▼ bajista" : "—"
+    color  fvgNowC = (fvgUp or fvgUp[1]) ? buyCol : (fvgDn or fvgDn[1]) ? sellCol : color.gray
+    table.cell(dash, 0, 0, "ICT NYC", text_color=color.white, bgcolor=color.new(#1f6feb, 15), text_size=size.small)
+    table.cell(dash, 1, 0, timeframe.period + (kzActive ? " · KZ ✔" : " · KZ ✘"), text_color=(kzActive ? buyCol : color.gray), bgcolor=color.new(#1f6feb, 15), text_size=size.small)
+    table.cell(dash, 0, 1, "Sesión", text_color=color.gray, text_size=size.small)
+    table.cell(dash, 1, 1, curSes, text_color=color.white, text_size=size.small)
+    table.cell(dash, 0, 2, "Bias", text_color=color.gray, text_size=size.small)
+    table.cell(dash, 1, 2, biasTxt, text_color=biasCol, text_size=size.small)
+    table.cell(dash, 0, 3, "Zona", text_color=color.gray, text_size=size.small)
+    table.cell(dash, 1, 3, zoneTxt, text_color=zoneCol, text_size=size.small)
+    table.cell(dash, 0, 4, "Fase AMD", text_color=color.gray, text_size=size.small)
+    table.cell(dash, 1, 4, amd, text_color=color.yellow, text_size=size.small)
+    table.cell(dash, 0, 5, "FVG actual", text_color=color.gray, text_size=size.small)
+    table.cell(dash, 1, 5, fvgNow, text_color=fvgNowC, text_size=size.small)
+    table.cell(dash, 0, 6, "🧲 Imán ↑/↓", text_color=color.gray, text_size=size.small)
+    table.cell(dash, 1, 6, magTxt, text_color=color.new(#b0bec5,0), text_size=size.small)
+    table.cell(dash, 0, 7, "Confluencias", text_color=color.gray, text_size=size.small)
+    table.cell(dash, 1, 7, "L " + str.tostring(scoreL) + " · S " + str.tostring(scoreS), text_color=color.aqua, text_size=size.small)
+    table.cell(dash, 0, 8, "Última señal", text_color=color.gray, text_size=size.small)
+    table.cell(dash, 1, 8, lastSig, text_color=lastSigCol, text_size=size.small)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(entryLong,  title="ICT NYC BUY",  message="ICT NYC LONG {{ticker}} @ {{close}}")
+alertcondition(entryShort, title="ICT NYC SELL", message="ICT NYC SHORT {{ticker}} @ {{close}}")
+alertcondition(wsBell,     title="🔔 WS Open",   message="🔔 Apertura Wall Street {{ticker}}")
