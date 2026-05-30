@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Manual · ICT NYC SCALPER MODE + OSCILATOR</title>
+<style>
+  :root{--bg:#0b0e16;--panel:#121726;--line:#1f2740;--txt:#e6edf5;--mut:#90a4ae;--up:#00e5ff;--dn:#ff1e6e;--gold:#ffd54f;--purple:#9d6cff;}
+  *{box-sizing:border-box}
+  body{font-family:'Segoe UI',Roboto,Arial,sans-serif;background:var(--bg);color:var(--txt);margin:0;padding:40px;line-height:1.55;}
+  .wrap{max-width:880px;margin:0 auto;}
+  h1{font-size:30px;font-weight:800;letter-spacing:.5px;background:linear-gradient(90deg,var(--up),var(--purple));-webkit-background-clip:text;background-clip:text;color:transparent;margin:0 0 6px;}
+  h2{font-size:20px;margin:34px 0 10px;color:var(--up);border-bottom:1px solid var(--line);padding-bottom:6px;}
+  h3{font-size:15px;color:var(--gold);margin:18px 0 6px;}
+  .sub{color:var(--mut);margin:0 0 24px;}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 20px;margin:14px 0;}
+  .gold-rule{background:linear-gradient(90deg,rgba(255,213,79,.14),transparent);border-left:3px solid var(--gold);padding:10px 16px;border-radius:6px;margin:14px 0;}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px;}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);}
+  th{color:var(--up);font-weight:600;}
+  td:first-child{color:var(--gold);white-space:nowrap;}
+  code{background:#1b2030;padding:2px 7px;border-radius:5px;color:var(--up);font-size:13px;}
+  .step{counter-reset:s;list-style:none;padding-left:0;}
+  .step li{counter-increment:s;position:relative;padding:8px 0 8px 40px;border-bottom:1px solid var(--line);}
+  .step li::before{content:counter(s);position:absolute;left:0;top:8px;width:26px;height:26px;background:linear-gradient(135deg,var(--up),var(--purple));color:#06121a;font-weight:800;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;}
+  .up{color:var(--up)}.dn{color:var(--dn)}.gold{color:var(--gold)}.mut{color:var(--mut)}.pp{color:var(--purple)}
+  .pill{display:inline-block;background:#1b2030;border:1px solid var(--line);border-radius:20px;padding:3px 12px;font-size:12px;margin:3px 4px 3px 0;}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  .big{font-size:17px;font-weight:700;text-align:center;padding:18px;background:linear-gradient(135deg,rgba(0,229,255,.08),rgba(157,108,255,.08));border:1px solid var(--line);border-radius:12px;margin:20px 0;}
+  @media print{body{background:#fff;color:#111;padding:0}.card,.panel{break-inside:avoid}h1{color:#0a84ff;-webkit-text-fill-color:#0a84ff}h2{color:#0a84ff}h3{color:#b8860b}td:first-child{color:#b8860b}.up{color:#0a7}.dn{color:#c0392b}.gold{color:#b8860b}.pp{color:#7a4fd0}code{background:#eee;color:#0a84ff}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>⚡ ICT NYC SCALPER MODE + OSCILATOR</h1>
+<p class="sub">Sistema de 2 piezas para operar <b>exclusivamente la sesión de New York</b>.</p>
+
+<div class="card">
+  <b class="up">ICT NYC SCALPER MODE</b> (sobre el precio) → marca el setup, la liquidez y la entrada.<br>
+  <b class="pp">ICT NYC OSCILATOR</b> (panel inferior) → confirma con dinero institucional (Money Flow) + ciclo (COG Ehlers).
+</div>
+<div class="gold-rule"><b>Regla de oro:</b> el scalper <b>propone</b>, el oscilador <b>confirma</b>. Solo entras cuando los dos coinciden durante la apertura de Wall Street.</div>
+
+<h2>1 · Instalación en TradingView</h2>
+<ol class="step">
+  <li>Abre TradingView y un gráfico cualquiera.</li>
+  <li>Botón <b>Pine Editor</b> (barra inferior).</li>
+  <li>Pega <code>ict_ny_scalper.pine</code> → <b>Add to chart</b> (sale sobre las velas).</li>
+  <li>Nueva pestaña del Pine Editor (<code>+</code>), pega <code>ict_nyc_oscilator.pine</code> → <b>Add to chart</b> (panel inferior).</li>
+  <li>Guarda ambos para tenerlos en <i>Indicators → My scripts</i>.</li>
+</ol>
+<p class="mut">Avisos del editor tipo "undefined timeframe.isdwm" suelen ser falsos del linter. Lo que importa es que compile al darle <i>Add to chart</i>.</p>
+
+<h2>2 · Activos recomendados (los más usados en NY)</h2>
+<table>
+<tr><th>Activo</th><th>Símbolo</th><th>Por qué</th></tr>
+<tr><td>NASDAQ</td><td><code>NAS100 / US100 / MNQ1!</code></td><td>El rey del scalping NY. Volumen real, killzone limpísima.</td></tr>
+<tr><td>S&amp;P 500</td><td><code>SPX500 / ES1! / MES1!</code></td><td>Igual de bueno, algo más lento.</td></tr>
+<tr><td>BTC</td><td><code>BTCUSDT</code></td><td>24/7 pero reacciona fuerte al open NY. Volumen real.</td></tr>
+<tr><td>EUR/USD</td><td><code>EURUSD</code></td><td>Clásico forex. ⚠️ tick-volume → Money Flow aproximado.</td></tr>
+<tr><td>Oro</td><td><code>XAUUSD</code></td><td>Muy activo en NY.</td></tr>
+</table>
+<p><b class="up">Mejores:</b> NASDAQ y S&amp;P (volumen real). BTC excelente. EUR/USD funciona pero el flujo es menos preciso.</p>
+
+<h2>3 · Timeframes</h2>
+<table>
+<tr><th>Estilo</th><th>TF entrada</th><th>Contexto</th></tr>
+<tr><td>Scalping (recomendado)</td><td>1m – 3m</td><td>mirar 15m antes</td></tr>
+<tr><td>Intradía</td><td>5m – 15m</td><td>1H</td></tr>
+</table>
+<p>El sistema <b>solo dispara dentro de la killzone NY</b> (apertura). Fuera de esa ventana, no hay señales (a propósito).</p>
+
+<h2>4 · Leer el SCALPER (sobre el precio)</h2>
+<div class="grid">
+  <div class="card"><b>Cajas de sesión</b><br><span class="mut">ASIA, LONDON, NYC. Etiqueta <b>H</b> en el máximo (arriba) y <b>L</b> en el mínimo (abajo).</span></div>
+  <div class="card"><b>Liquidez BSL / SSL</b><br><span class="mut"><span class="dn">BSL</span>=stops de shorts (arriba), <span class="up">SSL</span>=stops de longs (abajo). Al romperse → punteada + ✗ (ya barrida).</span></div>
+  <div class="card"><b>🔔 Campana WS</b><br><span class="mut">Fondo amarillo + "WS OPEN". Apertura 09:30 ET. Aquí empieza lo bueno.</span></div>
+  <div class="card"><b>🧲 Imán direccional</b><br><span class="mut">Según el bias, apunta a la liquidez objetivo. Un solo lado = no azar.</span></div>
+  <div class="card"><b>Cajas FVG</b><br><span class="mut">Verde=alcista, roja=bajista. Al mitigarse quedan grises punteadas (historial).</span></div>
+  <div class="card"><b>Fib 0 / 0.5 / 1</b><br><span class="mut"><b class="up">DESCUENTO</b> (&lt;0.5) compra · <b class="dn">PREMIUM</b> (&gt;0.5) vende.</span></div>
+</div>
+
+<h3>La secuencia (AMD / Power of 3)</h3>
+<table>
+<tr><th>Fase</th><th>Qué pasa</th><th>En el indicador</th></tr>
+<tr><td class="mut">Acumulación</td><td>Asia y London arman rango</td><td>Cajas; sus extremos = liquidez BSL/SSL</td></tr>
+<tr><td class="gold">Manipulación</td><td>NY barre una liquidez (trampa)</td><td>✗ + xcross; dashboard = MANIPULACION</td></tr>
+<tr><td class="up">Distribución</td><td>Precio gira → mueve real</td><td>Etiqueta <b>▲ BULL</b> / <b>▼ BEAR · ENTRY</b> con SL + TP1/2/3</td></tr>
+</table>
+<p>Al liquidarse el trade (SL o TP3) aparece <b class="dn">💀 FATALITY</b>.</p>
+
+<h2>5 · Leer el OSCILADOR (panel inferior)</h2>
+<p>Línea 0–100 = <b class="pp">ciclo (COG)</b> + <b>momentum</b> + <b class="up">dinero (Money Flow)</b>.</p>
+<table>
+<tr><td>Línea sobre su media</td><td class="up">cruce <b>BULL</b> (etiqueta en la línea)</td></tr>
+<tr><td>Línea bajo su media</td><td class="dn">cruce <b>BEAR</b></td></tr>
+<tr><td>Barras de fondo</td><td>Money Flow: verde acumulación / rojo distribución</td></tr>
+<tr><td>Fibo 0.382 / 0.5 / 0.618</td><td>si se frena ahí = decisión. Rebote en 0.382 = fin descuento → BULL; tope 0.618 = fin premium → BEAR</td></tr>
+<tr><td>▲ ▼</td><td>divergencia (precio nuevo extremo, oscilador no)</td></tr>
+</table>
+<p class="mut">Cuadro arriba-derecha: veredicto + flujo + zona fibo. Cruces confirmados a cierre de vela (no repintan).</p>
+
+<h2>6 · Cómo operar (paso a paso)</h2>
+<ol class="step">
+  <li>Espera la <b class="gold">🔔 campana</b> (apertura NY). Antes, no operas.</li>
+  <li>El scalper marca <b class="gold">MANIPULACION</b> (barrió liquidez, salió ✗).</li>
+  <li>Sale la flecha <b class="up">▲ BULL</b> en descuento / <b class="dn">▼ BEAR</b> en premium.</li>
+  <li>El oscilador da <b>cruce BULL/BEAR</b> en el mismo sentido + Money Flow a favor.</li>
+  <li><b>Entrada A+</b> = flecha del scalper <b>+</b> cruce del oscilador → entras.</li>
+  <li><b>SL</b> = el que dibuja el scalper (detrás de la liquidez barrida).</li>
+  <li>Parcial en <b>TP1 (2R)</b>, SL a break-even, deja correr a <b>TP2 (3R)</b> / <b>TP3 (4R)</b>. El 🧲 indica el espacio hasta la próxima liquidez.</li>
+</ol>
+
+<h3>Confluencias por pieza (qué aporta cada una)</h3>
+<table>
+<tr><th>SCALPER (estructura/precio)</th><th>OSCILADOR (momentum/dinero)</th></tr>
+<tr><td>Killzone NY + barrido de liquidez</td><td>Cruce de la línea con su media</td></tr>
+<tr><td>MSS (cambio de microestructura)</td><td>Money Flow a favor (CMF)</td></tr>
+<tr><td>Zona descuento/premium + FVG</td><td>Zona fibo + divergencia</td></tr>
+</table>
+<div class="big">Unión = <span class="up">scalper confirma DÓNDE</span> + <span class="pp">oscilador confirma CUÁNDO/CON QUÉ FUERZA</span>. Las dos juntas = trade calculado para NY.</div>
+
+<h3>Cuándo NO operar</h3>
+<p><span class="pill">Fuera de killzone</span><span class="pill">Oscilador y scalper en desacuerdo</span><span class="pill">Money Flow en contra</span><span class="pill">Oscilador plano pegado a un fibo</span><span class="pill">Viernes tras cierre / fin de semana</span></p>
+
+<h2>7 · Parámetros ideales</h2>
+<h3>Scalping NASDAQ / BTC 1–3m (recomendado)</h3>
+<p><b>Scalper:</b> Activo=preset (o Auto) · Mín. confluencias=2 · MSS=2.<br>
+<b>Oscilador:</b> COG=9 · Momentum=10 · Normalización=34 · Suavizado=2 · Media=9 · MoneyFlow=14 · "cruce solo con flujo a favor"=ON.</p>
+<h3>Más estricto</h3>
+<p><b>Scalper:</b> Mín. confluencias=3. <b>Oscilador:</b> Suavizado=3, divergencias ON.</p>
+<h3>Intradía 5–15m</h3>
+<p><b>Scalper:</b> MSS=3 · Lookback range=60. <b>Oscilador:</b> COG=14 · Norm=50 · Media=14.</p>
+
+<h2>8 · Gestión de riesgo</h2>
+<p><span class="pill">Máx 1 setup por killzone</span><span class="pill">Riesgo fijo 0.5–1%</span><span class="pill">Parcial en TP1 + break-even</span><span class="pill">2 pérdidas seguidas → cierra el día</span></p>
+
+<div class="big">Espera la campana de NY → deja que barra la liquidez de Asia/London → entra <b>a favor</b> del giro cuando el oscilador confirme el cruce y el precio esté en descuento/premium → SL bajo la liquidez, TP hacia el 🧲 imán.</div>
+
+<p class="mut" style="text-align:center;margin-top:30px;">Para guardar como PDF: abre este archivo en tu navegador → <b>Ctrl + P</b> → Destino "Guardar como PDF".</p>
+
+</div>
+</body>
+</html>
