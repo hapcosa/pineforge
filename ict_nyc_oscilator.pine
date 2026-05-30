@@ -1,10 +1,23 @@
 //@version=6
-// ════════════════════════════════════════════════════════════════════════════
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
 //  ICT NYC OSCILATOR  ·  COG (Ehlers) + Momentum + Money Flow SMC
-//  Cruces BULL / BEAR · Fibo 0.382 / 0.5 / 0.618 · estética LuxAlgo futurista
-//  Complemento del ICT NYC SCALPER MODE · Pine v6 · panel inferior
-// ════════════════════════════════════════════════════════════════════════════
+//  Cruces BULL / BEAR · Fibo · complemento del ICT NYC SCALPER MODE
+//  © BudAI Cripto — Pine v6
+// ────────────────────────────────────────────────────────────────────────────
 indicator("ICT NYC OSCILATOR", shorttitle="ICT OSC", overlay=false, max_labels_count=300, max_lines_count=100)
+
+// ════════════════ MARCA DE AGUA ════════════════
+G_WM   = "✦ Marca de agua"
+showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+wmPos  = input.string("Inferior Izquierda", "Posición", options=["Inferior Izquierda","Inferior Derecha","Superior Izquierda","Superior Derecha"], group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
 
 // ════════════════ GRUPOS ════════════════
 G_OSC = "① Núcleo"
@@ -144,6 +157,14 @@ if barstate.islast
     table.cell(t, 1, 1, acc ? "ACUMULA" : "DISTRIB", text_color=acc ? upCol : dnCol, text_size=size.small)
     table.cell(t, 0, 2, fibZone, text_color=color.new(#9d6cff,0), text_size=size.small)
     table.cell(t, 1, 2, verdict, text_color=color.white, bgcolor=color.new(vCol, 45), text_size=size.small)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MARCA DE AGUA — firma BudAI Cripto
+// ════════════════════════════════════════════════════════════════════════════
+f_wmPos(s) => s == "Inferior Izquierda" ? position.bottom_left : s == "Inferior Derecha" ? position.bottom_right : s == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.small)
 
 // ════════════════════════════════════════════════════════════════════════════
 //  ALERTAS

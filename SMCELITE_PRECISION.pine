@@ -3,6 +3,16 @@
 // Merged from SMCELITE.pine (v5→v6) + SMCELITE_PRECISION.pine
 // Removed: Signal A, Signal D (kept Signal S only + Precision Entry Watch)
 //@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  © BudAI Cripto — Trading Suite
+// ────────────────────────────────────────────────────────────────────────────
 indicator("SMC Elite Precision v2 [Fisher+Div]", "SMC Precision ◆S◇E",
      overlay = true,
      max_bars_back = 5000,

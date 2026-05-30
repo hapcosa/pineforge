@@ -1,11 +1,24 @@
 //@version=6
-// ════════════════════════════════════════════════════════════════════════════
-//  ICT NYC SCALPER MODE  ·  cualquier activo  ·  exclusivo apertura New York
-//  Liquidez de sesión (Asia/London) → NY barre (manipulación) → MSS + FVG
-//  → entrada en descuento/premium → SL bajo liquidez · TP1/2/3 · "FATALITY" al liquidar
-//  Estética LuxAlgo futurista · Pine v6
-// ════════════════════════════════════════════════════════════════════════════
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  ICT NYC SCALPER MODE  ·  exclusivo apertura New York
+//  Liquidez de sesión → NY barre (manipulación) → MSS + FVG → entrada
+//  SL bajo liquidez · TP1/2/3 · "FATALITY" al liquidar
+//  © BudAI Cripto — Pine v6
+// ────────────────────────────────────────────────────────────────────────────
 indicator("ICT NYC SCALPER MODE", shorttitle="ICT NYC", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_bars_back=3000)
+
+// ════════════════ MARCA DE AGUA ════════════════
+G_WM   = "✦ Marca de agua"
+showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+wmPos  = input.string("Inferior Izquierda", "Posición", options=["Inferior Izquierda","Inferior Derecha","Superior Izquierda","Superior Derecha"], group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
 
 // ════════════════ GRUPOS ════════════════
 G_SES = "① Sesiones"
@@ -528,6 +541,14 @@ if showDash and barstate.islast
     f_row(dash, 10,"Confluencias",  "L " + str.tostring(scoreL) + " · S " + str.tostring(scoreS), color.new(#00e5ff,0))
     table.cell(dash, 0, 11, "Señal", text_color=color.new(#90a4ae,0), text_size=size.small, text_halign=text.align_left)
     table.cell(dash, 1, 11, lastSig, text_color=color.white, bgcolor=color.new(lastSigCol, 55), text_size=size.small, text_halign=text.align_right)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MARCA DE AGUA — firma BudAI Cripto
+// ════════════════════════════════════════════════════════════════════════════
+f_wmPos(s) => s == "Inferior Izquierda" ? position.bottom_left : s == "Inferior Derecha" ? position.bottom_right : s == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.small)
 
 // ════════════════════════════════════════════════════════════════════════════
 //  ALERTAS
