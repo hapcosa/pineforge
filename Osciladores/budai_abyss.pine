@@ -7,12 +7,12 @@
 // ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
 //         C R I P T O   ·   T R A D I N G   C A P I T A L
 // ────────────────────────────────────────────────────────────────────────────
-//  BudAI Capital® - Abyss Oscillator  (Paso 2 · Fase 1 Osciladores)
+//  BudAI Capital® - Abyss Oscillator
 //  WaveTrend con círculos OB/OS estilo institucional (fuerte = círculo · simple = ×).
 //  Glow futurista, Money Flow, divergencias. Inspirado en Nautilus (recreado).
 //  (c) BudAI Capital - Pine v6 - estetica futurista limpia
 // ────────────────────────────────────────────────────────────────────────────
-indicator("BudAI Capital® - Abyss Oscillator", shorttitle="BudAI Capital® - Abyss Oscillator", overlay=false, precision=1, max_labels_count=300, max_lines_count=100)
+indicator("BudAI Capital® - Abyss Oscillator", shorttitle="BudAI Capital® - Abyss Oscillator", overlay=false, precision=1, max_labels_count=300, max_lines_count=300)
 
 // ════════════════ GRUPOS ════════════════
 G_CORE = "① Núcleo (WaveTrend)"
@@ -42,14 +42,18 @@ osX    = input.int(-53, "Sobreventa extrema",   minval=-98, maxval=-20, group=G_
 showDots = input.bool(true, "Círculos OB/OS (giros)", group=G_SIG, tooltip="Círculo = señal fuerte (cruce en zona extrema). × = señal simple (cruce normal en zona).")
 showX    = input.bool(true, "× señales simples", group=G_SIG)
 reqMF    = input.bool(true, "Validar con Money Flow a favor", group=G_SIG)
-showDiv  = input.bool(true, "Divergencias", group=G_SIG)
+showDiv  = input.bool(true, "Divergencias (puntos)", group=G_SIG)
 divLen   = input.int(5, "Pivote divergencia", minval=2, maxval=20, group=G_SIG)
 
 // ════════════════ ⑤ ESTÉTICA (paleta BudAI) ════════════════
-upCol   = input.color(#00c853, "Línea alcista", group=G_VIS, inline="ln")
-dnCol   = input.color(#ff1744, "Línea bajista", group=G_VIS, inline="ln")
-sigUp   = input.color(#00e5ff, "Señal alcista (cian)", group=G_VIS, inline="sg")
-sigDn   = input.color(#b388ff, "Señal bajista (púrpura)", group=G_VIS, inline="sg")
+gradMode = input.bool(false, "Modo gradiente neón (línea multicolor por nivel)", group=G_VIS, tooltip="OFF (recomendado) = celeste alcista / naranja bajista. ON = multicolor por nivel.")
+upCol   = input.color(#00bcd4, "Alcista (celeste)", group=G_VIS, inline="ln")
+dnCol   = input.color(#ff9800, "Bajista (naranja)", group=G_VIS, inline="ln")
+gLow    = input.color(#00bcd4, "Gradiente · piso (OS)", group=G_VIS, inline="g1")
+gMid    = input.color(#26c6da, "Gradiente · centro", group=G_VIS, inline="g1")
+gHigh   = input.color(#ff9800, "Gradiente · techo (OB)", group=G_VIS, inline="g2")
+sigUp   = input.color(#00e5ff, "Señal alcista (celeste)", group=G_VIS, inline="sg")
+sigDn   = input.color(#b388ff, "Señal bajista (morado)", group=G_VIS, inline="sg")
 divUpCol = input.color(#ffea00, "Divergencia alcista (amarillo)", group=G_VIS, inline="dv")
 divDnCol = input.color(#9e9e9e, "Divergencia bajista (gris)", group=G_VIS, inline="dv")
 glow    = input.bool(true, "Glow futurista", group=G_VIS)
@@ -93,24 +97,23 @@ hline(osX,   "OS extrema",   color.new(upCol, 88), hline.style_dotted)
 // ════════════════════════════════════════════════════════════════════════════
 //  PLOTS — línea + glow futurista (capas semitransparentes)
 // ════════════════════════════════════════════════════════════════════════════
-color oscCol = isBull ? upCol : dnCol
+bool waveUp = wtClamp >= wtClamp[1]
+// COLOR LÍNEA: gradiente neón por nivel (verde/cian abajo → rojo arriba) o clásico
+color gradCol = wtClamp >= 0 ? color.from_gradient(wtClamp, 0, 100, gMid, gHigh) : color.from_gradient(wtClamp, -100, 0, gLow, gMid)
+color oscCol = gradMode ? gradCol : (waveUp ? upCol : dnCol)
 plot(showMF ? mfiHist : na, "Money Flow", color=cmf >= 0 ? color.new(upCol, 75) : color.new(dnCol, 75), style=plot.style_columns, histbase=0)
 
-pTrig = plot(wtTrig, "Trigger", color=color.new(color.gray, 55), linewidth=1)
+pTrig = plot(wtTrig, "Trigger", color=color.new(color.white, 15), linewidth=1)
 pOsc  = plot(wtClamp, "Abyss", color=oscCol, linewidth=2)
-// glow: 2 capas finas alrededor de la línea
+pBase = plot(0, "Base", color=color.new(color.white, 100), display=display.none)
+// SOMBRA degradada de la onda hacia el centro (estilo Neptune)
+fill(pOsc, pBase, color=color.new(oscCol, 70), title="Sombra onda")
+// glow: capa fina alrededor de la línea (profundidad neón)
 pG1u = plot(glow ? wtClamp + 4 : na, "g1u", color=color.new(color.white,100), display=display.none)
 pG1d = plot(glow ? wtClamp - 4 : na, "g1d", color=color.new(color.white,100), display=display.none)
-pG2u = plot(glow ? wtClamp + 9 : na, "g2u", color=color.new(color.white,100), display=display.none)
-pG2d = plot(glow ? wtClamp - 9 : na, "g2d", color=color.new(color.white,100), display=display.none)
-color gIn  = isBull ? color.new(upCol, 80) : color.new(dnCol, 80)
-color gOut = isBull ? color.new(upCol, 92) : color.new(dnCol, 92)
-fill(pOsc, pG1u, top_color=color.new(color.white,100), bottom_color=glow ? gIn : color.new(color.white,100), title="glow in up")
-fill(pG1d, pOsc, top_color=glow ? gIn : color.new(color.white,100), bottom_color=color.new(color.white,100), title="glow in dn")
-fill(pG1u, pG2u, top_color=color.new(color.white,100), bottom_color=glow ? gOut : color.new(color.white,100), title="glow out up")
-fill(pG2d, pG1d, top_color=glow ? gOut : color.new(color.white,100), bottom_color=color.new(color.white,100), title="glow out dn")
-// cuerpo fino entre osc y trigger
-fill(pOsc, pTrig, color=isBull ? color.new(upCol, 86) : color.new(dnCol, 86), title="cuerpo")
+color gIn = glow ? color.new(oscCol, 82) : color.new(color.white,100)
+fill(pOsc, pG1u, top_color=color.new(color.white,100), bottom_color=gIn, title="glow up")
+fill(pG1d, pOsc, top_color=gIn, bottom_color=color.new(color.white,100), title="glow dn")
 
 // ════════════════════════════════════════════════════════════════════════════
 //  SEÑALES — círculos (fuerte) y × (simple), estilo Nautilus
@@ -128,8 +131,8 @@ bool simpleUp = crossUp and wt1 <= osLvl and wt1 > osX and flowUp and conf
 bool simpleDn = crossDn and wt1 >= obLvl and wt1 < obX and flowDn and conf
 
 // círculos fuertes pegados a la línea
-plotshape(showDots and strongUp ? wtClamp : na, "Giro fuerte ↑", shape.circle, location.absolute, color=sigUp, size=size.tiny)
-plotshape(showDots and strongDn ? wtClamp : na, "Giro fuerte ↓", shape.circle, location.absolute, color=sigDn, size=size.tiny)
+plotchar(showDots and strongUp ? wtClamp : na, "Giro fuerte ↑", "•", location.absolute, color=sigUp, size=size.tiny)
+plotchar(showDots and strongDn ? wtClamp : na, "Giro fuerte ↓", "•", location.absolute, color=sigDn, size=size.tiny)
 // × simples
 plotchar(showX and simpleUp ? wtClamp : na, "Simple ↑", "×", location.absolute, color=color.new(sigUp, 25), size=size.tiny)
 plotchar(showX and simpleDn ? wtClamp : na, "Simple ↓", "×", location.absolute, color=color.new(sigDn, 25), size=size.tiny)
@@ -141,25 +144,33 @@ var float pLo1 = na
 var float pLo2 = na
 var float oLo1 = na
 var float oLo2 = na
+var int   bLo1 = na
+var int   bLo2 = na
 var float pHi1 = na
 var float pHi2 = na
 var float oHi1 = na
 var float oHi2 = na
+var int   bHi1 = na
+var int   bHi2 = na
 if not na(dpl)
     pLo2 := pLo1
     pLo1 := dpl
     oLo2 := oLo1
     oLo1 := wtClamp[divLen]
+    bLo2 := bLo1
+    bLo1 := bar_index - divLen
 if not na(dph)
     pHi2 := pHi1
     pHi1 := dph
     oHi2 := oHi1
     oHi1 := wtClamp[divLen]
+    bHi2 := bHi1
+    bHi1 := bar_index - divLen
 bool bullDiv = showDiv and not na(dpl) and not na(pLo2) and pLo1 < pLo2 and oLo1 > oLo2 and conf
 bool bearDiv = showDiv and not na(dph) and not na(pHi2) and pHi1 > pHi2 and oHi1 < oHi2 and conf
-// divergencias = círculos diminutos · amarillo bullish · gris bearish
-plotshape(bullDiv ? wtClamp : na, "Div+", shape.circle, location.absolute, color=divUpCol, size=size.tiny)
-plotshape(bearDiv ? wtClamp : na, "Div−", shape.circle, location.absolute, color=divDnCol, size=size.tiny)
+// círculos diminutos · amarillo bullish · gris bearish
+plotchar(bullDiv ? wtClamp : na, "Div+", "•", location.absolute, color=divUpCol, size=size.tiny)
+plotchar(bearDiv ? wtClamp : na, "Div−", "•", location.absolute, color=divDnCol, size=size.tiny)
 
 // ════════════════════════════════════════════════════════════════════════════
 //  DASHBOARD minimalista (tiny)

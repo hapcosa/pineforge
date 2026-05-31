@@ -1,0 +1,211 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Helix Pro
+//  Oscilador WaveTrend + Hyper Wave (doble onda) · MA · divergencias · glow neón.
+//  (c) BudAI Capital® — Pine v6 · estética futurista limpia
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Helix Pro", shorttitle="BudAI Capital® - Helix Pro", overlay=false, precision=1, max_labels_count=500, max_lines_count=500, max_bars_back=1000)
+
+// ════════════════ GRUPOS ════════════════
+G_CORE = "① Núcleo"
+G_HW   = "② Hyper Wave"
+G_MA   = "③ Media"
+G_SIG  = "④ Señales"
+G_VIS  = "⑤ Estética"
+G_WM   = "✦ Marca de agua"
+
+// ════════════════ ① NÚCLEO ════════════════
+srcInput = input.source(close, "Fuente", group=G_CORE)
+chanLen  = input.int(9,  "Canal", minval=1, group=G_CORE)
+avgLen   = input.int(12, "Promedio", minval=1, group=G_CORE)
+sigLen   = input.int(3,  "Señal", minval=1, group=G_CORE)
+obLevel  = input.int(60,  "Sobrecompra", group=G_CORE, inline="l")
+osLevel  = input.int(-60, "Sobreventa",  group=G_CORE, inline="l")
+useGrad  = input.bool(true, "Relleno degradado", group=G_CORE)
+
+// ════════════════ ② HYPER WAVE ════════════════
+showHW = input.bool(true, "Mostrar Hyper Wave", group=G_HW)
+hwLen  = input.int(6, "Hyper Wave len", minval=1, group=G_HW)
+
+// ════════════════ ③ MEDIA ════════════════
+showMA = input.bool(true, "Mostrar media", group=G_MA, inline="m")
+maType = input.string("EMA", "", options=["EMA","SMA","WMA","RMA"], group=G_MA, inline="m")
+maLen  = input.int(21, "len", group=G_MA, inline="m")
+maCol  = input.color(#ffb300, "Color", group=G_MA, inline="m")
+
+// ════════════════ ④ SEÑALES ════════════════
+showBounce = input.bool(true, "Rebotes (OB/OS)", group=G_SIG)
+showCross  = input.bool(true, "Cruces", group=G_SIG)
+divDetect  = input.bool(true, "Divergencias", group=G_SIG)
+
+// ════════════════ ⑤ ESTÉTICA (cyberpunk · celeste/morado) ════════════════
+upCol = input.color(#26a69a, "Acumulación (verde)", group=G_VIS, inline="c")
+dnCol = input.color(#ef5350, "Distribución (rojo)", group=G_VIS, inline="c")
+sigUp = input.color(#00e5ff, "Señal alcista", group=G_VIS, inline="s")
+sigDn = input.color(#b388ff, "Señal bajista", group=G_VIS, inline="s")
+lineCol = input.color(#ffffff, "Línea (blanca)", group=G_VIS, inline="ln")
+shadeInt = input.int(45, "Intensidad sombra", minval=20, maxval=85, group=G_VIS, inline="ln")
+showVol  = input.bool(true, "Histograma de flujo (volumen)", group=G_VIS)
+neon  = input.bool(true, "Glow neón", group=G_VIS)
+showDash = input.bool(true, "Dashboard minimalista", group=G_VIS)
+dashPos  = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda","Inferior Derecha","Superior Izquierda","Superior Derecha"], group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  FUNCIÓN MEDIA
+// ════════════════════════════════════════════════════════════════════════════
+f_ma(float s, simple int len, simple string t) =>
+    switch t
+        "EMA" => ta.ema(s, len)
+        "SMA" => ta.sma(s, len)
+        "WMA" => ta.wma(s, len)
+        "RMA" => ta.rma(s, len)
+        => ta.ema(s, len)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NÚCLEO — WaveTrend (±100)
+// ════════════════════════════════════════════════════════════════════════════
+float esa = ta.ema(srcInput, chanLen)
+float de  = ta.ema(math.abs(srcInput - esa), chanLen)
+float ci  = de == 0 ? 0.0 : (srcInput - esa) / (0.015 * de)
+float wt1 = ta.ema(ci, avgLen)
+float wt2 = ta.sma(wt1, sigLen)
+float osc = math.max(math.min(wt1, 100), -100)
+float sig = math.max(math.min(wt2, 100), -100)
+
+// Hyper Wave (doble onda suavizada)
+float hw1 = ta.ema(wt1, math.max(int(hwLen * 0.8), 1))
+float hw2 = ta.ema(hw1, math.max(int(hwLen * 0.4), 1))
+float hyper = math.max(math.min(hw2, 100), -100)
+
+float maOv = f_ma(osc, maLen, maType)
+
+bool isBull = osc >= 0
+bool waveUp = osc >= osc[1]
+color oscCol = waveUp ? upCol : dnCol
+
+// Money Flow (CMF) para histograma de flujo estilo Nautilus
+float mfm = (high - low) != 0 ? ((close - low) - (high - close)) / (high - low) : 0.0
+float volF = nz(volume) == 0 ? 1.0 : volume
+float cmf = math.sum(mfm * volF, 14) / math.sum(volF, 14)
+float volHist = cmf * 80.0
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NIVELES
+// ════════════════════════════════════════════════════════════════════════════
+hline(0,       "Centro",      color.new(color.gray, 55), hline.style_solid)
+hline(obLevel, "Sobrecompra", color.new(color.gray, 72), hline.style_dotted)
+hline(osLevel, "Sobreventa",  color.new(color.gray, 72), hline.style_dotted)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PLOTS — estilo Nautilus: línea blanca + sombra degradada acum/dist + flujo
+// ════════════════════════════════════════════════════════════════════════════
+// histograma de flujo (volumen) detrás — verde acumulación / rojo distribución
+plot(showVol ? volHist : na, "Flujo", color=cmf >= 0 ? color.new(upCol, 50) : color.new(dnCol, 50), style=plot.style_columns, histbase=0)
+
+// línea blanca principal (estilo Nautilus)
+pOsc = plot(osc, "Oscilador", color.new(lineCol, 0), 2)
+pZero = plot(0, "z", color=color.new(color.white, 100), display=display.none)
+
+// SOMBRA degradada estilo Nautilus: verde si onda arriba del centro, rojo si abajo.
+// intensidad crece con la distancia al centro (gradiente vertical).
+color shTop = osc >= 0 ? color.new(upCol, shadeInt) : color.new(dnCol, 88)
+color shBot = osc >= 0 ? color.new(upCol, 88) : color.new(dnCol, shadeInt)
+fill(pOsc, pZero, top_color=useGrad ? shTop : na, bottom_color=useGrad ? shBot : na, title="Sombra onda")
+
+// hyper wave: 2ª onda interior, sutil
+color hwCol = osc > hyper ? color.new(upCol, 60) : color.new(dnCol, 60)
+plot(showHW ? hyper : na, "Hyper Wave", hwCol, 1)
+
+// glow neón: capa fina sobre la línea (profundidad)
+plot(neon ? osc : na, "Glow", color.new(waveUp ? upCol : dnCol, 78), 4)
+
+// media
+plot(showMA ? maOv : na, "Media", color.new(maCol, 0), 1)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  SEÑALES — rebotes / cruces
+// ════════════════════════════════════════════════════════════════════════════
+bool crossUp = ta.crossover(osc, sig)
+bool crossDn = ta.crossunder(osc, sig)
+bool conf = barstate.isconfirmed
+bool bounceUp = osc < osLevel and crossUp and conf
+bool bounceDn = osc > obLevel and crossDn and conf
+
+plotchar(showBounce and bounceUp ? osc : na, "Rebote ↑", "•", location.absolute, color=sigUp, size=size.tiny)
+plotchar(showBounce and bounceDn ? osc : na, "Rebote ↓", "•", location.absolute, color=sigDn, size=size.tiny)
+plotchar(showCross and crossUp and conf ? osc : na, "Cruce ↑", "·", location.absolute, color=color.new(sigUp,30), size=size.tiny)
+plotchar(showCross and crossDn and conf ? osc : na, "Cruce ↓", "·", location.absolute, color=color.new(sigDn,30), size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DIVERGENCIAS (puntos)
+// ════════════════════════════════════════════════════════════════════════════
+int pvB = 5
+float pivLo = ta.pivotlow(osc, pvB, pvB)
+float pivHi = ta.pivothigh(osc, pvB, pvB)
+var float lastLo = na
+var float lastLoP = na
+var float lastHi = na
+var float lastHiP = na
+bool bullDiv = false
+bool bearDiv = false
+if not na(pivLo)
+    if not na(lastLo) and pivLo > lastLo and low[pvB] < lastLoP
+        bullDiv := true
+    lastLo := pivLo
+    lastLoP := low[pvB]
+if not na(pivHi)
+    if not na(lastHi) and pivHi < lastHi and high[pvB] > lastHiP
+        bearDiv := true
+    lastHi := pivHi
+    lastHiP := high[pvB]
+plotchar(divDetect and bullDiv and conf ? osc : na, "Div+", "•", location.absolute, color=#ffea00, size=size.tiny)
+plotchar(divDetect and bearDiv and conf ? osc : na, "Div−", "•", location.absolute, color=#9e9e9e, size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD minimalista (tiny)
+// ════════════════════════════════════════════════════════════════════════════
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+var table d = table.new(f_pos(dashPos), 2, 5, bgcolor=color.new(#0b0e16, 14), frame_color=color.new(upCol, 50), frame_width=1, border_width=1)
+f_cell(t, r, k, v, vc) =>
+    table.cell(t, 0, r, k, text_color=color.new(#90a4ae, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
+if showDash and barstate.islast
+    string dirTxt = isBull ? "Alcista" : "Bajista"
+    color  dirCol = isBull ? upCol : dnCol
+    string momTxt = osc > sig ? "▲ Subiendo" : "▼ Bajando"
+    string zona   = osc >= obLevel ? "Sobrecompra" : osc <= osLevel ? "Sobreventa" : "Neutro"
+    string divT   = bullDiv ? "Alcista" : bearDiv ? "Bajista" : "—"
+    table.cell(d, 0, 0, "Helix Pro", text_color=color.white, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, str.tostring(osc, "#.#"), text_color=dirCol, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(d, 1, "Tendencia", dirTxt, dirCol)
+    f_cell(d, 2, "Momentum",  momTxt, osc > sig ? upCol : dnCol)
+    f_cell(d, 3, "Zona",      zona,   color.new(#90a4ae,0))
+    f_cell(d, 4, "Divergenc.", divT,  bullDiv ? upCol : bearDiv ? dnCol : color.new(color.white,35))
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MARCA DE AGUA — firma BudAI Cripto
+// ════════════════════════════════════════════════════════════════════════════
+f_wmPos(s) => s == "Inferior Izquierda" ? position.bottom_left : s == "Inferior Derecha" ? position.bottom_right : s == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(bounceUp, "Rebote alcista", "Helix Pro · rebote alcista {{ticker}}")
+alertcondition(bounceDn, "Rebote bajista", "Helix Pro · rebote bajista {{ticker}}")
+alertcondition(bullDiv,  "Divergencia alcista", "Helix Pro · divergencia alcista {{ticker}}")
+alertcondition(bearDiv,  "Divergencia bajista", "Helix Pro · divergencia bajista {{ticker}}")
