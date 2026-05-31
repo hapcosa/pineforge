@@ -1,0 +1,155 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Squeeze Momentum  (Paso 1 · Fase 1 Osciladores)
+//  Compresión de volatilidad (BB dentro de Keltner) → energía acumulada → breakout.
+//  Histograma de momentum (regresión lineal) + puntos de squeeze + disparo.
+//  © BudAI Capital® — Pine v6 · estética futurista limpia
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Squeeze Momentum", shorttitle="BudAI Capital® - Squeeze Momentum", overlay=false, precision=2, max_labels_count=200)
+
+// ════════════════ GRUPOS ════════════════
+G_BB  = "① Bollinger"
+G_KC  = "② Keltner"
+G_MOM = "③ Momentum"
+G_SIG = "④ Señales"
+G_VIS = "⑤ Estética"
+G_WM  = "✦ Marca de agua"
+
+// ════════════════ ① BOLLINGER ════════════════
+bbLen  = input.int(20, "BB Longitud", minval=2, group=G_BB, inline="bb")
+bbMult = input.float(2.0, "Mult", minval=0.1, step=0.1, group=G_BB, inline="bb")
+
+// ════════════════ ② KELTNER ════════════════
+kcLen   = input.int(20, "KC Longitud", minval=2, group=G_KC, inline="kc")
+kcMult  = input.float(1.5, "Mult", minval=0.1, step=0.1, group=G_KC, inline="kc")
+useTR   = input.bool(true, "Usar True Range (recomendado)", group=G_KC)
+
+// ════════════════ ③ MOMENTUM ════════════════
+momLen  = input.int(20, "Momentum Longitud", minval=2, group=G_MOM)
+src     = input.source(close, "Fuente", group=G_MOM)
+
+// ════════════════ ④ SEÑALES ════════════════
+showFire = input.bool(true, "Disparo al liberar squeeze", group=G_SIG, tooltip="Marca cuando termina la compresión y el momentum define dirección = energía liberada.")
+showZero = input.bool(true, "Cruces del momentum (0)", group=G_SIG)
+
+// ════════════════ ⑤ ESTÉTICA (paleta clásica neutra · se integra a todo chart) ════════════════
+upStrong = input.color(#00c853, "Mom + creciente", group=G_VIS, inline="m1")
+upWeak   = input.color(#1b5e20, "Mom + decreciente", group=G_VIS, inline="m1")
+dnStrong = input.color(#ff1744, "Mom − cayendo", group=G_VIS, inline="m2")
+dnWeak   = input.color(#7f0000, "Mom − recuperando", group=G_VIS, inline="m2")
+sqzOnCol = input.color(#ffea00, "Squeeze ON (compresión)", group=G_VIS, inline="s")
+sqzNoCol = input.color(#607d8b, "Squeeze OFF (libre)", group=G_VIS, inline="s")
+sigUpCol = input.color(#ffea00, "Señal alcista (arriba)", group=G_VIS, inline="sg")
+sigDnCol = input.color(#9e9e9e, "Señal bajista (arriba)", group=G_VIS, inline="sg")
+showDash = input.bool(true, "Dashboard minimalista", group=G_VIS)
+dashPos  = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda","Inferior Derecha","Superior Izquierda","Superior Derecha"], group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  CÁLCULO — Squeeze (BB vs Keltner)
+// ════════════════════════════════════════════════════════════════════════════
+float basis = ta.sma(src, bbLen)
+float dev   = bbMult * ta.stdev(src, bbLen)
+float bbUpper = basis + dev
+float bbLower = basis - dev
+
+float kcBasis = ta.sma(src, kcLen)
+float kcRange = useTR ? ta.tr(true) : (high - low)
+float kcRangeMa = ta.sma(kcRange, kcLen)
+float kcUpper = kcBasis + kcRangeMa * kcMult
+float kcLower = kcBasis - kcRangeMa * kcMult
+
+bool sqzOn  = bbLower > kcLower and bbUpper < kcUpper   // BB dentro de KC = compresión
+bool sqzOff = bbLower < kcLower and bbUpper > kcUpper   // BB fuera = expansión
+bool noSqz  = not sqzOn and not sqzOff
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MOMENTUM — regresión lineal del desvío respecto al centro del rango
+// ════════════════════════════════════════════════════════════════════════════
+float hh = ta.highest(high, momLen)
+float ll = ta.lowest(low,  momLen)
+float avgHL = math.avg(math.avg(hh, ll), ta.sma(close, momLen))
+float mom = ta.linreg(src - avgHL, momLen, 0)
+
+// color del histograma (4 estados, estilo limpio)
+color momCol = mom > 0 ? (mom > nz(mom[1]) ? upStrong : upWeak) : (mom < nz(mom[1]) ? dnStrong : dnWeak)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PLOTS — limpio, sin background
+// ════════════════════════════════════════════════════════════════════════════
+plot(mom, "Momentum", color=momCol, style=plot.style_columns, histbase=0)
+hline(0, "Cero", color.new(color.gray, 60), hline.style_solid)
+
+// puntos de squeeze en la línea cero (amarillo intenso=compresión, gris=libre)
+color dotCol = sqzOn ? sqzOnCol : sqzOff ? sqzNoCol : color.new(#90a4ae, 45)
+plot(0, "Squeeze", color=dotCol, style=plot.style_circles, linewidth=2)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  SEÑALES — disparo al liberar la compresión
+// ════════════════════════════════════════════════════════════════════════════
+// fin de squeeze: venía comprimido y ahora se libera, con momentum definiendo lado
+bool released = sqzOn[1] and not sqzOn
+bool fireUp = showFire and released and mom > 0 and barstate.isconfirmed
+bool fireDn = showFire and released and mom < 0 and barstate.isconfirmed
+// disparo = punto diminuto en la PARTE SUPERIOR (amarillo alcista / gris bajista)
+plotchar(fireUp, "Disparo ↑", "•", location.top, color=sigUpCol, size=size.tiny)
+plotchar(fireDn, "Disparo ↓", "•", location.top, color=sigDnCol, size=size.tiny)
+
+// cruces de momentum por cero (opcional, sutil)
+bool momX_up = ta.crossover(mom, 0)
+bool momX_dn = ta.crossunder(mom, 0)
+bool zUp = showZero and momX_up and barstate.isconfirmed
+bool zDn = showZero and momX_dn and barstate.isconfirmed
+plotchar(zUp ? 0 : na, "Cruce ↑", "•", location.absolute, color=color.new(upStrong, 25), size=size.tiny)
+plotchar(zDn ? 0 : na, "Cruce ↓", "•", location.absolute, color=color.new(dnStrong, 25), size=size.tiny)
+
+// contador de barras en compresión (energía acumulada)
+var int sqzBars = 0
+sqzBars := sqzOn ? sqzBars + 1 : 0
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD minimalista
+// ════════════════════════════════════════════════════════════════════════════
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+var table d = table.new(f_pos(dashPos), 2, 4, bgcolor=color.new(#0b0e16, 14), frame_color=color.new(#546e7a, 40), frame_width=1, border_width=1)
+f_cell(t, r, k, v, vc) =>
+    table.cell(t, 0, r, k, text_color=color.new(#90a4ae, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
+
+if showDash and barstate.islast
+    string sqState = sqzOn ? "COMPRIMIDO (" + str.tostring(sqzBars) + ")" : sqzOff ? "EXPANDIDO" : "neutro"
+    color  sqCol = sqzOn ? sqzOnCol : sqzOff ? upStrong : color.new(#90a4ae, 0)
+    string momTxt = mom > 0 ? "▲ Alcista" : "▼ Bajista"
+    color  momTxtC = mom > 0 ? upStrong : dnStrong
+    string sesgo = mom > 0 and mom > nz(mom[1]) ? "Comprando fuerte" : mom > 0 ? "Comprando débil" : mom < 0 and mom < nz(mom[1]) ? "Vendiendo fuerte" : "Vendiendo débil"
+    table.cell(d, 0, 0, "BudAI SQZ", text_color=color.white, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, str.tostring(mom, "#.##"), text_color=momCol, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(d, 1, "Squeeze",  sqState, sqCol)
+    f_cell(d, 2, "Momentum", momTxt,  momTxtC)
+    f_cell(d, 3, "Presión",  sesgo,   momCol)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MARCA DE AGUA
+// ════════════════════════════════════════════════════════════════════════════
+f_wmPos(s) => s == "Inferior Izquierda" ? position.bottom_left : s == "Inferior Derecha" ? position.bottom_right : s == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(fireUp, "Squeeze libera ↑", "BUDAI SQZ · breakout alcista {{ticker}}")
+alertcondition(fireDn, "Squeeze libera ↓", "BUDAI SQZ · breakout bajista {{ticker}}")
+alertcondition(sqzOn and not sqzOn[1], "Entra en compresión", "BUDAI SQZ · squeeze ON {{ticker}}")

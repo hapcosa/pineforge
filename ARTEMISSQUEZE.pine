@@ -1,0 +1,1775 @@
+// ═══════════════════════════════════════════════════════════════════════════════
+// Artemis Squeeze Momentum
+// Author  : © a_jabbaroff
+// Version : 1.1.0
+// License : Mozilla Public License 2.0 — https://mozilla.org/MPL/2.0/
+//
+// ❤️ Crafted with love for TradingView traders — every line here exists so
+//     your next chart reads cleaner and your next trade lands sharper.
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// DESCRIPTION
+//   Artemis Squeeze Momentum fuses nine distinct analytical layers into a
+//   single oscillator pane: a linreg-based Squeeze Momentum line, a
+//   Directional Flux oscillator, three-tier Bollinger-vs-ATR squeeze
+//   detection with a ✦ Release tracker + Direction Predictor (✦▴ / ✦▾ / ✦),
+//   dual confluence gauges with optional Volume Confirmation gate, dual-
+//   anchor Regular + Hidden divergence with a Smart AI Filter, a composite
+//   Trend Strength Score (0–100), an ADX-based Trend Regime detector with
+//   regime-shift alerts, a four-timeframe MTF Confluence panel with
+//   alignment / divergence detection, and a theme-adaptive PRO dashboard.
+//   The result is a complete momentum workbench — compressions, breakouts,
+//   regime flips, divergences and multi-TF bias all readable from one pane,
+//   all driven by one theme dropdown.
+//
+// COMPONENTS
+//   Momentum Core    — Squeeze Momentum engine: linreg of close vs.
+//                      channel midpoint + SMA(HL2), normalised by channel ATR
+//   Directional Flux — custom ADX-style up/down change ratio (RMA-smoothed),
+//                      with optional Heiken Ashi input for trend bias mode
+//   Squeeze Engine   — three-tier compression detection (Loose / Mid / Tight)
+//                      based on stdev vs. ATR ratio (0.5 / 0.75 / 1.0 ×) plus
+//                      a ✦ Squeeze Release marker with Direction Predictor
+//                      (✦▴ / ✦▾ / ✦ from momentum slope at release)
+//   Confluence Gauges— top + bottom strips that light up Strong (both
+//                      mom + flux aligned) or Weak (either one) per side,
+//                      with optional Volume Confirmation gate on Buy/Sell ▲▼
+//   Divergence Engine— Regular + Hidden bull / bear divergence detection
+//                      with a Smart AI Filter (sensitivity, min mom swing,
+//                      min price swing %, flux confirmation)
+//   TS Score (0–100) — composite trend strength reading blending mom, flux,
+//                      slope and confluence into a single RSI-style number
+//   Trend Regime     — ADX-based market state detector (TRENDING UP / DOWN /
+//                      RANGING / TRANSITION) with regime-shift alert and
+//                      optional adaptive Signal Threshold for context-aware
+//                      Confluence arrows
+//   MTF Confluence   — four-HTF panel (presets: Scalp / Intraday / Swing /
+//                      Position / Crypto / Forex) with overall alignment +
+//                      counter-trend divergence detection — anti-repaint
+//   Bar Painter      — five chart-wide colouring modes driven by mom, flux,
+//                      squeeze, confluence or slope state
+//   Dashboard        — compact 8/9-row PRO panel: Bias / TS Score / [Regime] /
+//                      Momentum / Flux / Squeeze / Confluence / Div / Slope
+//                      (Regime row optional) — theme-adaptive chrome; pairs
+//                      with a separate MTF panel
+//   Theme Palette    — thirteen cohesive palettes drive every plot, fill,
+//                      gauge, divergence line and dashboard cell
+//
+// CORE PHILOSOPHY
+//   Most squeeze indicators ship as a chart of black-and-red dots with a
+//   single momentum histogram — and a separate ADX, separate divergence
+//   tool, separate gauge. Artemis Squeeze Momentum collapses the full
+//   confluence workflow into one pane: mom + flux + squeeze in lock-step,
+//   confluence gauges that show the actual agreement state, divergence
+//   that respects the same zone logic as the momentum oscillator, and
+//   one theme dropdown that paints the entire stack consistently. No
+//   inline colour pickers, no palette drift, no pane-hopping.
+//
+// CREDITS
+//   The Squeeze Momentum concept was first introduced to the TradingView
+//   community by LazyBear in 2014 ("Squeeze Momentum Indicator [LazyBear]")
+//   — itself a Pine adaptation of John Carter's TTM Squeeze methodology.
+//   Full credit to LazyBear for the open-source base curve that made every
+//   downstream squeeze script possible.
+//
+//   Catalog-wide acknowledgment also to EliCobra, whose Pine v6 work
+//   (Enhanced WaveTrend and beyond) sets the modern community quality bar
+//   the entire Artemis catalog aims to meet — typed UDT engines, well-
+//   documented internals, palette-coherent visualisation. His work informs
+//   the Artemis style across the catalog; the Squeeze Momentum engine
+//   below is an independent implementation.
+//
+//   Original work in Artemis Squeeze Momentum (everything outside the base
+//   momentum / squeeze premise): the Pine v6 rewrite with UDT-typed engine,
+//   Welford single-pass running stdev, channel-aware ATR normalisation,
+//   Directional Flux oscillator, the Squeeze Release ✦ marker with built-in
+//   Direction Predictor (✦▴ / ✦▾ / ✦ from slope-at-release), Volume
+//   Confirmation gate for Confluence arrows, dual-anchor Regular + Hidden
+//   divergence engine, Smart AI Filter, composite Trend Strength Score,
+//   ADX-based Trend Regime detector with optional adaptive Signal Threshold,
+//   four-timeframe MTF Confluence panel with alignment / divergence
+//   detection, theme-adaptive PRO Dashboard, and the thirteen-palette
+//   colour system. Code is open-source under MPL-2.0 — fork, study, improve.
+//
+// ═══════════════════════════════════════════════════════════════════════════════
+
+//@version=6
+indicator("Artemis Squeeze Momentum", shorttitle = "Artemis SM", overlay = false, precision = 2, max_lines_count = 500, max_labels_count = 500, explicit_plot_zorder = true)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SECTION 1 — USER-DEFINED TYPES
+// Four small UDTs keep Section 3's method signatures tidy. Bar bundles the
+// four OHLC price streams; MomReading and FluxReading carry the dual-line
+// oscillator outputs; SqueezeState packs the three tier booleans.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Price-stream bundle — populated once per bar in Section 4 (Engine).
+//   o — open   |   h — high   |   l — low   |   c — close
+// UDT field defaults must be compile-time literals in Pine v6, so the fields
+// are declared without defaults and the object is constructed via Bar.new(...).
+type Bar
+    float o
+    float h
+    float l
+    float c
+
+// Momentum reading — two-line oscillator output from computeMom().
+//   value  — linreg-smoothed squeeze momentum (the visible line)
+//   signal — SMA of value, used for crossover detection
+type MomReading
+    float value
+    float signal
+
+// Flux reading — two-line oscillator output from computeFlux().
+//   value     — main directional flux (−100 .. +100, ADX-style)
+//   overflow  — clipped overflow beyond ±25 (signals strong directional pressure)
+type FluxReading
+    float value
+    float overflow
+
+// Squeeze state — three nested compression booleans.
+//   tight — stdev < ATR × 0.5  (extreme compression, imminent expansion)
+//   mid   — stdev < ATR × 0.75 (moderate compression)
+//   loose — stdev < ATR × 1.0  (mild compression, broadest detection)
+// Booleans nest — tight implies mid implies loose. The painter picks the
+// most-restrictive active tier for the squeeze column colour.
+type SqueezeState
+    bool tight
+    bool mid
+    bool loose
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SECTION 2 — INPUT DECLARATIONS
+// Every user-configurable setting lives here, organised by component group.
+// Group constants are declared first so every input below can share them.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+string GRP_THEME = "Visual 🔹"
+string GRP_MOM   = "Momentum Core 🔹"
+string GRP_FLUX  = "Directional Flux 🔹"
+string GRP_SQZ   = "Squeeze Engine 🔹"
+string GRP_GAUGE = "Confluence Gauges 🔹"
+string GRP_DIV    = "Divergence 🔹"
+string GRP_REGIME = "Trend Regime 🔹"
+string GRP_BAR    = "Bar Coloring 🔹"
+string GRP_MTF    = "Multi-Timeframe 🔹"
+string GRP_DASH   = "Dashboard 🔹"
+string GRP_ALRT   = "Alerts 🔹"
+
+// ── Color Theme ──────────────────────────────────────────────────────────────
+// Thirteen cohesive palettes, one control. The theme dropdown is the single
+// source of truth for every coloured component — momentum line, flux fill,
+// confluence gauges, divergence lines, dashboard chrome — all resolve
+// through the palette switch blocks below.
+
+themeChoice = input.string("Tropic", "Theme",
+     options = ["Tropic", "Amber", "Pastel", "Cyber", "Helios", "Electric", "Candy", "Bloomberg", "Solar", "Royal", "Emerald", "Midnight", "Graphite"],
+     group   = GRP_THEME,
+     tooltip = "Applies a complete color palette across all Artemis Squeeze components.\nOne selection governs the Momentum line, Flux fills, Confluence gauges, Divergence lines and Dashboard.\n\nTropic — Cyan steel + deep orange (electric contrast — default)\n\nAmber — Warm amber + ember red (fire tones)\n\nPastel — Sky blue + soft lavender (cool arctic glow)\n\nCyber — Neon lime + hot crimson (cyber terminal)\n\nHelios — Bright gold + scarlet (solar warmth)\n\nElectric — Electric aqua + magenta (high-voltage neon)\n\nCandy — Neon green + hot pink (dark energy pop)\n\nBloomberg — Terminal orange + cyan (Wall Street finance heritage — PRO)\n\nSolar — Solarized olive + crimson (developer palette, easy on the eyes — PRO)\n\nRoyal — Imperial gold + deep purple (luxury signature — PRO)\n\nEmerald — Vibrant emerald + ruby red (jewel-tone finance — PRO)\n\nMidnight — Deep navy + dark crimson (dark depth)\n\nGraphite — Near-black + silver grey (monochrome minimal)")
+
+// ── Theme color resolver ─────────────────────────────────────────────────────
+// Each theme resolves to four axis colours plus a four-step squeeze ramp.
+// The whole script reads from these resolved variables — nothing below this
+// block references a raw hex literal, so a theme change cascades everywhere
+// with one dropdown click.
+//   thBull        — bullish / positive side  (mom up, flux up, confluence bull)
+//   thBear        — bearish / negative side  (mom down, flux down, confluence bear)
+//   thNeutral     — desaturated mid tone     (midline, gauge inactive, MID tag)
+//   thSignal      — pastel tint of thBull    (signal-line halo, dashboard chrome)
+//   sqzColTight   — squeeze tier 3 (deepest tone, theme-native squeeze accent)
+//   sqzColMid     — squeeze tier 2 (middle tone of the same family)
+//   sqzColLoose   — squeeze tier 1 (lightest / brightest of the family)
+//   sqzColRelease — squeeze release accent (vivid pop hue for the ✦ marker)
+
+color thBull = switch themeChoice
+    "Tropic"    => #00bcd4
+    "Amber"     => #ff9800
+    "Pastel"    => #4fc3f7
+    "Cyber"     => #00e676
+    "Helios"    => #ffd600
+    "Electric"  => #00e5ff
+    "Candy"     => #69F0AE
+    "Bloomberg" => #ff8c00
+    "Solar"     => #859900
+    "Royal"     => #ffd700
+    "Emerald"   => #00bfa5
+    "Midnight"  => #0d47a1
+    "Graphite"  => #1a1a1a
+    =>             #00bcd4
+
+color thBear = switch themeChoice
+    "Tropic"    => #ff6d00
+    "Amber"     => #e53935
+    "Pastel"    => #9575cd
+    "Cyber"     => #ff1744
+    "Helios"    => #ef5350
+    "Electric"  => #e040fb
+    "Candy"     => #FF4081
+    "Bloomberg" => #00b0ff
+    "Solar"     => #dc322f
+    "Royal"     => #6a0dad
+    "Emerald"   => #c62828
+    "Midnight"  => #b71c1c
+    "Graphite"  => #757575
+    =>             #ff6d00
+
+color thNeutral = switch themeChoice
+    "Tropic"    => #607d8b
+    "Amber"     => #7986cb
+    "Pastel"    => #b0bec5
+    "Cyber"     => #757575
+    "Helios"    => #9e9e9e
+    "Electric"  => #546e7a
+    "Candy"     => #455A64
+    "Bloomberg" => #5a5a5a
+    "Solar"     => #586e75
+    "Royal"     => #4a4458
+    "Emerald"   => #546e7a
+    "Midnight"  => #546e7a
+    "Graphite"  => #9e9e9e
+    =>             #607d8b
+
+// Signal-line colour is a pastel lift of each theme's bull hue. Readers see
+// it as "same family, brighter variant" rather than a separate accent — the
+// whole panel reads cohesively under every palette.
+color thSignal = switch themeChoice
+    "Tropic"    => #80DEEA
+    "Amber"     => #FFCC80
+    "Pastel"    => #B3E5FC
+    "Cyber"     => #B9F6CA
+    "Helios"    => #FFF59D
+    "Electric"  => #84FFFF
+    "Candy"     => #CCFF90
+    "Bloomberg" => #FFD180
+    "Solar"     => #B5CB00
+    "Royal"     => #FFE680
+    "Emerald"   => #80CBC4
+    "Midnight"  => #90CAF9
+    "Graphite"  => #BDBDBD
+    =>             #80DEEA
+
+// Theme-native squeeze ramp — each palette defines its own coherent three-step
+// gradient drawn from its own colour family, so the squeeze column reads as
+// "part of the theme" rather than an imported generic warning. The semantic
+// (intensity escalates as compression tightens) is preserved via brightness:
+//   tight — deepest, most saturated hue   (imminent expansion, demands focus)
+//   mid   — same family, middle intensity (escalating warning)
+//   loose — faintest tier, brightest hue  (mild compression, broadest tier)
+//
+// Each theme picks its squeeze family so it (1) belongs to the theme's overall
+// palette, (2) does NOT clash with the bull / bear axis colours, and (3) still
+// gives a clear "tight is hotter than loose" visual gradient.
+
+color sqzColTight = switch themeChoice
+    "Tropic"    => #ff1100
+    "Amber"     => #8b0000
+    "Pastel"    => #ab47bc
+    "Cyber"     => #f50057
+    "Helios"    => #e65100
+    "Electric"  => #aa00ff
+    "Candy"     => #c51162
+    "Bloomberg" => #ff1100
+    "Solar"     => #cb4b16
+    "Royal"     => #311b92
+    "Emerald"   => #ff6f00
+    "Midnight"  => #1565c0
+    "Graphite"  => #cccccc
+    =>             #ff1100
+
+color sqzColMid = switch themeChoice
+    "Tropic"    => #ff5e00
+    "Amber"     => #d84315
+    "Pastel"    => #ce93d8
+    "Cyber"     => #ff4081
+    "Helios"    => #f57c00
+    "Electric"  => #d500f9
+    "Candy"     => #e91e63
+    "Bloomberg" => #ff5e00
+    "Solar"     => #b58900
+    "Royal"     => #4527a0
+    "Emerald"   => #ffa000
+    "Midnight"  => #1e88e5
+    "Graphite"  => #888888
+    =>             #ff5e00
+
+color sqzColLoose = switch themeChoice
+    "Tropic"    => #ffa600
+    "Amber"     => #ff6f00
+    "Pastel"    => #e1bee7
+    "Cyber"     => #ff80ab
+    "Helios"    => #ffb300
+    "Electric"  => #ea80fc
+    "Candy"     => #f06292
+    "Bloomberg" => #ffa600
+    "Solar"     => #93a1a1
+    "Royal"     => #7e57c2
+    "Emerald"   => #ffd54f
+    "Midnight"  => #64b5f6
+    "Graphite"  => #555555
+    =>             #ffa600
+
+// Squeeze Release accent — the "vivid pop" hue used for the ✦ release marker.
+// One step brighter / more saturated than sqzColTight so the climax moment
+// reads as the most luminous point in the squeeze cycle without abandoning
+// the theme's colour family. Each entry is hand-picked to be:
+//   (1) in-family with the theme's squeeze ramp,
+//   (2) maximum saturation — "сочный" / juicy / vivid,
+//   (3) high-contrast against the pane's dark background.
+color sqzColRelease = switch themeChoice
+    "Tropic"    => #ff9500
+    "Amber"     => #ff5252
+    "Pastel"    => #e040fb
+    "Cyber"     => #ff1744
+    "Helios"    => #ff9100
+    "Electric"  => #d500f9
+    "Candy"     => #ff4081
+    "Bloomberg" => #ff8400
+    "Solar"     => #ff6f00
+    "Royal"     => #b388ff
+    "Emerald"   => #ffea00
+    "Midnight"  => #448aff
+    "Graphite"  => #1a1a1a
+    =>             #ffea00
+
+// ── Momentum Core ────────────────────────────────────────────────────────────
+// Squeeze Momentum engine: linreg of close vs. channel midpoint +
+// SMA(HL2), normalised by channel ATR. Length controls both the momentum
+// lookback and the squeeze detection window (so they stay aligned).
+
+simple int momLen = input.int(20, "Length",
+     minval = 7, maxval = 50, step = 1,
+     group   = GRP_MOM,
+     tooltip = "Lookback for the Squeeze Momentum engine and the Squeeze Detection window. Both share this length so compression and momentum stay aligned.\n\n7–14 → scalping / intraday\n20 → balanced — default\n21–30 → swing trading\n30–50 → position / weekly\n\nDefault: 20")
+
+simple int momSigLen = input.int(3, "Signal Length",
+     minval = 2, maxval = 7, step = 1,
+     group   = GRP_MOM,
+     tooltip = "SMA smoothing applied to the momentum line to produce the trigger line. Shorter than the Length so the two cross cleanly.\n\n2 → fast triggers, more crosses\n3 → balanced — default\n5–7 → fewer, more reliable crosses\n\nDefault: 3")
+
+showMom = input.bool(true, "Show Momentum",
+     group   = GRP_MOM,
+     tooltip = "Toggle for the main momentum oscillator line + signal-line fill ribbon. Turning OFF hides the line but does not disable downstream features (squeeze, divergence, confluence) that depend on momentum state.")
+
+// ── Directional Flux ─────────────────────────────────────────────────────────
+// Custom ADX-style oscillator. Measures the ratio of RMA-smoothed positive
+// high changes vs. negative low changes, normalised by ATR. The signal
+// branch ("overflow") highlights values beyond ±25 where the directional
+// pressure becomes structurally significant.
+
+simple int fluxLen = input.int(30, "Length",
+     minval = 7, maxval = 50, step = 1,
+     group   = GRP_FLUX,
+     tooltip = "Lookback for the Directional Flux engine. Larger than the Momentum length by default so flux acts as the slower trend bias against the faster momentum oscillator.\n\n7–14 → reactive, more whipsaws\n30 → balanced — default\n40–50 → very smooth, only macro regimes register\n\nDefault: 30")
+
+fluxHA = input.bool(false, "Use Heiken Ashi Bias",
+     group   = GRP_FLUX,
+     tooltip = "When ON, the Flux engine reads Heiken Ashi bars instead of raw OHLC. HA bars smooth body / wick noise and emphasise trend continuation. Best on lower timeframes where raw OHLC is noisy.\n\nDefault: OFF")
+
+showFlux = input.bool(true, "Show Flux",
+     group   = GRP_FLUX,
+     tooltip = "Toggle for the Directional Flux area fills (main + overflow). Flux feeds the Confluence Gauges even when its fills are hidden.")
+
+// ── Squeeze Engine ───────────────────────────────────────────────────────────
+// Three-tier Bollinger-vs-ATR compression detection. The Length is shared
+// with the Momentum Core so the two engines stay in sync. The visual is a
+// 1-bar column at the bottom of the pane, coloured by the tightest active
+// tier (theme-native compression ramp — each palette defines its own
+// intensity gradient).
+
+showSqz = input.bool(true, "Show Squeeze",
+     group   = GRP_SQZ,
+     tooltip = "Toggle for the zero-line squeeze column. The column lights up whenever stdev < ATR × 1.0 (any tier active); the colour escalates as compression tightens:\n\nLightest (Loose) → stdev < ATR × 1.0\nMid intensity (Mid) → stdev < ATR × 0.75\nDeepest / most saturated (Tight) → stdev < ATR × 0.5 — imminent expansion\n\nEach theme defines its OWN three-step ramp drawn from its palette family, so the squeeze column harmonises with the active theme rather than imposing a generic warning hue. The intensity semantic is preserved across every palette — tight is always the most attention-grabbing tier.")
+
+showSqzRelease = input.bool(true, "Show Squeeze Release",
+     group   = GRP_SQZ,
+     tooltip = "Renders a ✦ release marker on the bar where the squeeze fully ends — when the loosest active tier (stdev < ATR × 1.0) drops off. This is the canonical \"spring uncoiled\" moment: compression ended, volatility expansion begins. Historically the highest-conviction breakout setup.\n\nMarker colour uses the theme's vivid release accent (sqzColRelease — one step brighter / more saturated than sqzColTight) so the climax moment pops visually while staying inside the theme's colour family. Hover the marker for full context.\n\nDefault: ON.")
+
+sqzPredictOn = input.bool(true, "Show Direction Predictor",
+     group   = GRP_SQZ,
+     tooltip = "When ON, the ✦ Release marker becomes direction-aware: at the moment of release the engine measures momentum slope across the predictor lookback. If the slope is decisively bullish or bearish, the marker shows ✦▴ or ✦▾ instead of plain ✦.\n\nGives traders immediate breakout-direction guidance the moment compression ends — no waiting for confirmation candles. Slope within the threshold band keeps the marker neutral ✦ (\"direction unclear, wait\").\n\nDefault: ON.")
+
+sqzPredictLook = input.int(3, "Predictor Lookback",
+     minval = 2, maxval = 10, step = 1,
+     group   = GRP_SQZ,
+     tooltip = "How many bars back to measure momentum slope at the release bar. Shorter = more reactive but noisier; longer = smoother but slower direction reads.\n\n2 → very reactive\n3 → balanced — default\n5–10 → smooth, fewer false direction tags\n\nRequires Show Direction Predictor ON.")
+
+sqzPredictThresh = input.float(5.0, "Predictor Slope Threshold",
+     minval = 1.0, maxval = 25.0, step = 0.5,
+     group   = GRP_SQZ,
+     tooltip = "Minimum |slope| required to label a directional prediction. Below this absolute value the marker stays plain ✦ (neutral — \"direction unclear, wait for confirmation\").\n\n2–4 → permissive, most releases get a direction tag\n5 → balanced — default\n10+ → strict, only high-conviction directional releases earn a tag\n\nRequires Show Direction Predictor ON.")
+
+// ── Confluence Gauges ────────────────────────────────────────────────────────
+// Two horizontal strips rendered at the top (Bull side, ±70-75) and bottom
+// (Bear side, −70 to −75) of the pane. Each strip lights up when momentum
+// and flux agree on direction; full brightness for both, dim for either.
+
+gaugeMode = input.string("Both", "Display Mode",
+     options = ["Both", "Bull", "Bear", "None"],
+     group   = GRP_GAUGE,
+     tooltip = "Controls which confluence strips render:\n\nBoth → both bull (top) + bear (bottom) gauges — default\nBull → bull strip only\nBear → bear strip only\nNone → disable all gauge strips\n\nConfluence states:\n• Strong Bull — mom > 0 AND flux > 0 (both bullish)\n• Weak Bull — mom > 0 OR flux > 0 (one bullish)\n• Strong Bear — mom < 0 AND flux < 0 (both bearish)\n• Weak Bear — mom < 0 OR flux < 0 (one bearish)\n\nThe strip's brightness reflects the confluence tier (full opacity for Strong, half for Weak).")
+
+confThresh = input.int(40, "Signal Threshold",
+     minval = 10, maxval = 80, step = 1,
+     group   = GRP_GAUGE,
+     tooltip = "Minimum |momentum| value required for a Confluence Buy ▲ or Sell ▼ arrow to fire.\n\nThe higher the value, the deeper into the overbought / oversold zone the momentum cross must happen, so fewer but higher-conviction arrows print.\n\nA Confluence arrow needs:\n• Mom × Signal crossover\n• |mom| ≥ this threshold\n• Flux opposite direction (mean-reversion bias)\n• Volume above its MA — only when Require Volume Confirmation is ON (default) and the symbol has volume data\n\n20–30 → permissive, many arrows\n40 → balanced — default\n50–80 → strict, only extreme-zone arrows\n\nNote: this is independent of the Divergence Sensitivity setting in the Divergence group. When Trend Regime → Auto-Adjust Signal Threshold is ON, this value is shifted ±10 based on detected market regime.")
+
+volConfOn = input.bool(true, "Require Volume Confirmation",
+     group   = GRP_GAUGE,
+     tooltip = "When ON, Confluence Buy ▲ / Sell ▼ arrows fire only when current bar volume exceeds its moving average. Filters out signals firing during low-conviction (low-volume) periods where moves often reverse.\n\nOn symbols without volume data the gate is automatically bypassed — if either current volume or the volume MA is na or zero, the filter is skipped so the indicator remains universal.\n\nDefault: ON.")
+
+volMaLen = input.int(20, "Volume MA Length",
+     minval = 5, maxval = 100, step = 1,
+     group   = GRP_GAUGE,
+     tooltip = "SMA lookback for the volume threshold used by the Volume Confirmation gate.\n\n10–14 → fast (more signals pass)\n20 → balanced — default\n30–50 → slow (only high-conviction volume surges pass)\n\nRequires Require Volume Confirmation ON.")
+
+// ── Divergence ───────────────────────────────────────────────────────────────
+// Pivot-aware divergence detection. The detector fires only when momentum
+// is in an extreme zone (beyond ±Sensitivity) AND crosses the signal line.
+// Cross-confirmed style — NOT pivot-confirmed. Regular divergences signal
+// reversal, Hidden continuation.
+
+divSens = input.int(25, "Sensitivity",
+     minval = 10, maxval = 50, step = 1,
+     group   = GRP_DIV,
+     tooltip = "Minimum |momentum| value required for divergence detection to arm. Only momentum crossovers that happen beyond ±Sensitivity become divergence candidates.\n\n10–20 → permissive, many divergences\n25 → balanced — default\n30–50 → strict, only deep-extreme divergences\n\nHigher value = stricter filter, fewer signals, higher conviction.")
+
+divRegOn = input.bool(true, "Regular Divergence",
+     group   = GRP_DIV,
+     tooltip = "Detects potential trend reversals.\n\nBull (D▲): price Lower Low + momentum Higher Low → reversal up\nBear (D▼): price Higher High + momentum Lower High → reversal down\n\nDetected at the moment of a momentum cross while in an extreme zone (|mom| > Sensitivity). Solid lines connect the divergence pivots.")
+
+divHidOn = input.bool(true, "Hidden Divergence",
+     group   = GRP_DIV,
+     tooltip = "Detects trend-continuation signals.\n\nBull (H▲): price Higher Low + momentum Lower Low → uptrend continues\nBear (H▼): price Lower High + momentum Higher High → downtrend continues\n\nHidden divergences are tracked through a dedicated any-zone anchor pair (separate from the Sensitivity-gated Regular anchors), so they actually fire during shallow pullbacks within an established trend — exactly the context where the classical Hidden div pattern is supposed to appear. Dashed lines connect the two pivots.")
+
+divShowLines = input.bool(true, "Show Divergence Lines",
+     group   = GRP_DIV,
+     tooltip = "Toggle for the divergence connection lines (solid for Regular, dashed for Hidden). Turning OFF keeps the labels but removes the connecting lines for a cleaner pane.")
+
+divShowLabels = input.bool(true, "Show Divergence Labels",
+     group   = GRP_DIV,
+     tooltip = "Toggle for the D▲ D▼ H▲ H▼ markers. Turning OFF keeps the lines but removes the labels — useful on dense charts where labels clutter.")
+
+divLabelSize = input.string("Tiny", "Label Size",
+     options = ["Tiny", "Small", "Normal", "Large"],
+     group   = GRP_DIV,
+     tooltip = "Size of the D▲ D▼ H▲ H▼ divergence markers.\n\nTiny → minimal, default\nSmall → slightly larger\nNormal → standard\nLarge → maximum visibility")
+
+sdfOn = input.bool(false, "Smart Divergence Filter (AI)",
+     group   = GRP_DIV,
+     tooltip = "AI-assisted filter that suppresses weak or low-quality divergences.\n\nOFF (default) → all detected divergences pass through\nON → only divergences that clear all three gates below survive\n\nThe three gates:\n1. Min Momentum Swing — drops differences below this size between the two pivot momentum values\n2. Min Price Swing (%) — drops divergences where price barely moved relative to recent range\n3. Flux Confirmation — Flux must agree with the divergence direction (Bull div needs Flux > 0, Bear div needs Flux < 0)\n\nTurn ON for fewer, higher-conviction signals only.")
+
+sdfMinMom = input.float(10.0, "Min Momentum Swing",
+     minval = 1.0, maxval = 50.0, step = 0.5,
+     group   = GRP_DIV,
+     tooltip = "Minimum momentum swing between the two divergence pivots.\n\nSmall (1–5) → permissive, allows minor divergences through\nMedium (10) → balanced — default\nLarge (20–50) → only structurally significant divergences pass\n\nRequires Smart Filter ON.")
+
+sdfMinPct = input.float(0.3, "Min Price Swing (%)",
+     minval = 0.1, maxval = 5.0, step = 0.1,
+     group   = GRP_DIV,
+     tooltip = "Minimum price swing between divergence pivots as a percentage of the recent (momLen × 4 bars) high-low range.\n\nFilters divergences caused by tiny price moves relative to volatility.\n\n0.3% → permissive — default\n1.0% → moderate\n2.0%+ → strict\n\nRequires Smart Filter ON.")
+
+sdfFluxConf = input.bool(true, "Require Flux Confirmation",
+     group   = GRP_DIV,
+     tooltip = "When ON, Flux direction must agree with the divergence direction at the moment of detection:\n\n• Bullish divergence → Flux value must be > 0 (uptrend bias)\n• Bearish divergence → Flux value must be < 0 (downtrend bias)\n\nFilters out divergences that fire counter to the broader directional bias. Most useful when the Flux engine is set to a longer length than Momentum.\n\nRequires Smart Filter ON. Default: ON.")
+
+// ── Trend Regime ─────────────────────────────────────────────────────────────
+// ADX-based market state detector. Classifies every bar as TRENDING UP /
+// TRENDING DOWN / RANGING / TRANSITION from ADX strength + DI± direction.
+// Feeds the Dashboard Regime row and optionally adapts the Confluence
+// Signal Threshold (permissive in trends, strict in ranges).
+
+regimeOn = input.bool(true, "Show Regime",
+     group   = GRP_REGIME,
+     tooltip = "Master toggle for the Trend Regime Detector. When ON, the Dashboard adds a Regime row showing the current market state (⯅ TRENDING UP / ⯆ TRENDING DOWN / ▣ RANGING / ▤ TRANSITION) computed from a built-in ADX + DI± classifier.\n\nWhen OFF, the Regime row hides and the Adaptive Signal Threshold feature is disabled regardless of its own toggle.\n\nDefault: ON.")
+
+regimeLen = input.int(14, "ADX Length",
+     minval = 5, maxval = 50, step = 1,
+     group   = GRP_REGIME,
+     tooltip = "Lookback for the ADX calculation used by the Regime Detector. The standard 14 matches most charting platforms.\n\n7–10 → very reactive (catches early regime shifts)\n14 → balanced — default\n21–28 → smooth (only major, sustained regime changes register)\n\nDefault: 14")
+
+regimeTrendTh = input.float(25.0, "Trend Threshold",
+     minval = 15.0, maxval = 50.0, step = 1.0,
+     group   = GRP_REGIME,
+     tooltip = "ADX value above which the market is classified as TRENDING. Standard convention: ADX > 25 = trend present, ADX < 20 = ranging market.\n\n20 → permissive, many bars classified as trending\n25 → balanced — default\n30+ → strict, only strong trends classified as TRENDING\n\nDefault: 25")
+
+regimeRangeTh = input.float(20.0, "Range Threshold",
+     minval = 10.0, maxval = 25.0, step = 1.0,
+     group   = GRP_REGIME,
+     tooltip = "ADX value below which the market is classified as RANGING. The band between Range and Trend thresholds is TRANSITION (low confidence — neither state strongly active).\n\n15 → strict (only deep range classified as RANGING)\n20 → balanced — default\n22+ → permissive (more bars classified as RANGING)\n\nDefault: 20")
+
+regimeAdaptive = input.bool(false, "Auto-Adjust Signal Threshold",
+     group   = GRP_REGIME,
+     tooltip = "When ON, the Confluence Signal Threshold auto-adjusts based on the detected regime so Confluence Buy / Sell arrows match the active market state:\n\n• TRENDING → threshold − 10 (permissive; momentum continuation signals welcome)\n• RANGING → threshold + 10 (strict; only deep-reversion signals fire)\n• TRANSITION → unchanged (your manual threshold)\n\nUse for context-aware signal generation that respects the market state. Default: OFF (manual threshold respected as-is).")
+
+// ── Bar Coloring ─────────────────────────────────────────────────────────────
+// Optional chart-wide colouring mode driven by oscillator state. Five
+// mutually exclusive modes; "None" emits na so barcolor() is a no-op.
+
+barMode = input.string("None", "Bar Color Mode",
+     options = ["None", "Momentum", "Flux", "Squeeze", "Confluence", "Slope"],
+     group   = GRP_BAR,
+     tooltip = "Applies a state-driven colour to every price bar on the chart.\n\nNone → leave bars untouched (default)\nMomentum → bull above zero, bear below zero\nFlux → bull when flux > 0, bear when flux < 0\nSqueeze → squeeze colour ramp when compressed, neutral otherwise\nConfluence → strong / weak / none tiers\nSlope → bull when mom > signal, bear when mom < signal\n\nDefault: None")
+
+// ── Multi-Timeframe Confluence ───────────────────────────────────────────────
+// PRO MTF panel — calculates Momentum + Flux on four higher timeframes
+// simultaneously via request.security() and surfaces alignment / divergence
+// against the active chart's bias. Anti-repaint (lookahead_off), works on
+// every asset and chart timeframe.
+
+showMTF = input.bool(true, "Show MTF Panel",
+     group   = GRP_MTF,
+     tooltip = "Master toggle for the Multi-Timeframe Confluence panel. The panel runs the full Momentum + Flux + Confluence stack on four higher timeframes simultaneously and shows each TF's bias as a separate row.\n\nThe header tag shows the overall alignment state:\n• ▲▲▲▲ ALIGNED — all four TFs bullish (highest-conviction long setup)\n• ▼▼▼▼ ALIGNED — all four TFs bearish (highest-conviction short setup)\n• ◈ MIXED — TFs disagree (no clean direction)\n\nAll MTF calls use lookahead_off — fully repaint-safe on every closed bar.")
+
+mtfPreset = input.string("Swing", "Timeframe Preset",
+     options = ["Scalp", "Intraday", "Swing", "Position", "Crypto", "Forex"],
+     group   = GRP_MTF,
+     tooltip = "Pre-tuned four-timeframe sets matched to common trader profiles:\n\nScalp: 1m / 5m / 15m / 1h — fast scalper\nIntraday: 5m / 15m / 1h / 4h — day trader\nSwing: 15m / 1h / 4h / 1D — default, swing trader\nPosition: 1h / 4h / 1D / 1W — position trader\nCrypto: 5m / 15m / 1h / 4h — 24/7 markets\nForex: 15m / 1h / 4h / 1D — session-based markets\n\nDefault: Swing")
+
+mtfPos = input.string("Top Right", "Panel Position",
+     options = ["Top Right", "Top Left", "Middle Right", "Middle Left", "Bottom Right", "Bottom Left"],
+     group   = GRP_MTF,
+     tooltip = "Anchor position for the MTF Confluence panel inside the indicator pane. Default is Top Right so it docks vertically opposite the main Dashboard (Bottom Right) without overlapping. Six slots — pick whichever clears your other indicators.")
+
+mtfSize = input.string("Small", "Panel Text Size",
+     options = ["Tiny", "Small", "Normal", "Large"],
+     group   = GRP_MTF,
+     tooltip = "Text size inside the MTF Confluence panel. Defaults to Small to mirror the main Dashboard size.")
+
+// ── Dashboard ────────────────────────────────────────────────────────────────
+// Compact PRO data table drawn on the last bar. Mirrors the Artemis Wave
+// Oscillator convention so the whole catalogue feels like one product family.
+
+showDash = input.bool(true, "Show Dashboard",
+     group   = GRP_DASH,
+     tooltip = "Master toggle for the on-chart data panel.\n\nShows at a glance:\n• Bias — Strong / Weak Bull / Bear / Neutral from mom + flux agreement\n• TS Score — composite 0–100 trend strength reading (RSI-style)\n• Momentum — current momentum value + trend arrow\n• Flux — current flux value + trend arrow\n• Squeeze — Tight / Mid / Loose / — compression tier\n• Confluence — Strong / Weak / None tag\n• Div — most recent divergence detected within the last 50 bars\n• Slope — ▲ momentum above signal, ▼ below\n\nColours are driven by the active Theme. On Midnight / Graphite themes the panel automatically flips to a light background so the text stays readable against dark plots.")
+
+dashPos = input.string("Bottom Right", "Panel Position",
+     options = ["Top Right", "Top Left", "Middle Right", "Middle Left", "Bottom Right", "Bottom Left"],
+     group   = GRP_DASH,
+     tooltip = "Anchor position inside the indicator pane where the dashboard docks.\n\nSix slots — three vertical bands × two sides. Pick whichever does not overlap your other indicators or labels.\n\nDefault: Bottom Right (pairs with MTF panel at Top Right — vertically separated to avoid overlap).")
+
+dashSize = input.string("Small", "Panel Text Size",
+     options = ["Tiny", "Small", "Normal", "Large"],
+     group   = GRP_DASH,
+     tooltip = "Text size inside the dashboard.\n\nTiny → smallest, compact layouts\nSmall → default, clean and readable\nNormal → larger, comfortable reading\nLarge → maximum visibility")
+
+// ── Alerts ───────────────────────────────────────────────────────────────────
+// Opt-in toggles for every core event. Each alert is gated by its switch —
+// hiding a feature on the chart silences its alerts automatically.
+
+simple bool alrtBuy       = input.bool(true,  "Confluence Buy",
+     group   = GRP_ALRT,
+     tooltip = "Fires when momentum crosses ABOVE the signal line while below −Threshold AND Flux is bearish — classical mean-reversion long trigger inside a downtrend. Threshold is the Confluence Gauges → Signal Threshold setting. Respects the Volume Confirmation gate when enabled, so the alert and the on-chart ▲ arrow always agree.")
+
+simple bool alrtSell      = input.bool(true,  "Confluence Sell",
+     group   = GRP_ALRT,
+     tooltip = "Fires when momentum crosses BELOW the signal line while above +Threshold AND Flux is bullish — classical mean-reversion short trigger inside an uptrend. Threshold is the Confluence Gauges → Signal Threshold setting. Respects the Volume Confirmation gate when enabled, so the alert and the on-chart ▼ arrow always agree.")
+
+simple bool alrtMomUp     = input.bool(true,  "Momentum Cross Up",
+     group   = GRP_ALRT,
+     tooltip = "Fires when momentum crosses above zero (bullish regime flip).")
+
+simple bool alrtMomDn     = input.bool(true,  "Momentum Cross Down",
+     group   = GRP_ALRT,
+     tooltip = "Fires when momentum crosses below zero (bearish regime flip).")
+
+simple bool alrtFluxUp    = input.bool(true,  "Flux Cross Up",
+     group   = GRP_ALRT,
+     tooltip = "Fires when Flux crosses above zero (bullish directional flip).")
+
+simple bool alrtFluxDn    = input.bool(true,  "Flux Cross Down",
+     group   = GRP_ALRT,
+     tooltip = "Fires when Flux crosses below zero (bearish directional flip).")
+
+simple bool alrtSwingUp   = input.bool(false, "Bullish Swing",
+     group   = GRP_ALRT,
+     tooltip = "Fires on every momentum × signal upward cross, regardless of zone. Frequent on short timeframes — best combined with Confluence or Trend alerts for confirmation.")
+
+simple bool alrtSwingDn   = input.bool(false, "Bearish Swing",
+     group   = GRP_ALRT,
+     tooltip = "Fires on every momentum × signal downward cross, regardless of zone. Frequent on short timeframes — best combined with Confluence or Trend alerts for confirmation.")
+
+simple bool alrtConfBull  = input.bool(true,  "Strong Bull Confluence",
+     group   = GRP_ALRT,
+     tooltip = "Fires when momentum AND flux both turn bullish (full strong-bull state activates the upper confluence gauge).")
+
+simple bool alrtConfBear  = input.bool(true,  "Strong Bear Confluence",
+     group   = GRP_ALRT,
+     tooltip = "Fires when momentum AND flux both turn bearish (full strong-bear state activates the lower confluence gauge).")
+
+simple bool alrtWeakBull  = input.bool(false, "Weak Bull Confluence",
+     group   = GRP_ALRT,
+     tooltip = "Fires when momentum OR flux (but not both) turns bullish (partial bull state — weaker confluence). OFF by default.")
+
+simple bool alrtWeakBear  = input.bool(false, "Weak Bear Confluence",
+     group   = GRP_ALRT,
+     tooltip = "Fires when momentum OR flux (but not both) turns bearish. OFF by default.")
+
+simple bool alrtSqzTight  = input.bool(true,  "Tight Squeeze",
+     group   = GRP_ALRT,
+     tooltip = "Fires when stdev drops below ATR × 0.5 — extreme compression, expansion imminent.")
+
+simple bool alrtSqzMid    = input.bool(false, "Mid Squeeze",
+     group   = GRP_ALRT,
+     tooltip = "Fires when stdev drops below ATR × 0.75 — moderate compression. OFF by default to avoid noise.")
+
+simple bool alrtSqzLoose  = input.bool(false, "Loose Squeeze",
+     group   = GRP_ALRT,
+     tooltip = "Fires when stdev drops below ATR × 1.0 — mild compression. OFF by default.")
+
+simple bool alrtDivReg    = input.bool(true,  "Regular Divergence",
+     group   = GRP_ALRT,
+     tooltip = "Fires on Regular bullish or bearish divergence detection. Respects the Smart Filter when enabled.")
+
+simple bool alrtDivHid    = input.bool(false, "Hidden Divergence",
+     group   = GRP_ALRT,
+     tooltip = "Fires on Hidden bullish or bearish divergence detection. OFF by default — Hidden divergences fire more frequently than Regular. Respects the Smart Filter when enabled.")
+
+simple bool alrtSqzRelease = input.bool(true,  "Squeeze Release",
+     group   = GRP_ALRT,
+     tooltip = "Fires on the bar where the squeeze fully ends (stdev re-expanded above ATR × 1.0). Imminent volatility expansion — historically the highest-conviction breakout setup.")
+
+simple bool alrtMtfAlign   = input.bool(true,  "MTF Aligned",
+     group   = GRP_ALRT,
+     tooltip = "Fires the bar all four MTF timeframes first agree on direction (all bull or all bear). The highest-conviction multi-timeframe confluence setup. Fires once per state change to avoid spam.")
+
+simple bool alrtMtfDiv     = input.bool(false, "MTF Divergence",
+     group   = GRP_ALRT,
+     tooltip = "Fires the bar the current chart's bias first contradicts the majority of HTF biases (3 or more HTFs against current). Useful as a contrarian / counter-trend warning. OFF by default to keep noise low.")
+
+simple bool alrtRegime     = input.bool(false, "Regime Shift",
+     group   = GRP_ALRT,
+     tooltip = "Fires the bar the market regime transitions (TRENDING ⇄ RANGING ⇄ TRANSITION). Useful as a strategy-switching signal: trending bias when regime is trending, mean-reversion bias when ranging. OFF by default — regime shifts on long histories can fire frequently.")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SECTION 3 — METHODS
+// Seven small methods drive the entire engine. Declared at top level so they
+// participate in Pine v6's UFCS (`b.computeMom(...)`, `x.runStdev(len)`).
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// True Range — single-bar primitive. Falls back to high − low on the first
+// bar (when close[1] is na), otherwise the classic max(h-l, |h-c[1]|, |l-c[1]|).
+// Pine v6 forbids `udt.field[1]` directly — history must be taken on the
+// whole object first, then the field accessed. The `na(bPrev)` guard is
+// mandatory: on bar 0 the prior object itself is na, and dereferencing a
+// field on a na UDT throws a runtime "Cannot access the 'Bar.c' field of
+// an undefined object" error.
+method runTr(Bar b) =>
+    Bar   bPrev = b[1]
+    float prevH = na(bPrev) ? na : bPrev.h
+    float prevC = na(bPrev) ? na : bPrev.c
+    na(prevH) ? b.h - b.l : math.max(math.max(b.h - b.l, math.abs(b.h - prevC)), math.abs(b.l - prevC))
+
+// ATR — RMA-smoothed True Range across `len` bars.
+method runAtr(Bar b, simple int len) =>
+    ta.rma(b.runTr(), len)
+
+// Welford-style running standard deviation — single-pass O(len) algorithm
+// that updates the running mean and squared deviation simultaneously.
+// Numerically stable on long histories where naive sum-of-squares drifts.
+method runStdev(float src, simple int len) =>
+    float meanRun  = 0.0
+    float meanPrev = 0.0
+    float sqAcc    = 0.0
+    for k = 0 to len - 1
+        float val = nz(src[k])
+        meanPrev := meanRun
+        meanRun  := meanRun + (val - meanRun) / (1 + k)
+        sqAcc    := sqAcc + (val - meanRun) * (val - meanPrev)
+    math.sqrt(sqAcc / (len - 1))
+
+// Heiken Ashi bar — produces a smoothed OHLC bar for the Flux engine when
+// the user enables "Use Heiken Ashi Bias". Standard HA formulas:
+//   haClose = (open + high + low + close) / 4
+//   haOpen  = (prevHaOpen + prevHaClose) / 2
+//   haHigh  = max(high, haOpen, haClose)
+//   haLow   = min(low,  haOpen, haClose)
+method haBar(Bar b) =>
+    var Bar ha = Bar.new(na, na, na, na)
+    // Pine v6 disallows `ha.o[1]` — hoist the whole-object history first,
+    // then read each field on the previous object reference.
+    Bar   haPrev = ha[1]
+    float prevO  = na(haPrev) ? na : haPrev.o
+    float prevC  = na(haPrev) ? na : haPrev.c
+    float haC    = math.avg(b.o, b.h, b.l, b.c)
+    float haO    = na(prevO) ? math.avg(b.o, b.c) : math.avg(nz(prevO), nz(prevC))
+    float haH    = math.max(b.h, math.max(haO, haC))
+    float haL    = math.min(b.l, math.min(haO, haC))
+    ha          := Bar.new(haO, haH, haL, haC)
+    ha
+
+// Momentum engine — Squeeze Momentum (linreg-based), four ordered steps:
+//   1. Compute the channel midpoint: (highest + lowest) / 2 over momLen.
+//   2. Compute SMA of HL2 over momLen — the "smoothed midline" reference.
+//   3. Build a synthetic bar with the channel highs/lows; its ATR is the
+//      channel range used as the normalisation denominator.
+//   4. Linreg(close − avg(channelMid, smaMid)) / channelRange × 100, momLen.
+// The signal is an SMA of the linreg over momSigLen. Both lines drive the
+// downstream divergence + confluence logic.
+method computeMom(Bar b, simple int len, simple int sigLen) =>
+    float chanHi  = ta.highest(b.h, len)
+    float chanLo  = ta.lowest (b.l, len)
+    float chanMid = math.avg(chanHi, chanLo)
+    float smaMid  = ta.sma(math.avg(b.h, b.l), len)
+    float chanRng = chanHi - chanLo
+    // Channel-aware TR: include gap-to-prior-close component so overnight
+    // gaps inflate the denominator (matches Pine v5 `tr(true)` on the
+    // synthetic channel bar). Falls back to running TR if both branches
+    // collapse to a flat range (preventing divide-by-zero on dead markets).
+    // Pine v6 forbids `b.c[1]` directly — history is requested on the whole
+    // object first, then the field is read on the prior object. The
+    // `na(bPrev)` guard prevents a bar-0 runtime error where dereferencing
+    // a field on a na UDT crashes ("Cannot access the 'Bar.c' field...").
+    Bar   bPrev   = b[1]
+    float prevC   = na(bPrev) ? na : bPrev.c
+    float chanTr  = na(prevC) ? chanRng : math.max(chanRng, math.max(math.abs(chanHi - prevC), math.abs(chanLo - prevC)))
+    float chanAtr = chanTr < 1e-10 ? b.runTr() : chanTr
+    float momRaw  = (b.c - math.avg(chanMid, smaMid)) / chanAtr * 100.0
+    float momVal  = ta.linreg(momRaw, len, 0)
+    float momSig  = ta.sma(momVal, sigLen)
+    MomReading.new(momVal, momSig)
+
+// Directional Flux — ADX-style up/down ratio normalised by ATR.
+// The "overflow" branch is the part of flux that exceeds ±25 (where
+// directional pressure becomes structurally significant); rendered as a
+// separate fill so traders can read both raw direction and acceleration.
+method computeFlux(Bar b, simple int len) =>
+    float tr = b.runAtr(len)
+    float trSafe = tr < 1e-10 ? 1e-10 : tr
+    float up = ta.rma(math.max(ta.change(b.h),      0), len) / trSafe
+    float dn = ta.rma(math.max(ta.change(b.l) * -1, 0), len) / trSafe
+    float denom = up + dn
+    float ratio = denom < 1e-10 ? 0.0 : (up - dn) / denom
+    float fluxVal = ta.rma(ratio, len / 2) * 100.0
+    float fluxOf  = fluxVal > +25 ? fluxVal - 25 : fluxVal < -25 ? fluxVal + 25 : na
+    FluxReading.new(fluxVal, fluxOf)
+
+// Squeeze detector — three nested tiers based on the stdev / ATR ratio.
+// Each tier compares the running stdev of close against ATR × (0.5 / 0.75
+// / 1.0). The tightest active tier wins for visual rendering downstream.
+method detectSqueeze(Bar b, simple int len) =>
+    float dev = b.c.runStdev(len)
+    float atr = b.runAtr(len)
+    bool  sqzTight = dev < atr * 0.5
+    bool  sqzMid   = dev < atr * 0.75
+    bool  sqzLoose = dev < atr * 1.0
+    SqueezeState.new(sqzTight, sqzMid, sqzLoose)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SECTION 4 — ENGINE
+// Drive the bar bundle through every analytical method and unpack the
+// readings into short-named aliases so the plot + alert blocks below stay
+// readable.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+Bar barRaw = Bar.new(open, high, low, close)
+Bar barFlx = fluxHA ? barRaw.haBar() : barRaw
+
+MomReading    mom = barRaw.computeMom    (momLen, momSigLen)
+FluxReading   flx = barFlx.computeFlux   (fluxLen)
+SqueezeState  sqz = barRaw.detectSqueeze (momLen)
+
+float momVal  = mom.value
+float momSig  = mom.signal
+float fluxVal = flx.value
+float fluxOf  = flx.overflow
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SECTION 5 — SIGNAL DETECTION
+// All cross-state booleans + confluence states live here, computed once
+// and reused by the plots, the dashboard, the bar painter and the alert
+// block. Calculating each event in a single place guarantees the visual
+// layer and the alert layer can never disagree.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+bool xMomUp   = ta.crossover (momVal, momSig)   // momentum crossed up through signal
+bool xMomDn   = ta.crossunder(momVal, momSig)   // momentum crossed down through signal
+bool xMomZUp  = ta.crossover (momVal, 0)        // momentum crossed up through zero
+bool xMomZDn  = ta.crossunder(momVal, 0)        // momentum crossed down through zero
+bool xFluxUp  = ta.crossover (fluxVal, 0)       // flux crossed up through zero
+bool xFluxDn  = ta.crossunder(fluxVal, 0)       // flux crossed down through zero
+
+// ── Trend Regime Detector ────────────────────────────────────────────────────
+// Built-in ADX + DI± classification — computed once here and reused by the
+// dashboard, the adaptive threshold below, and the regime-shift alert.
+// ta.dmi returns three series: positive directional movement, negative
+// directional movement, and the ADX itself.
+//   regimeCode encoding:
+//     +2 — TRENDING UP   (ADX > trend th, DI+ > DI−)
+//     −2 — TRENDING DOWN (ADX > trend th, DI+ ≤ DI−)
+//      0 — TRANSITION    (between range and trend thresholds)
+//     +1 — RANGING       (ADX < range th — direction irrelevant)
+[regimeDiPlus, regimeDiMinus, regimeAdx] = ta.dmi(regimeLen, regimeLen)
+bool   regimeTrending  = regimeOn and regimeAdx > regimeTrendTh
+bool   regimeRanging   = regimeOn and regimeAdx < regimeRangeTh
+bool   regimeBullTrend = regimeTrending and regimeDiPlus >  regimeDiMinus
+bool   regimeBearTrend = regimeTrending and regimeDiPlus <= regimeDiMinus
+int    regimeCode      = (regimeBullTrend ?  2 :
+                          regimeBearTrend ? -2 :
+                          regimeRanging   ?  1 :
+                                             0)
+string regimeTag       = (regimeBullTrend ? "⯅ TRENDING UP" :
+                          regimeBearTrend ? "⯆ TRENDING DOWN" :
+                          regimeRanging   ? "▣ RANGING" :
+                          regimeOn        ? "▤ TRANSITION" :
+                                            "—")
+// Regime shift — fires the bar regime changes from one code to another.
+// `nz(...)` defaults the prior to the current code on bar 0 so we don't
+// fire a false shift on the very first historical bar.
+bool   regimeShift     = regimeOn and regimeCode != nz(regimeCode[1], regimeCode)
+
+// ── Adaptive Signal Threshold ────────────────────────────────────────────────
+// When regimeAdaptive is ON the Confluence Signal Threshold shifts:
+//   • TRENDING → −10 (permissive — continuation signals welcome)
+//   • RANGING  → +10 (strict — only deep-reversion signals fire)
+//   • TRANSITION → unchanged
+// Implemented as an integer offset so the manual `confThresh` stays the
+// single source of truth for the user-set baseline.
+int  confThreshAdj    = (regimeAdaptive and regimeOn ?
+                            (regimeTrending ? -10 : regimeRanging ? 10 : 0) : 0)
+int  confThreshActive = math.max(1, confThresh + confThreshAdj)
+
+// ── Volume Confirmation gate ─────────────────────────────────────────────────
+// Optional filter applied to the Confluence Buy ▲ / Sell ▼ triangles only.
+// Computes the volume MA once here; downstream signal lines consume `volPass`.
+// On assets without reliable volume data (Forex, some indices) either `volume`
+// or its MA collapses to na/0, so the gate is bypassed entirely — the filter
+// is transparent on symbols where volume cannot be trusted.
+float volAvg    = ta.sma(volume, volMaLen)
+bool  volHasData = not na(volume) and volume > 0 and not na(volAvg) and volAvg > 0
+bool  volPass    = not volConfOn or not volHasData or volume > volAvg
+
+// Confluence arrows use the (possibly regime-adjusted) `confThreshActive` —
+// independent of the Divergence Sensitivity, since the two engines need
+// different thresholds: divergence wants permissive (25) for pivot detection,
+// while confluence arrows want strict (40) to mark deep mean-reversion
+// triggers. The volume gate adds a final conviction check that low-volume
+// fake-outs cannot satisfy on volume-enabled symbols.
+bool buySignal  = xMomUp and momVal < -confThreshActive and fluxVal < 0 and volPass   // confluence buy
+bool sellSignal = xMomDn and momVal >  confThreshActive and fluxVal > 0 and volPass   // confluence sell
+
+// ── Confluence states ────────────────────────────────────────────────────────
+// Four mutually exclusive tiers from the mom + flux agreement matrix.
+//   Strong Bull — both bullish   |   Strong Bear — both bearish
+//   Weak Bull   — only one bull  |   Weak Bear   — only one bear
+// Used by the gauges, dashboard and bar painter.
+bool confStrongBull = fluxVal > 0 and momVal > 0
+bool confStrongBear = fluxVal < 0 and momVal < 0
+bool confWeakBull   = (fluxVal > 0 or momVal > 0) and not confStrongBull and not confStrongBear
+bool confWeakBear   = (fluxVal < 0 or momVal < 0) and not confStrongBull and not confStrongBear
+
+// Confluence transitions — used for "freshly entered state" alerts.
+bool justStrongBull = confStrongBull and not confStrongBull[1]
+bool justStrongBear = confStrongBear and not confStrongBear[1]
+bool justWeakBull   = confWeakBull   and not confWeakBull[1]
+bool justWeakBear   = confWeakBear   and not confWeakBear[1]
+
+// Squeeze transitions — fire on the bar the tier first activates.
+// Pine v6 forbids `sqz.tight[1]` (UDT field history); take history on the
+// whole object first via `(sqz[1]).tight`. Guard with `na(...)` because the
+// SqueezeState reference itself is na on the very first bar.
+SqueezeState sqzPrev = sqz[1]
+bool wasTight = not na(sqzPrev) and sqzPrev.tight
+bool wasMid   = not na(sqzPrev) and sqzPrev.mid
+bool wasLoose = not na(sqzPrev) and sqzPrev.loose
+bool justSqzTight = sqz.tight and not wasTight
+bool justSqzMid   = sqz.mid   and not wasMid
+bool justSqzLoose = sqz.loose and not wasLoose
+
+// Squeeze Release — the bar the loosest active tier (stdev < ATR × 1.0)
+// drops off, meaning compression has FULLY ended. This is the canonical
+// "spring uncoiled" moment: volatility expansion begins, breakout direction
+// is about to reveal itself. Historically the highest-conviction setup the
+// squeeze model produces.
+bool sqzReleased = wasLoose and not sqz.loose
+
+// ── Squeeze Release Direction Predictor ──────────────────────────────────────
+// At the release bar, measure momentum slope across the predictor lookback.
+// A clearly-positive slope means the spring is uncoiling upward → bullish
+// breakout most likely; clearly-negative → bearish; within the threshold band
+// → direction unclear, marker stays neutral ✦. Predictor output drives both
+// the visible glyph (✦▴ / ✦▾ / ✦) and the release-alert message body.
+float sqzReleaseSlope = sqzReleased ? momVal - momVal[sqzPredictLook] : na
+bool  sqzPredBull     = sqzPredictOn and sqzReleased and sqzReleaseSlope >  sqzPredictThresh
+bool  sqzPredBear     = sqzPredictOn and sqzReleased and sqzReleaseSlope < -sqzPredictThresh
+
+// ── Composite Trend Strength Score (0–100) ───────────────────────────────────
+// PRO summary score blending every analytical layer into a single 0–100
+// reading (RSI-style scale). 50 is neutral, > 50 leans bull, < 50 leans bear.
+//   • Momentum     30% — current mom value mapped from −100..+100 → 0..100
+//   • Flux         30% — current flux value mapped the same way
+//   • Mom × Signal 15% — slope direction confirmation (70 if mom > sig, else 30)
+//   • Confluence   25% — confluence tier (90 strong-bull, 65 weak-bull,
+//                        50 neutral, 35 weak-bear, 10 strong-bear)
+// The weights add to 1.0 so the output stays cleanly inside the 0–100 band.
+float scMom   = math.max(0.0, math.min(100.0, 50.0 + momVal  / 2.0))
+float scFlux  = math.max(0.0, math.min(100.0, 50.0 + fluxVal / 2.0))
+float scSlope = momVal > momSig ? 70.0 : 30.0
+float scConf  = (confStrongBull ? 90.0 :
+                 confStrongBear ? 10.0 :
+                 confWeakBull   ? 65.0 :
+                 confWeakBear   ? 35.0 :
+                                  50.0)
+float tsScore = math.round(scMom * 0.30 + scFlux * 0.30 + scSlope * 0.15 + scConf * 0.25)
+
+// TS Score tier label — used for the dashboard summary row.
+string tsScoreTier  = (tsScore >= 75 ? "STRONG BULL" :
+                       tsScore >= 60 ? "BULL" :
+                       tsScore >= 40 ? "NEUTRAL" :
+                       tsScore >= 25 ? "BEAR" :
+                                       "STRONG BEAR")
+string tsScoreArrow = tsScore >= 60 ? "▲" : tsScore <= 40 ? "▼" : "■"
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SECTION 6 — DIVERGENCE DETECTION
+// Cross-confirmed divergence — fires only when momentum is in an extreme
+// zone (|mom| > divSens) AND crosses its signal line. Regular divergences
+// signal reversal, Hidden continuation. The Smart AI Filter adds three
+// optional gates (min mom swing, min price swing %, flux confirmation)
+// for high-conviction filtering.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Regular Div anchors — stored at extreme-zone crosses (mom > +divSens for
+// the bearish side, mom < −divSens for the bullish side). Regular div catches
+// classical exhaustion reversals at deep extremes.
+//   *_p — price extreme at the anchor (high for bearish, low for bullish)
+//   *_m — momentum value at the anchor
+//   *_b — bar index at the anchor (used as the line.new x1 anchor)
+var float prevHi_p = na    // previous bearish-setup price high
+var float prevHi_m = na    // previous bearish-setup momentum
+var int   prevHi_b = int(na)
+var float prevLo_p = na    // previous bullish-setup price low
+var float prevLo_m = na    // previous bullish-setup momentum
+var int   prevLo_b = int(na)
+
+// Hidden Div anchors — stored at ANY signal-line cross (no zone gate). Hidden
+// divs fire during shallow pullbacks within an established trend where
+// momentum oscillates near zero, so the extreme-zone gate used by Regular
+// would block all Hidden detection. Separate anchors let Hidden catch the
+// classical continuation pattern (price LH + mom HH for downtrend, or price
+// HL + mom LL for uptrend) at any momentum level.
+var float hidHi_p = na
+var float hidHi_m = na
+var int   hidHi_b = int(na)
+var float hidLo_p = na
+var float hidLo_m = na
+var int   hidLo_b = int(na)
+
+// Regular setup — extreme-zone cross. Both anchor storage and detection
+// require momentum past the Sensitivity threshold (classical exhaustion).
+bool bearSetup = momVal > +divSens and xMomDn and barstate.isconfirmed
+bool bullSetup = momVal < -divSens and xMomUp and barstate.isconfirmed
+
+// Hidden setup — any signal-line cross, regardless of zone. This is the
+// critical difference from Regular: shallow pullbacks within a strong trend
+// rarely push momentum past ±divSens, so Hidden detection must accept every
+// cross to capture the continuation patterns.
+bool bearHidSetup = xMomDn and barstate.isconfirmed
+bool bullHidSetup = xMomUp and barstate.isconfirmed
+
+// Raw divergence flags — populated below when a setup fires and the prev /
+// curr comparison meets the divergence shape.
+bool dRegBull = false  // price LL + mom HL → reversal up
+bool dRegBear = false  // price HH + mom LH → reversal down
+bool dHidBull = false  // price HL + mom LL → uptrend continues
+bool dHidBear = false  // price LH + mom HH → downtrend continues
+
+// Regular Bear — compare current high + mom against the previous extreme-
+// zone bearish anchor.
+if bearSetup and not na(prevHi_p) and high > prevHi_p and momSig < prevHi_m
+    dRegBear := true
+
+// Regular Bull — symmetric.
+if bullSetup and not na(prevLo_p) and low < prevLo_p and momSig > prevLo_m
+    dRegBull := true
+
+// Hidden Bear — compare current high + mom against the previous (any-zone)
+// hidden bearish anchor. Shape: price LH + mom HH.
+if bearHidSetup and not na(hidHi_p) and high < hidHi_p and momSig > hidHi_m
+    dHidBear := true
+
+// Hidden Bull — symmetric. Shape: price HL + mom LL.
+if bullHidSetup and not na(hidLo_p) and low > hidLo_p and momSig < hidLo_m
+    dHidBull := true
+
+// ── Smart AI Filter ──────────────────────────────────────────────────────────
+// Three independent gates evaluated when sdfOn is true. The min-swing gates
+// reject noise-level differences; the flux gate enforces directional bias
+// agreement at the moment of detection. Regular and Hidden divs each evaluate
+// against their own anchor pair (Regular uses the extreme-zone anchors,
+// Hidden uses the any-zone anchors).
+float sdfPxRange = ta.highest(high, momLen * 4) - ta.lowest(low, momLen * 4)
+float sdfMinPxAbs = sdfPxRange * (sdfMinPct / 100.0)
+
+float sdfMomSwLo  = na(prevLo_m) ? 0 : math.abs(momSig - prevLo_m)
+float sdfMomSwHi  = na(prevHi_m) ? 0 : math.abs(momSig - prevHi_m)
+float sdfPxSwLo   = na(prevLo_p) ? 0 : math.abs(low  - prevLo_p)
+float sdfPxSwHi   = na(prevHi_p) ? 0 : math.abs(high - prevHi_p)
+
+float sdfMomSwLoH = na(hidLo_m) ? 0 : math.abs(momSig - hidLo_m)
+float sdfMomSwHiH = na(hidHi_m) ? 0 : math.abs(momSig - hidHi_m)
+float sdfPxSwLoH  = na(hidLo_p) ? 0 : math.abs(low  - hidLo_p)
+float sdfPxSwHiH  = na(hidHi_p) ? 0 : math.abs(high - hidHi_p)
+
+bool sdfFluxBull = not sdfFluxConf or fluxVal > 0
+bool sdfFluxBear = not sdfFluxConf or fluxVal < 0
+
+bool sdfPassBull    = not sdfOn or (sdfMomSwLo  >= sdfMinMom and sdfPxSwLo  >= sdfMinPxAbs and sdfFluxBull)
+bool sdfPassBear    = not sdfOn or (sdfMomSwHi  >= sdfMinMom and sdfPxSwHi  >= sdfMinPxAbs and sdfFluxBear)
+bool sdfPassBullHid = not sdfOn or (sdfMomSwLoH >= sdfMinMom and sdfPxSwLoH >= sdfMinPxAbs and sdfFluxBull)
+bool sdfPassBearHid = not sdfOn or (sdfMomSwHiH >= sdfMinMom and sdfPxSwHiH >= sdfMinPxAbs and sdfFluxBear)
+
+// ── Divergence palette + label-size resolver ─────────────────────────────────
+color colDivBull = color.new(thBull, 0)
+color colDivBear = color.new(thBear, 0)
+
+string divSz = (divLabelSize == "Tiny"   ? size.tiny   :
+                divLabelSize == "Small"  ? size.small  :
+                divLabelSize == "Normal" ? size.normal :
+                                           size.large)
+
+// ── Divergence rendering + last-event tracking ───────────────────────────────
+// Each detected event paints (optionally) a line between the two pivots and
+// drops (optionally) a tooltip-rich label at the current pivot. The
+// lastDiv* pair persists across bars so the dashboard reports the most
+// recent event up to 50 bars back.
+var int    lastDivBar = int(na)
+var string lastDivTag = "—"
+
+if divRegOn and dRegBull and sdfPassBull
+    if divShowLines
+        line.new(prevLo_b, prevLo_m, bar_index, momSig, color = colDivBull, width = 1, style = line.style_solid)
+    if divShowLabels
+        label.new(bar_index, momSig, "D▲", style = label.style_label_up,   color = colDivBull, textcolor = color.white, size = divSz,
+             tooltip = "Regular Bullish Divergence\nPrice: Lower Low\nMomentum: Higher Low\nSignal: Potential reversal to the upside")
+    lastDivBar := bar_index
+    lastDivTag := "▲ REG"
+
+if divRegOn and dRegBear and sdfPassBear
+    if divShowLines
+        line.new(prevHi_b, prevHi_m, bar_index, momSig, color = colDivBear, width = 1, style = line.style_solid)
+    if divShowLabels
+        label.new(bar_index, momSig, "D▼", style = label.style_label_down, color = colDivBear, textcolor = color.white, size = divSz,
+             tooltip = "Regular Bearish Divergence\nPrice: Higher High\nMomentum: Lower High\nSignal: Potential reversal to the downside")
+    lastDivBar := bar_index
+    lastDivTag := "▼ REG"
+
+if divHidOn and dHidBull and sdfPassBullHid
+    if divShowLines
+        line.new(hidLo_b, hidLo_m, bar_index, momSig, color = colDivBull, width = 1, style = line.style_dashed)
+    if divShowLabels
+        label.new(bar_index, momSig, "H▲", style = label.style_label_up,   color = colDivBull, textcolor = color.white, size = divSz,
+             tooltip = "Hidden Bullish Divergence\nPrice: Higher Low\nMomentum: Lower Low\nSignal: Uptrend continuation expected")
+    lastDivBar := bar_index
+    lastDivTag := "▲ HID"
+
+if divHidOn and dHidBear and sdfPassBearHid
+    if divShowLines
+        line.new(hidHi_b, hidHi_m, bar_index, momSig, color = colDivBear, width = 1, style = line.style_dashed)
+    if divShowLabels
+        label.new(bar_index, momSig, "H▼", style = label.style_label_down, color = colDivBear, textcolor = color.white, size = divSz,
+             tooltip = "Hidden Bearish Divergence\nPrice: Lower High\nMomentum: Higher High\nSignal: Downtrend continuation expected")
+    lastDivBar := bar_index
+    lastDivTag := "▼ HID"
+
+// Update previous-anchor state — runs AFTER rendering so the line.new
+// calls above can still resolve the previous anchor's bar / value pair.
+// Anchor-consumption semantics: a detected divergence CLEARS its anchor
+// to na, so the next anchor starts fresh. If no divergence fires, the
+// freshest setup overwrites the stale anchor.
+//
+// Regular and Hidden each maintain their own anchor pair, so each pair is
+// consumed only by its matching divergence type.
+
+if bearSetup
+    if not na(prevHi_p) and dRegBear
+        prevHi_p := na
+        prevHi_m := na
+        prevHi_b := int(na)
+    else
+        prevHi_p := high
+        prevHi_m := momSig
+        prevHi_b := bar_index
+
+if bullSetup
+    if not na(prevLo_p) and dRegBull
+        prevLo_p := na
+        prevLo_m := na
+        prevLo_b := int(na)
+    else
+        prevLo_p := low
+        prevLo_m := momSig
+        prevLo_b := bar_index
+
+if bearHidSetup
+    if not na(hidHi_p) and dHidBear
+        hidHi_p := na
+        hidHi_m := na
+        hidHi_b := int(na)
+    else
+        hidHi_p := high
+        hidHi_m := momSig
+        hidHi_b := bar_index
+
+if bullHidSetup
+    if not na(hidLo_p) and dHidBull
+        hidLo_p := na
+        hidLo_m := na
+        hidLo_b := int(na)
+    else
+        hidLo_p := low
+        hidLo_m := momSig
+        hidLo_b := bar_index
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SECTION 7 — MULTI-TIMEFRAME CONFLUENCE
+// Run the full Momentum + Flux stack on four higher timeframes simultaneously
+// via request.security(). All MTF calls use lookahead_off — fully repaint
+// safe on closed bars. Per-TF bias plus overall alignment / divergence
+// detection feed both the on-pane panel (Section 10) and the alert block.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── Preset timeframe resolver ────────────────────────────────────────────────
+// Six pre-tuned packs map a single preset choice to four ordered HTFs.
+// Defaults to "Swing" (15m / 1h / 4h / 1D) — the most common multi-TF
+// workflow for stocks and crypto.
+
+string mtfTf1 = switch mtfPreset
+    "Scalp"    => "1"
+    "Intraday" => "5"
+    "Swing"    => "15"
+    "Position" => "60"
+    "Crypto"   => "5"
+    "Forex"    => "15"
+    =>             "15"
+
+string mtfTf2 = switch mtfPreset
+    "Scalp"    => "5"
+    "Intraday" => "15"
+    "Swing"    => "60"
+    "Position" => "240"
+    "Crypto"   => "15"
+    "Forex"    => "60"
+    =>             "60"
+
+string mtfTf3 = switch mtfPreset
+    "Scalp"    => "15"
+    "Intraday" => "60"
+    "Swing"    => "240"
+    "Position" => "D"
+    "Crypto"   => "60"
+    "Forex"    => "240"
+    =>             "240"
+
+string mtfTf4 = switch mtfPreset
+    "Scalp"    => "60"
+    "Intraday" => "240"
+    "Swing"    => "D"
+    "Position" => "W"
+    "Crypto"   => "240"
+    "Forex"    => "D"
+    =>             "D"
+
+// ── Friendly TF labels ───────────────────────────────────────────────────────
+// Raw Pine timeframe strings ("60", "240", "D") are required by
+// request.security(), but readers — especially newer traders — recognise the
+// chart-toolbar style ("1h", "4h", "1D") at a glance. This helper converts
+// the raw string to its display form; the request.security() calls below
+// still consume the raw value, while the MTF panel and alert messages
+// display the friendly version.
+mtfLabel(string tf) =>
+    switch tf
+        "1"   => "1m"
+        "3"   => "3m"
+        "5"   => "5m"
+        "15"  => "15m"
+        "30"  => "30m"
+        "45"  => "45m"
+        "60"  => "1h"
+        "120" => "2h"
+        "180" => "3h"
+        "240" => "4h"
+        "D"   => "1D"
+        "W"   => "1W"
+        "M"   => "1M"
+        =>       tf
+
+string mtfTf1Label = mtfLabel(mtfTf1)
+string mtfTf2Label = mtfLabel(mtfTf2)
+string mtfTf3Label = mtfLabel(mtfTf3)
+string mtfTf4Label = mtfLabel(mtfTf4)
+
+// ── Per-TF computation wrapper ───────────────────────────────────────────────
+// Evaluated inside request.security() so the Momentum and Flux engines run
+// on the requested HTF's OHLC stream, not the current chart's. Returns a
+// tuple (mom value, flux value) — destructured below.
+mtfData() =>
+    Bar bMtf = Bar.new(open, high, low, close)
+    MomReading  mMtf = bMtf.computeMom (momLen, momSigLen)
+    FluxReading fMtf = bMtf.computeFlux(fluxLen)
+    [mMtf.value, fMtf.value]
+
+[m1, f1] = request.security(syminfo.tickerid, mtfTf1, mtfData(), lookahead = barmerge.lookahead_off)
+[m2, f2] = request.security(syminfo.tickerid, mtfTf2, mtfData(), lookahead = barmerge.lookahead_off)
+[m3, f3] = request.security(syminfo.tickerid, mtfTf3, mtfData(), lookahead = barmerge.lookahead_off)
+[m4, f4] = request.security(syminfo.tickerid, mtfTf4, mtfData(), lookahead = barmerge.lookahead_off)
+
+// ── Bias classification per TF ───────────────────────────────────────────────
+// Reuses the same Strong/Weak/Neutral confluence ladder as the main chart,
+// returning a printable tag + an integer direction code (−1, 0, +1) for the
+// alignment maths below.
+mtfBias(float m, float f) =>
+    bool sb = f > 0 and m > 0
+    bool sB = f < 0 and m < 0
+    bool wb = (f > 0 or m > 0) and not sb and not sB
+    bool wB = (f < 0 or m < 0) and not sb and not sB
+    string tag = sb ? "▲ STRONG" : wb ? "▲ WEAK" : sB ? "▼ STRONG" : wB ? "▼ WEAK" : "◈ NEUTRAL"
+    int    dir = (sb or wb) ? 1 : (sB or wB) ? -1 : 0
+    [tag, dir]
+
+[mtfTag1, mtfDir1] = mtfBias(m1, f1)
+[mtfTag2, mtfDir2] = mtfBias(m2, f2)
+[mtfTag3, mtfDir3] = mtfBias(m3, f3)
+[mtfTag4, mtfDir4] = mtfBias(m4, f4)
+
+// ── Alignment + divergence detection ─────────────────────────────────────────
+// Aligned — every TF agrees on direction (highest-conviction setup).
+// Divergence — current chart bias contradicts ≥ 3 of the 4 HTF biases
+// (contrarian / counter-trend warning).
+bool mtfAlignedBull = mtfDir1 > 0 and mtfDir2 > 0 and mtfDir3 > 0 and mtfDir4 > 0
+bool mtfAlignedBear = mtfDir1 < 0 and mtfDir2 < 0 and mtfDir3 < 0 and mtfDir4 < 0
+bool mtfAligned     = mtfAlignedBull or mtfAlignedBear
+string mtfHeader    = (mtfAlignedBull ? "▲▲▲▲ ALIGNED" :
+                       mtfAlignedBear ? "▼▼▼▼ ALIGNED" :
+                                        "◈ MIXED")
+
+int curDir = ((confStrongBull or confWeakBull) ?  1 :
+              (confStrongBear or confWeakBear) ? -1 :
+                                                  0)
+int htfBullCount = (mtfDir1 > 0 ? 1 : 0) + (mtfDir2 > 0 ? 1 : 0) + (mtfDir3 > 0 ? 1 : 0) + (mtfDir4 > 0 ? 1 : 0)
+int htfBearCount = (mtfDir1 < 0 ? 1 : 0) + (mtfDir2 < 0 ? 1 : 0) + (mtfDir3 < 0 ? 1 : 0) + (mtfDir4 < 0 ? 1 : 0)
+bool mtfDivBull = curDir > 0 and htfBearCount >= 3
+bool mtfDivBear = curDir < 0 and htfBullCount >= 3
+bool mtfDiv     = mtfDivBull or mtfDivBear
+
+// Transition flags — alerts fire once per state change instead of every bar.
+bool justMtfAligned = mtfAligned and not mtfAligned[1]
+bool justMtfDiv     = mtfDiv     and not mtfDiv[1]
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SECTION 8 — PLOTS
+// Render every visual layer: midline, momentum line + signal fill, flux
+// fills, squeeze column, squeeze release ✦ marker with ▴ / ▾ direction-
+// predictor arrows, confluence gauges, trend-shift dots, and confluence
+// buy / sell triangles. Plot IDs declared here feed the fill() calls
+// further down — order matters.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── Squeeze column colour resolver — tightest active tier wins ───────────────
+color sqzColActive = sqz.tight ? sqzColTight : sqz.mid ? sqzColMid : sqzColLoose
+
+// ── Flux fill colour resolver — full saturation for value, brighter for overflow.
+color colFluxFill = fluxVal > 0 ? color.new(thBull, 70) : color.new(thBear, 70)
+color colFluxOver = fluxOf  > 0 ? color.new(thBull, 40) : color.new(thBear, 40)
+
+// ── Momentum line colour — adaptive, bull when above signal, bear when below
+color colMomLine = momVal > momSig ? thBull : thBear
+color colMomFill = momVal > momSig ? color.new(thBull, 50) : color.new(thBear, 50)
+
+// ── Confluence gauge colour resolvers ────────────────────────────────────────
+// Top gauge — bull side. Full opacity when both mom + flux bullish, half
+// opacity when only one bullish, neutral (transparent) otherwise.
+color gaugeUpTint = (confStrongBull ? color.new(thBull, 0) :
+                     confWeakBull   ? color.new(thBull, 40) :
+                                      color.new(thNeutral, 80))
+
+// Bottom gauge — bear side, symmetric.
+color gaugeDnTint = (confStrongBear ? color.new(thBear, 0) :
+                     confWeakBear   ? color.new(thBear, 40) :
+                                      color.new(thNeutral, 80))
+
+bool gaugeShowBull = gaugeMode == "Both" or gaugeMode == "Bull"
+bool gaugeShowBear = gaugeMode == "Both" or gaugeMode == "Bear"
+
+// ── Visible midline + hidden anchors ─────────────────────────────────────────
+hline(0, "Midline", color.new(thNeutral, 50), hline.style_dashed)
+
+pMomVal = plot(showMom ? momVal : na, "Momentum",      colMomLine, 2, plot.style_line)
+pMomSig = plot(showMom ? momSig : na, "Momentum Sig",  color = na, display = display.none)
+plot(showFlux ? fluxVal : na, "Flux",      colFluxFill, 1, plot.style_area)
+plot(showFlux ? fluxOf  : na, "Flux Over", colFluxOver, 1, plot.style_areabr)
+
+// Momentum / signal ribbon fill — adaptive colour matching the slope.
+fill(pMomVal, pMomSig, colMomFill)
+
+// ── Squeeze column on the zero line ──────────────────────────────────────────
+// Rendered only when at least one tier (loose or tighter) is active.
+// Drawn as a short column hugging the midline: value 1 with histbase = −1
+// spans y −1…+1, the classic squeeze-on-zero-line placement.
+plot(showSqz and sqz.loose ? 1 : na, "Squeeze", sqzColActive, 1, plot.style_columns, false, -1, display = display.pane)
+
+// ── Squeeze Release ✦ marker (+ Direction Predictor) ─────────────────────────
+// Fires on the bar the squeeze fully ended (sqz.loose just dropped to false).
+// The ✦ marker is anchored at the midline (y = 0), centred on its bar, in
+// the theme's vivid release accent (sqzColRelease — one step brighter / more
+// saturated than sqzColTight so the release reads as the climax moment).
+//
+// The ✦ marker keeps its exact original position (a single-char plotchar
+// centred on the bar) so it never drifts. When the Direction Predictor is ON,
+// a directional arrow is added BESIDE the marker as a SECOND plotchar offset
+// vertically — ▴ just above for a bullish-slope release, ▾ just below for a
+// bearish-slope release. Slope within the threshold band prints no arrow
+// (direction unclear → plain ✦). Two single-char plotchars render reliably
+// where a combined "✦▴" string would not, and the marker stays put.
+plotchar(showSqzRelease and sqzReleased ? 0 : na, "Squeeze Release",
+     "✦", location.absolute, color.new(sqzColRelease, 0), size = size.tiny)
+plotchar(showSqzRelease and sqzPredBull ?  6 : na, "Squeeze Release ▴",
+     "▴", location.absolute, color.new(sqzColRelease, 0), size = size.tiny)
+plotchar(showSqzRelease and sqzPredBear ? -6 : na, "Squeeze Release ▾",
+     "▾", location.absolute, color.new(sqzColRelease, 0), size = size.tiny)
+
+// plotchar() ignores the `tooltip` parameter, so we pair the visible marker
+// with an invisible label.style_circle at the midline for rich hover context
+// that describes the predicted direction and the next-bar action plan.
+if showSqzRelease and sqzReleased
+    string sqzRelDir  = (sqzPredBull ? " ▴ Bullish Predicted" :
+                         sqzPredBear ? " ▾ Bearish Predicted" :
+                                       "")
+    string sqzRelLine = (sqzPredBull  ? "\n\nDirection prediction: BULLISH — momentum slope at release is " + str.tostring(sqzReleaseSlope, "#.##") + " (≥ +" + str.tostring(sqzPredictThresh, "#.#") + ")" :
+                         sqzPredBear  ? "\n\nDirection prediction: BEARISH — momentum slope at release is " + str.tostring(sqzReleaseSlope, "#.##") + " (≤ −" + str.tostring(sqzPredictThresh, "#.#") + ")" :
+                         sqzPredictOn ? "\n\nDirection prediction: NEUTRAL — momentum slope at release is " + str.tostring(sqzReleaseSlope, "#.##") + " (within ±" + str.tostring(sqzPredictThresh, "#.#") + " — wait for confirmation)" :
+                                        "")
+    string sqzRelTip  = "Squeeze Release ✦" + sqzRelDir +
+         "\nCompression ended this bar — the loosest active squeeze tier (stdev < ATR × 1.0) just broke." +
+         "\n\nMeaning: volatility expansion incoming. The spring just uncoiled." +
+         sqzRelLine +
+         "\n\nNext steps:" +
+         "\n• Watch the next 1–5 bars for directional breakout" +
+         "\n• Confirm with Momentum slope (▲ bull / ▼ bear)" +
+         "\n• Cross-check Flux state for trend bias" +
+         "\n• Higher-conviction setups: MTF Aligned + Flux confirming direction"
+    label.new(bar_index, 0, "", style = label.style_circle, color = color.new(sqzColRelease, 100), size = size.small, tooltip = sqzRelTip)
+
+// ── Confluence gauges ────────────────────────────────────────────────────────
+// Each gauge is rendered as two hidden plots (upper + lower y-bound) and
+// a fill() between them. The fill colour reflects the live confluence state.
+pGaugeBullUp = plot(gaugeShowBull ? +75 : na, "Bull Gauge Up", color = na, display = display.none, editable = false)
+pGaugeBullLo = plot(gaugeShowBull ? +70 : na, "Bull Gauge Lo", color = na, display = display.none, editable = false)
+pGaugeBearUp = plot(gaugeShowBear ? -70 : na, "Bear Gauge Up", color = na, display = display.none, editable = false)
+pGaugeBearLo = plot(gaugeShowBear ? -75 : na, "Bear Gauge Lo", color = na, display = display.none, editable = false)
+
+fill(pGaugeBullLo, pGaugeBullUp, gaugeUpTint, title = "Bull Gauge Fill")
+fill(pGaugeBearUp, pGaugeBearLo, gaugeDnTint, title = "Bear Gauge Fill")
+
+// ── Trend Shift dots — momentum × signal crossovers ──────────────────────────
+// Dual-layer plot.style_circles for pixel-perfect markers + an invisible
+// label.style_circle carrying the rich hover tooltip (plot() does not
+// support tooltips). Bull dot on the cross-up bar, bear dot on cross-down.
+// Tied to showMom — when the momentum line is hidden the crossover overlay
+// hides with it so the pane stays coherent.
+plot(showMom and xMomUp ? momSig : na, "Trend Shift Up Glow",   color.new(thBull, 65), 6, plot.style_circles)
+plot(showMom and xMomUp ? momSig : na, "Trend Shift Up Core",   color.new(thBull, 0),  2, plot.style_circles)
+plot(showMom and xMomDn ? momSig : na, "Trend Shift Dn Glow",   color.new(thBear, 65), 6, plot.style_circles)
+plot(showMom and xMomDn ? momSig : na, "Trend Shift Dn Core",   color.new(thBear, 0),  2, plot.style_circles)
+
+if showMom and xMomUp
+    string upTip = "Momentum Cross Up\nMom: " + str.tostring(momVal, "#.##") + "\nSignal: " + str.tostring(momSig, "#.##") + "\nFlux: " + str.tostring(fluxVal, "#.##") + "\nMeaning: Momentum just turned bullish vs. signal — possible long entry or short cover."
+    label.new(bar_index, momSig, "", style = label.style_circle, color = color.new(thBull, 100), size = size.small, tooltip = upTip)
+
+if showMom and xMomDn
+    string dnTip = "Momentum Cross Down\nMom: " + str.tostring(momVal, "#.##") + "\nSignal: " + str.tostring(momSig, "#.##") + "\nFlux: " + str.tostring(fluxVal, "#.##") + "\nMeaning: Momentum just turned bearish vs. signal — possible short entry or long exit."
+    label.new(bar_index, momSig, "", style = label.style_circle, color = color.new(thBear, 100), size = size.small, tooltip = dnTip)
+
+// ── Confluence buy / sell triangles (outside the gauge bands) ────────────────
+// Sell ▼ sits ABOVE the bull gauge (+85, gauge top = +75 + 10 offset),
+// Buy ▲ sits BELOW the bear gauge (−90, gauge bottom = −75 − 15 offset).
+// Anchoring outside the bands keeps the arrows readable against the
+// oscillator line and makes the overbought / oversold context instantly
+// obvious. Visibility is tied to the gauge each arrow sits on (Sell rides
+// the bull gauge, Buy rides the bear gauge).
+//
+// plot.style_triangle* / plotshape() ignore the `tooltip` parameter, so
+// we pair each visible triangle with an invisible label.style_circle at
+// the same coordinates — empty text + fully transparent fill + tooltip
+// string. The label captures the hover zone so users get rich on-bar
+// context (mom / signal / flux values + threshold + meaning).
+plotshape(gaugeShowBull and sellSignal ?  85 : na, "Confluence Sell", shape.triangledown, location.absolute, color.new(thBear, 0), size = size.tiny)
+plotshape(gaugeShowBear and buySignal  ? -90 : na, "Confluence Buy",  shape.triangleup,   location.absolute, color.new(thBull, 0), size = size.tiny)
+
+if gaugeShowBull and sellSignal
+    string sellTip = "Confluence Sell ▼\nMom: " + str.tostring(momVal, "#.##") + "\nSignal: " + str.tostring(momSig, "#.##") + "\nFlux: " + str.tostring(fluxVal, "#.##") + "\nThreshold: +" + str.tostring(confThreshActive) + "\nMeaning: Momentum crossed DOWN through its signal while above +" + str.tostring(confThreshActive) + " and Flux is bullish — mean-reversion short trigger inside an uptrend."
+    label.new(bar_index, 85, "", style = label.style_circle, color = color.new(thBear, 100), size = size.small, tooltip = sellTip)
+
+if gaugeShowBear and buySignal
+    string buyTip = "Confluence Buy ▲\nMom: " + str.tostring(momVal, "#.##") + "\nSignal: " + str.tostring(momSig, "#.##") + "\nFlux: " + str.tostring(fluxVal, "#.##") + "\nThreshold: −" + str.tostring(confThreshActive) + "\nMeaning: Momentum crossed UP through its signal while below −" + str.tostring(confThreshActive) + " and Flux is bearish — mean-reversion long trigger inside a downtrend."
+    label.new(bar_index, -90, "", style = label.style_circle, color = color.new(thBull, 100), size = size.small, tooltip = buyTip)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SECTION 9 — BAR COLORING
+// Optional chart-wide colouring of every price bar driven by oscillator
+// state. Five mutually exclusive modes; "None" emits na so barcolor() is
+// a no-op.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+color barCol = switch barMode
+    "Momentum"   => momVal > 0 ? thBull : thBear
+    "Flux"       => fluxVal > 0 ? thBull : thBear
+    "Squeeze"    => sqz.loose ? sqzColActive : thNeutral
+    "Confluence" => (confStrongBull ? thBull :
+                     confStrongBear ? thBear :
+                     confWeakBull   ? color.new(thBull, 40) :
+                     confWeakBear   ? color.new(thBear, 40) : thNeutral)
+    "Slope"      => momVal > momSig ? thBull : thBear
+    "None"       => na
+    =>              na
+
+barcolor(barCol)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SECTION 10 — DASHBOARDS
+// Two on-pane tables drawn on the last bar: the main 8- or 9-row Dashboard
+// (Bias / TS Score / [Regime] / Momentum / Flux / Squeeze / Confluence /
+// Div / Slope — the Regime row appears when the Trend Regime Detector is
+// enabled) and the separate 5-row Multi-Timeframe Confluence panel (header
+// + four HTF rows). Both use the same theme-adaptive chrome, so they read
+// as one coherent product family.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+var table sqzDash = na
+
+if showDash and barstate.islast
+    // Light-canvas guard — Midnight and Graphite themes ship with dim
+    // thBull / thSignal hues that vanish against a black panel, so for
+    // those two palettes the dashboard flips to a light layout with dark
+    // theme-bull text. Every other theme keeps the dark chrome.
+    bool  dIsLight = themeChoice == "Midnight" or themeChoice == "Graphite"
+
+    color dBgH = dIsLight ? color.new(#F0F0F0, 0)  : color.new(thBull, 90)   // header row — faint theme tint
+    color dBgM = dIsLight ? color.new(#FAFAFA, 0)  : color.new(#0f0f0f, 5)   // middle rows — solid dark
+    color dBgF = dIsLight ? color.new(#E8E8E8, 0)  : color.new(thBull, 90)   // footer row — faint theme tint
+    color dBrd = dIsLight ? color.new(thBull, 40)  : color.new(thBull, 20)   // theme-tinted border
+
+    // Strict colour uniformity — both columns share one full-saturation
+    // theme tone (thBull). Direction is conveyed via ▲ ▼ ■ glyphs.
+    color dTx = color.new(thBull, 0)
+
+    // Bias classification — derived from confluence state.
+    string dBiasLabel = (confStrongBull ? "▲ STRONG BULL" :
+                         confStrongBear ? "▼ STRONG BEAR" :
+                         confWeakBull   ? "▲ WEAK BULL" :
+                         confWeakBear   ? "▼ WEAK BEAR" :
+                                          "■ NEUTRAL")
+
+    // Momentum trend arrow vs. previous bar.
+    string dMomArrow = momVal > momVal[1] ? "▲" : momVal < momVal[1] ? "▼" : "■"
+
+    // Flux trend arrow vs. previous bar.
+    string dFluxArrow = fluxVal > fluxVal[1] ? "▲" : fluxVal < fluxVal[1] ? "▼" : "■"
+
+    // Squeeze tier tag.
+    string dSqzLabel = sqz.tight ? "TIGHT" : sqz.mid ? "MID" : sqz.loose ? "LOOSE" : "—"
+
+    // Confluence tag — same hierarchy as Bias but rendered without arrows
+    // to give a compact alternate read.
+    string dConfLabel = (confStrongBull ? "STRONG BULL" :
+                         confStrongBear ? "STRONG BEAR" :
+                         confWeakBull   ? "WEAK BULL" :
+                         confWeakBear   ? "WEAK BEAR" :
+                                          "NONE")
+
+    // Div tag — most recent divergence detected within the last 50 bars.
+    string dDivLabel = (na(lastDivBar) or (bar_index - lastDivBar) > 50) ? "—" : lastDivTag
+
+    // Slope tag — momentum above / below signal line.
+    string dSlopeLabel = momVal > momSig ? "▲ UP" : momVal < momSig ? "▼ DOWN" : "■ FLAT"
+
+    // Position resolver — Pine v6 multi-line ternaries inside a local
+    // block must be wrapped in parentheses, otherwise the parser treats
+    // the newline as a statement terminator and throws CE10156.
+    string dTPos = (dashPos == "Top Right"    ? position.top_right    :
+                    dashPos == "Top Left"     ? position.top_left     :
+                    dashPos == "Middle Right" ? position.middle_right :
+                    dashPos == "Middle Left"  ? position.middle_left  :
+                    dashPos == "Bottom Right" ? position.bottom_right :
+                                                position.bottom_left)
+
+    string dTSize = (dashSize == "Tiny"   ? size.tiny   :
+                     dashSize == "Small"  ? size.small  :
+                     dashSize == "Normal" ? size.normal :
+                                            size.large)
+
+    // Row layout — the Regime row appears only when the Trend Regime Detector
+    // is enabled. When ON the table has 9 rows and Regime sits at row 2 (right
+    // under TS Score, as the "market context" summary). When OFF the table
+    // collapses back to the original 8-row layout. `rOff` shifts every row
+    // below the Regime slot by 1 when the regime row is present.
+    int rOff      = regimeOn ? 1 : 0
+    int dashRows  = 8 + rOff
+
+    // Rebuild the table every last-bar tick so input changes take effect live.
+    if not na(sqzDash)
+        table.delete(sqzDash)
+
+    sqzDash := table.new(dTPos, 2, dashRows,
+         bgcolor      = dBgM,
+         border_color = dBrd,
+         border_width = 1,
+         frame_color  = dBrd,
+         frame_width  = 1)
+
+    // Row 0 — Header: brand + live bias tag.
+    table.cell(sqzDash, 0, 0, "Artemis Squeeze",
+         text_color = dTx, text_size = dTSize, bgcolor = dBgH,
+         text_halign = text.align_left,  text_font_family = font.family_monospace)
+    table.cell(sqzDash, 1, 0, dBiasLabel,
+         text_color = dTx, text_size = dTSize, bgcolor = dBgH,
+         text_halign = text.align_right, text_font_family = font.family_monospace)
+
+    // Row 1 — TS Score: composite 0–100 trend strength reading (executive summary).
+    table.cell(sqzDash, 0, 1, "TS Score",
+         text_color = dTx, text_size = dTSize, bgcolor = dBgM,
+         text_halign = text.align_left,  text_font_family = font.family_monospace)
+    table.cell(sqzDash, 1, 1, str.tostring(tsScore, "#") + " " + tsScoreArrow + " " + tsScoreTier,
+         text_color = dTx, text_size = dTSize, bgcolor = dBgM,
+         text_halign = text.align_right, text_font_family = font.family_monospace)
+
+    // Row 2 — Regime (conditional): TRENDING / RANGING / TRANSITION tag.
+    if regimeOn
+        table.cell(sqzDash, 0, 2, "Regime",
+             text_color = dTx, text_size = dTSize, bgcolor = dBgM,
+             text_halign = text.align_left,  text_font_family = font.family_monospace)
+        table.cell(sqzDash, 1, 2, regimeTag,
+             text_color = dTx, text_size = dTSize, bgcolor = dBgM,
+             text_halign = text.align_right, text_font_family = font.family_monospace)
+
+    // Row 2+rOff — Momentum value + arrow.
+    table.cell(sqzDash, 0, 2 + rOff, "Momentum",
+         text_color = dTx, text_size = dTSize, bgcolor = dBgM,
+         text_halign = text.align_left,  text_font_family = font.family_monospace)
+    table.cell(sqzDash, 1, 2 + rOff, str.tostring(momVal, "#.##") + " " + dMomArrow,
+         text_color = dTx, text_size = dTSize, bgcolor = dBgM,
+         text_halign = text.align_right, text_font_family = font.family_monospace)
+
+    // Row 3+rOff — Flux value + arrow.
+    table.cell(sqzDash, 0, 3 + rOff, "Flux",
+         text_color = dTx, text_size = dTSize, bgcolor = dBgM,
+         text_halign = text.align_left,  text_font_family = font.family_monospace)
+    table.cell(sqzDash, 1, 3 + rOff, str.tostring(fluxVal, "#.##") + " " + dFluxArrow,
+         text_color = dTx, text_size = dTSize, bgcolor = dBgM,
+         text_halign = text.align_right, text_font_family = font.family_monospace)
+
+    // Row 4+rOff — Squeeze tier.
+    table.cell(sqzDash, 0, 4 + rOff, "Squeeze",
+         text_color = dTx, text_size = dTSize, bgcolor = dBgM,
+         text_halign = text.align_left,  text_font_family = font.family_monospace)
+    table.cell(sqzDash, 1, 4 + rOff, dSqzLabel,
+         text_color = dTx, text_size = dTSize, bgcolor = dBgM,
+         text_halign = text.align_right, text_font_family = font.family_monospace)
+
+    // Row 5+rOff — Confluence tag.
+    table.cell(sqzDash, 0, 5 + rOff, "Confluence",
+         text_color = dTx, text_size = dTSize, bgcolor = dBgM,
+         text_halign = text.align_left,  text_font_family = font.family_monospace)
+    table.cell(sqzDash, 1, 5 + rOff, dConfLabel,
+         text_color = dTx, text_size = dTSize, bgcolor = dBgM,
+         text_halign = text.align_right, text_font_family = font.family_monospace)
+
+    // Row 6+rOff — Last divergence detected within ~50 bars.
+    table.cell(sqzDash, 0, 6 + rOff, "Div",
+         text_color = dTx, text_size = dTSize, bgcolor = dBgM,
+         text_halign = text.align_left,  text_font_family = font.family_monospace)
+    table.cell(sqzDash, 1, 6 + rOff, dDivLabel,
+         text_color = dTx, text_size = dTSize, bgcolor = dBgM,
+         text_halign = text.align_right, text_font_family = font.family_monospace)
+
+    // Row 7+rOff — Footer: slope tag.
+    table.cell(sqzDash, 0, 7 + rOff, "Slope",
+         text_color = dTx, text_size = dTSize, bgcolor = dBgF,
+         text_halign = text.align_left,  text_font_family = font.family_monospace)
+    table.cell(sqzDash, 1, 7 + rOff, dSlopeLabel,
+         text_color = dTx, text_size = dTSize, bgcolor = dBgF,
+         text_halign = text.align_right, text_font_family = font.family_monospace)
+
+// ── MTF Confluence panel ─────────────────────────────────────────────────────
+// Separate 5-row panel (header + four HTF rows). Header reports the overall
+// alignment state (▲▲▲▲ ALIGNED / ▼▼▼▼ ALIGNED / ◈ MIXED); each TF row prints
+// its bias tag inside the cell. Direction is conveyed purely by the ▲ / ▼
+// glyphs in the tag string — never by cell colour. Uses the same theme-
+// adaptive chrome AND the same uniform thBull text colour as the main
+// Dashboard so the two panels feel like one product across all thirteen
+// themes, light and dark alike.
+
+// Uniform text colour — every MTF cell paints in thBull, matching the
+// Dashboard's single-tone approach. This guarantees identical visual
+// language between the two panels on every theme. The previous
+// direction-tinted variant (thBull / thBear / thNeutral per row) clashed
+// with the Dashboard's uniform-colour style on bear-heavy / mixed states
+// — users reported the panels looked like two unrelated widgets.
+color mtfCAll = color.new(thBull, 0)
+color mtfC1 = mtfCAll
+color mtfC2 = mtfCAll
+color mtfC3 = mtfCAll
+color mtfC4 = mtfCAll
+
+// Header colour — mirrors the Dashboard header text colour (thBull) for
+// every theme. The alignment direction is still readable from the
+// ▲▲▲▲ / ▼▼▼▼ glyph cluster in the mtfHeader string.
+color mtfHeaderCol = color.new(thBull, 0)
+
+var table mtfTbl = na
+
+if showMTF and barstate.islast
+    // Light-canvas guard — reuses the same Midnight / Graphite check the
+    // main dashboard uses, so both panels share chrome on every theme.
+    bool  mIsLight = themeChoice == "Midnight" or themeChoice == "Graphite"
+
+    color mBgH = mIsLight ? color.new(#F0F0F0, 0)  : color.new(thBull, 90)
+    color mBgM = mIsLight ? color.new(#FAFAFA, 0)  : color.new(#0f0f0f, 5)
+    color mBgF = mIsLight ? color.new(#E8E8E8, 0)  : color.new(thBull, 90)
+    color mBrd = mIsLight ? color.new(thBull, 40)  : color.new(thBull, 20)
+
+    string mTPos = (mtfPos == "Top Right"    ? position.top_right    :
+                    mtfPos == "Top Left"     ? position.top_left     :
+                    mtfPos == "Middle Right" ? position.middle_right :
+                    mtfPos == "Middle Left"  ? position.middle_left  :
+                    mtfPos == "Bottom Right" ? position.bottom_right :
+                                               position.bottom_left)
+
+    string mTSize = (mtfSize == "Tiny"   ? size.tiny   :
+                     mtfSize == "Small"  ? size.small  :
+                     mtfSize == "Normal" ? size.normal :
+                                           size.large)
+
+    if not na(mtfTbl)
+        table.delete(mtfTbl)
+
+    mtfTbl := table.new(mTPos, 2, 5,
+         bgcolor      = mBgM,
+         border_color = mBrd,
+         border_width = 1,
+         frame_color  = mBrd,
+         frame_width  = 1)
+
+    // Row 0 — Header: "MTF Confluence" + alignment tag.
+    table.cell(mtfTbl, 0, 0, "MTF Confluence",
+         text_color = mtfHeaderCol, text_size = mTSize, bgcolor = mBgH,
+         text_halign = text.align_left,  text_font_family = font.family_monospace)
+    table.cell(mtfTbl, 1, 0, mtfHeader,
+         text_color = mtfHeaderCol, text_size = mTSize, bgcolor = mBgH,
+         text_halign = text.align_right, text_font_family = font.family_monospace)
+
+    // Row 1 — Lowest HTF.
+    table.cell(mtfTbl, 0, 1, mtfTf1Label,
+         text_color = mtfC1, text_size = mTSize, bgcolor = mBgM,
+         text_halign = text.align_left,  text_font_family = font.family_monospace)
+    table.cell(mtfTbl, 1, 1, mtfTag1,
+         text_color = mtfC1, text_size = mTSize, bgcolor = mBgM,
+         text_halign = text.align_right, text_font_family = font.family_monospace)
+
+    // Row 2.
+    table.cell(mtfTbl, 0, 2, mtfTf2Label,
+         text_color = mtfC2, text_size = mTSize, bgcolor = mBgM,
+         text_halign = text.align_left,  text_font_family = font.family_monospace)
+    table.cell(mtfTbl, 1, 2, mtfTag2,
+         text_color = mtfC2, text_size = mTSize, bgcolor = mBgM,
+         text_halign = text.align_right, text_font_family = font.family_monospace)
+
+    // Row 3.
+    table.cell(mtfTbl, 0, 3, mtfTf3Label,
+         text_color = mtfC3, text_size = mTSize, bgcolor = mBgM,
+         text_halign = text.align_left,  text_font_family = font.family_monospace)
+    table.cell(mtfTbl, 1, 3, mtfTag3,
+         text_color = mtfC3, text_size = mTSize, bgcolor = mBgM,
+         text_halign = text.align_right, text_font_family = font.family_monospace)
+
+    // Row 4 — Highest HTF (footer styling).
+    table.cell(mtfTbl, 0, 4, mtfTf4Label,
+         text_color = mtfC4, text_size = mTSize, bgcolor = mBgF,
+         text_halign = text.align_left,  text_font_family = font.family_monospace)
+    table.cell(mtfTbl, 1, 4, mtfTag4,
+         text_color = mtfC4, text_size = mTSize, bgcolor = mBgF,
+         text_halign = text.align_right, text_font_family = font.family_monospace)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SECTION 11 — ALERTS
+// Twenty-three alert conditions covering every core event. Each fires through
+// alert() rather than alertcondition() so the message body can carry extra
+// context — direction, current values, and the trigger condition.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+if alrtBuy and buySignal
+    alert("Artemis Squeeze — Confluence Buy: mom crossed UP through signal below −" + str.tostring(confThreshActive) + " with flux bearish (mom: " + str.tostring(momVal, "#.##") + ", flux: " + str.tostring(fluxVal, "#.##") + ")", alert.freq_once_per_bar_close)
+
+if alrtSell and sellSignal
+    alert("Artemis Squeeze — Confluence Sell: mom crossed DOWN through signal above +" + str.tostring(confThreshActive) + " with flux bullish (mom: " + str.tostring(momVal, "#.##") + ", flux: " + str.tostring(fluxVal, "#.##") + ")", alert.freq_once_per_bar_close)
+
+if alrtMomUp and xMomZUp
+    alert("Artemis Squeeze — Momentum Cross Up: mom crossed above zero (current: " + str.tostring(momVal, "#.##") + ")", alert.freq_once_per_bar_close)
+
+if alrtMomDn and xMomZDn
+    alert("Artemis Squeeze — Momentum Cross Down: mom crossed below zero (current: " + str.tostring(momVal, "#.##") + ")", alert.freq_once_per_bar_close)
+
+if alrtFluxUp and xFluxUp
+    alert("Artemis Squeeze — Flux Cross Up: flux crossed above zero (current: " + str.tostring(fluxVal, "#.##") + ")", alert.freq_once_per_bar_close)
+
+if alrtFluxDn and xFluxDn
+    alert("Artemis Squeeze — Flux Cross Down: flux crossed below zero (current: " + str.tostring(fluxVal, "#.##") + ")", alert.freq_once_per_bar_close)
+
+if alrtSwingUp and xMomUp
+    alert("Artemis Squeeze — Bullish Swing: mom crossed above the signal line (current: " + str.tostring(momVal, "#.##") + ")", alert.freq_once_per_bar_close)
+
+if alrtSwingDn and xMomDn
+    alert("Artemis Squeeze — Bearish Swing: mom crossed below the signal line (current: " + str.tostring(momVal, "#.##") + ")", alert.freq_once_per_bar_close)
+
+if alrtConfBull and justStrongBull
+    alert("Artemis Squeeze — Strong Bull Confluence: mom AND flux both turned bullish (mom: " + str.tostring(momVal, "#.##") + ", flux: " + str.tostring(fluxVal, "#.##") + ")", alert.freq_once_per_bar_close)
+
+if alrtConfBear and justStrongBear
+    alert("Artemis Squeeze — Strong Bear Confluence: mom AND flux both turned bearish (mom: " + str.tostring(momVal, "#.##") + ", flux: " + str.tostring(fluxVal, "#.##") + ")", alert.freq_once_per_bar_close)
+
+if alrtWeakBull and justWeakBull
+    alert("Artemis Squeeze — Weak Bull Confluence: mom OR flux turned bullish (mom: " + str.tostring(momVal, "#.##") + ", flux: " + str.tostring(fluxVal, "#.##") + ")", alert.freq_once_per_bar_close)
+
+if alrtWeakBear and justWeakBear
+    alert("Artemis Squeeze — Weak Bear Confluence: mom OR flux turned bearish (mom: " + str.tostring(momVal, "#.##") + ", flux: " + str.tostring(fluxVal, "#.##") + ")", alert.freq_once_per_bar_close)
+
+if alrtSqzTight and justSqzTight
+    alert("Artemis Squeeze — Tight Squeeze: stdev dropped below ATR × 0.5 — extreme compression, expansion imminent.", alert.freq_once_per_bar_close)
+
+if alrtSqzMid and justSqzMid
+    alert("Artemis Squeeze — Mid Squeeze: stdev dropped below ATR × 0.75 — moderate compression building.", alert.freq_once_per_bar_close)
+
+if alrtSqzLoose and justSqzLoose
+    alert("Artemis Squeeze — Loose Squeeze: stdev dropped below ATR × 1.0 — mild compression detected.", alert.freq_once_per_bar_close)
+
+if alrtDivReg and dRegBull and sdfPassBull
+    alert("Artemis Squeeze — Regular Bullish Divergence (D▲): price made a Lower Low while momentum printed a Higher Low — potential reversal up.", alert.freq_once_per_bar_close)
+
+if alrtDivReg and dRegBear and sdfPassBear
+    alert("Artemis Squeeze — Regular Bearish Divergence (D▼): price made a Higher High while momentum printed a Lower High — potential reversal down.", alert.freq_once_per_bar_close)
+
+if alrtDivHid and dHidBull and sdfPassBullHid
+    alert("Artemis Squeeze — Hidden Bullish Divergence (H▲): price made a Higher Low while momentum printed a Lower Low — uptrend continuation.", alert.freq_once_per_bar_close)
+
+if alrtDivHid and dHidBear and sdfPassBearHid
+    alert("Artemis Squeeze — Hidden Bearish Divergence (H▼): price made a Lower High while momentum printed a Higher High — downtrend continuation.", alert.freq_once_per_bar_close)
+
+if alrtSqzRelease and sqzReleased
+    string sqzRelAlertDir = (sqzPredBull ? "✦▴ (Bullish Predicted)" :
+                             sqzPredBear ? "✦▾ (Bearish Predicted)" :
+                                           "✦")
+    string sqzRelAlertSlope = sqzPredictOn ? " Momentum slope at release: " + str.tostring(sqzReleaseSlope, "#.##") + "." : ""
+    alert("Artemis Squeeze — Squeeze Release " + sqzRelAlertDir + ": compression fully ended (stdev re-expanded above ATR × 1.0). Volatility expansion incoming." + sqzRelAlertSlope + " Confirm direction with Momentum slope and Flux state on the next 1–5 bars.", alert.freq_once_per_bar_close)
+
+if alrtMtfAlign and justMtfAligned
+    alert("Artemis Squeeze — MTF Aligned: all four MTF timeframes (" + mtfTf1Label + " / " + mtfTf2Label + " / " + mtfTf3Label + " / " + mtfTf4Label + ") agree on direction (" + (mtfAlignedBull ? "BULL" : "BEAR") + "). Highest-conviction multi-timeframe confluence setup.", alert.freq_once_per_bar_close)
+
+if alrtMtfDiv and justMtfDiv
+    alert("Artemis Squeeze — MTF Divergence: current chart bias contradicts the majority of HTF biases. " + (mtfDivBull ? "Current chart bullish but 3+ HTFs bearish — possible counter-trend rally / bull trap." : "Current chart bearish but 3+ HTFs bullish — possible counter-trend dip / bear trap.") + " Treat as contrarian warning.", alert.freq_once_per_bar_close)
+
+if alrtRegime and regimeShift
+    alert("Artemis Squeeze — Regime Shift: market entered " + regimeTag + " (ADX " + str.tostring(regimeAdx, "#.#") + ", DI+ " + str.tostring(regimeDiPlus, "#.#") + ", DI− " + str.tostring(regimeDiMinus, "#.#") + "). Strategy guidance: " + (regimeTrending ? "trend-following / continuation bias." : regimeRanging ? "mean-reversion / range-trade bias." : "low-confidence transitional state — wait for clearer regime."), alert.freq_once_per_bar_close)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// END OF SCRIPT
+// ═══════════════════════════════════════════════════════════════════════════════

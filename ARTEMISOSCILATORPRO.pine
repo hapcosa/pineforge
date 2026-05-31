@@ -1,0 +1,500 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// Artemis Oscillator PRO
+// Author  : a_jabbaroff
+// Version : 1.1.0
+//
+//
+// #FEATURES
+//   Directional Range Momentum oscillator (DRM) — signed range impulse normalized 0-100
+//   11 Color Themes with full palette (Aurora, Ember, Cyber, Arctic, Helios, Bloomberg, Solar, Royal, Obsidian, Classic, Mono)
+//   Smoothing method selector for oscillator and signal line (EMA / SMA / RMA / TMA)
+//   Adaptive color mode — oscillator line shifts with trend direction
+//   Volume Pressure — dual MFI blend with power-curve compression, inflow/outflow fills
+//   Momentum State Zones — OB/OS strip fills scored 0-3 (oscillator + signal + volume)
+//   Momentum Exhaustion Labels — detects weakening in OB / strengthening in OS zones
+//   Regular Divergence detection — bullish and bearish with solid lines and labels
+//   Hidden Divergence detection — bullish and bearish with dashed lines and labels
+//   Smart Divergence Filter (AI) — min oscillator swing, min price swing %, volume confirmation
+//   KNN Bias Panel — K-Nearest Neighbors machine learning directional bias with confidence bar
+//   KNN features: Oscillator position (O), Volume Pressure direction (V), Signal cross state (S)
+//   ATR-normalized KNN output label for noise-resistant classification
+//   12 Alert conditions — cross, zone exit, divergences, volume pressure, momentum exhaustion
+
+//@version=6
+indicator("Artemis Oscillator PRO", shorttitle="AOP PRO", overlay=false, precision=2, max_lines_count=500, max_labels_count=500)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// GROUPS
+// ═══════════════════════════════════════════════════════════════════════════════
+string G0 = "Color Theme"
+string G1 = "Oscillator"
+string G2 = "Signal Line"
+string G3 = "Zones & Fills"
+string G4 = "Volume Pressure"
+string G5 = "Momentum State"
+string G6 = "Divergence"
+string G7 = "Momentum Exhaustion"
+string G8 = "KNN Bias"
+string G9 = "Alerts"
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// COLOR THEME
+// ═══════════════════════════════════════════════════════════════════════════════
+string themeChoice = input.string("Aurora", "Theme",
+    options = ["Aurora", "Ember", "Cyber", "Arctic", "Helios", "Bloomberg", "Solar", "Royal", "Obsidian", "Classic", "Mono"],
+    group   = G0,
+    tooltip = "Instantly applies a full color palette across the entire indicator.\n\nAurora    — Northern lights: cyan + violet\nEmber     — Fire & steel: amber + blue\nCyber     — Neon terminal: lime green + crimson\nArctic    — Icy cool: sky blue + soft purple\nHelios    — Warm gold: yellow gold + salmon (solar warmth)\nBloomberg — Terminal orange + cyan (Wall Street finance heritage — PRO)\nSolar     — Solarized olive + crimson (developer palette, easy on the eyes — PRO)\nRoyal     — Imperial gold + deep purple (luxury signature — PRO)\nObsidian  — Pro trader: emerald green + scarlet red\nClassic   — Light mode: navy blue + crimson red\nMono      — Light mode: black + silver + gray")
+
+// ── Theme color resolver ──────────────────────────────────────────────────────
+// Aurora: cyan/violet  |  Ember: amber/steel  |  Cyber: lime/crimson
+// Arctic: skyblue/purple  |  Helios: gold/salmon (was Solar, renamed v1.1.0)
+// Bloomberg: orange/cyan (finance terminal — PRO)  |  Solar: olive/red (Solarized — PRO)
+// Royal: gold/purple (luxury — PRO)  |  Obsidian: emerald/scarlet (fallback)
+// Classic: navy/crimson  |  Mono: black/silver
+color thOb     = themeChoice=="Aurora" ? #00e5ff : themeChoice=="Ember" ? #ff9d00 : themeChoice=="Cyber" ? #11cf77 : themeChoice=="Arctic" ? #4fc3f7 : themeChoice=="Helios" ? #ffd600 : themeChoice=="Bloomberg" ? #ff8c00 : themeChoice=="Solar" ? #859900 : themeChoice=="Royal" ? #ffd700 : themeChoice=="Classic" ? #0d47a1 : themeChoice=="Mono" ? #1a1a1a : #089981
+color thOs     = themeChoice=="Aurora" ? #ce93d8 : themeChoice=="Ember" ? #419fec : themeChoice=="Cyber" ? #d11645 : themeChoice=="Arctic" ? #b39ddb : themeChoice=="Helios" ? #da5b52 : themeChoice=="Bloomberg" ? #00b0ff : themeChoice=="Solar" ? #dc322f : themeChoice=="Royal" ? #6a0dad : themeChoice=="Classic" ? #b71c1c : themeChoice=="Mono" ? #757575 : #f23645
+color thSig    = themeChoice=="Aurora" ? #ff6d00 : themeChoice=="Ember" ? #ff4500 : themeChoice=="Cyber" ? #ffffff : themeChoice=="Arctic" ? #80cbc4 : themeChoice=="Helios" ? #ff8f00 : themeChoice=="Bloomberg" ? #ffd180 : themeChoice=="Solar" ? #b58900 : themeChoice=="Royal" ? #ffe680 : themeChoice=="Classic" ? #546e7a : themeChoice=="Mono" ? #9e9e9e : #ff5d00
+color thVpBuy  = themeChoice=="Aurora" ? #00bcd4 : themeChoice=="Ember" ? #ffcfa6 : themeChoice=="Cyber" ? #00e676 : themeChoice=="Arctic" ? #29b6f6 : themeChoice=="Helios" ? #ffca28 : themeChoice=="Bloomberg" ? #ffa726 : themeChoice=="Solar" ? #b5cb00 : themeChoice=="Royal" ? #ffb300 : themeChoice=="Classic" ? #1565c0 : themeChoice=="Mono" ? #424242 : #089981
+color thVpSell = themeChoice=="Aurora" ? #7b1fa2 : themeChoice=="Ember" ? #4683b4 : themeChoice=="Cyber" ? #ff1744 : themeChoice=="Arctic" ? #9575cd : themeChoice=="Helios" ? #ef5350 : themeChoice=="Bloomberg" ? #4fc3f7 : themeChoice=="Solar" ? #cb4b16 : themeChoice=="Royal" ? #8e24aa : themeChoice=="Classic" ? #c62828 : themeChoice=="Mono" ? #bdbdbd : #9c27b0
+// ═══════════════════════════════════════════════════════════════════════════════
+// OSCILLATOR SETTINGS
+// ═══════════════════════════════════════════════════════════════════════════════
+int    drmLen    = input.int   (14,    "Period",   minval=2, group=G1,
+    tooltip="Lookback window for the directional range engine.\nIncrease → smoother, slower response.\nDecrease → faster, more sensitive.\nAlso controls divergence pivot sensitivity.")
+string drmMethod = input.string("RMA", "Smoothing", options=["EMA","SMA","RMA","TMA"], group=G1,
+    tooltip="Smoothing algorithm applied to the range force.\nRMA — Wilder's MA (most stable, default)\nEMA — exponential, more responsive\nSMA — simple, equal weight\nTMA — double-smoothed, maximum smoothness")
+float  drmSrc    = input.source(close, "Source", group=G1,
+    tooltip="Price series fed into the directional range engine.\nClose recommended for most strategies.\nHLC3 adds body context for volatile assets.")
+bool   useAdapt  = input.bool  (true,  "Adaptive Color", group=G1,
+    tooltip="ON  — line color shifts based on momentum: bull color above 50, bear color below 50.\nOFF — line uses a muted neutral shade derived from the active theme.")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SIGNAL LINE SETTINGS
+// ═══════════════════════════════════════════════════════════════════════════════
+int    sigLen    = input.int   (7,     "Period",   minval=1, group=G2,
+    tooltip="Smoothing period for the signal (trigger) line.\nKeep below Oscillator period for clean crossovers.\nDefault: 7")
+string sigMethod = input.string("EMA", "Smoothing", options=["EMA","SMA","RMA","TMA"], group=G2,
+    tooltip="Algorithm for the signal line.\nEMA recommended — fast response without excessive lag.")
+bool   sigDots   = input.bool  (true,  "Show Cross Dots", group=G2,
+    tooltip="Renders a dot on the signal line when the oscillator crosses it.\nBull dot (cross up) uses the theme bull color.\nBear dot (cross down) uses the theme bear color.")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ZONES & FILLS SETTINGS
+// ═══════════════════════════════════════════════════════════════════════════════
+float  obLevel   = input.float (80.0, "Overbought", minval=51.0, maxval=99.0, step=0.5, group=G3,
+    tooltip="Oscillator threshold for the overbought zone.\nDefault: 80  |  Adjust to match your asset's volatility profile.")
+int    obAlpha   = input.int   (20, "Overbought Opacity", minval=0, maxval=100, group=G3,
+    tooltip="Fill opacity for the overbought zone.\n0 = invisible  |  100 = fully opaque\nDefault: 20")
+
+float  osLevel   = input.float (20.0, "Oversold", minval=1.0, maxval=49.0, step=0.5, group=G3,
+    tooltip="Oscillator threshold for the oversold zone.\nDefault: 20  |  Adjust to match your asset's volatility profile.")
+int    osAlpha   = input.int   (20, "Oversold Opacity", minval=0, maxval=100, group=G3,
+    tooltip="Fill opacity for the oversold zone.\n0 = invisible  |  100 = fully opaque\nDefault: 20")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// VOLUME PRESSURE SETTINGS
+// ═══════════════════════════════════════════════════════════════════════════════
+bool   vpShow    = input.bool  (true, "Show Volume Pressure", group=G4,
+    tooltip="Renders a dual-MFI fill on the oscillator panel.\nBull fill above 50, bear fill below 50.\nColor = active theme buy/sell colors.")
+string vpSrc     = input.string("HLC3", "MFI Source", options=["HLC3","Close","HL2","OHLC4"], group=G4,
+    tooltip="Price source used for the Money Flow Index calculation.\nHLC3  = (High+Low+Close)/3  — default, most common\nClose = closing price only — faster reaction\nHL2   = (High+Low)/2  — mid-range, less noise\nOHLC4 = (Open+High+Low+Close)/4  — smoothest")
+int    vpAlpha   = input.int   (18, "Volume Pressure Opacity", minval=0, maxval=100, group=G4,
+    tooltip="Volume Pressure fill opacity.\nKeep low (10–25) so the main oscillator line stays visible.\nDefault: 18")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MOMENTUM STATE SETTINGS
+// ═══════════════════════════════════════════════════════════════════════════════
+bool   msShow    = input.bool  (true, "Show Momentum State", group=G5,
+    tooltip="Scores market state 0–3 and renders a dynamic fill inside the 0–100 panel:\n+1 if Oscillator > Signal line\n+1 if Oscillator > 50 (midline)\n+1 if Volume Pressure > 50\nScore 3 → full overbought fill  |  Score 0 → full oversold fill")
+int    msObAlpha = input.int   (35, "OB Opacity", minval=0, maxval=100, group=G5,
+    tooltip="Opacity for the overbought momentum state fill.\n0 = invisible  |  100 = fully opaque\nFull score (3) uses this value. Partial score (2) uses this − 20.")
+int    msOsAlpha = input.int   (35, "OS Opacity", minval=0, maxval=100, group=G5,
+    tooltip="Opacity for the oversold momentum state fill.\n0 = invisible  |  100 = fully opaque\nFull score (0) uses this value. Partial score (1) uses this − 20.")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DIVERGENCE SETTINGS
+// ═══════════════════════════════════════════════════════════════════════════════
+bool   divRegOn    = input.bool(true, "Regular Divergence", group=G6,
+    tooltip="Detects potential trend reversals.\nBull (D▲): price lower low + oscillator higher low → reversal up\nBear (D▼): price higher high + oscillator lower high → reversal down\nSolid lines. Pivot arm = Period / 2.")
+int    divRegAlpha = input.int (70, "Regular Divergence Opacity", minval=0, maxval=100, group=G6,
+    tooltip="Line and label opacity for Regular Divergence.\n0 = invisible  |  100 = fully opaque\nDefault: 70")
+
+bool   divHidOn    = input.bool(true, "Hidden Divergence", group=G6,
+    tooltip="Detects trend continuation signals.\nBull (H▲): price higher low + oscillator lower low → uptrend continues\nBear (H▼): price lower high + oscillator higher high → downtrend continues\nResults appear a few bars late — expected Pine Script pivot behavior.")
+int    divHidAlpha = input.int (70, "Hidden Divergence Opacity", minval=0, maxval=100, group=G6,
+    tooltip="Line and label opacity for Hidden Divergence.\n0 = invisible  |  100 = fully opaque\nDefault: 70")
+string divLabelSize = input.string("Tiny", "Label Size", options=["Tiny","Small","Normal","Large"], group=G6,
+    tooltip="Size of the D▲ D▼ H▲ H▼ divergence labels.\nTiny = default, minimal\nSmall = slightly larger\nNormal = standard\nLarge = maximum visibility")
+
+bool   sdfOn     = input.bool  (false, "Smart Divergence Filter (AI)", group=G6,
+    tooltip="AI-assisted filter that suppresses weak or low-quality divergence signals.\nOFF by default — enable when you want fewer, higher-confidence signals only.\n\nFilters out divergences where:\n  - Oscillator swing is too small (noise)\n  - Price swing is too small relative to recent range\n  - Volume Pressure does not confirm direction (if VP Confirm is ON)")
+float  sdfMinOsc = input.float (5.0,  "Min Oscillator Swing", minval=1.0, maxval=20.0, step=0.5, group=G6,
+    tooltip="Minimum oscillator swing between the two pivot points.\nSmall value (1–3): allows most divergences through\nMedium (5): filters minor oscillations (default)\nLarge (10–20): only strong structural divergences pass\nRequires Smart Filter ON.")
+float  sdfMinPct = input.float (0.3,  "Min Price Swing (%)", minval=0.1, maxval=5.0, step=0.1, group=G6,
+    tooltip="Minimum price swing between pivots as a percentage of recent range.\nFilters divergences caused by tiny price moves relative to volatility.\n0.3% = default, permissive\n1.0% = moderate\n2.0%+ = strict (swing must be significant)\nRequires Smart Filter ON.")
+bool   sdfVpConf = input.bool  (true, "Require VP Confirmation", group=G6,
+    tooltip="Volume Pressure must agree with the divergence direction.\nBull divergence: VP must be above 50 (buying pressure)\nBear divergence: VP must be below 50 (selling pressure)\nON by default — adds volume confirmation layer.\nRequires Smart Filter ON.")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MOMENTUM EXHAUSTION SETTINGS
+// ═══════════════════════════════════════════════════════════════════════════════
+bool  meShow  = input.bool(true, "Show Exhaustion Labels", group=G7,
+    tooltip="Shows ✦ OB when oscillator is in overbought zone but weakening.\nShows ✦ OS when oscillator is in oversold zone but strengthening.\nSignals that momentum is running out — potential reversal ahead.")
+int   meConf  = input.int (4, "Confirmation Bars", minval=1, maxval=4, group=G7,
+    tooltip="How many consecutive bars the oscillator must weaken (OB) or strengthen (OS) before the label appears.\n1 = first bar of weakness (min)\n2 = confirmed weakness\n3 = strong confirmation\n4 = maximum reliability (max)\nHigher = fewer but more reliable signals.")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// KNN BIAS SETTINGS
+// ═══════════════════════════════════════════════════════════════════════════════
+bool   knnOn  = input.bool  (true,  "Show KNN Panel",     group=G8,
+    tooltip="KNN AI — K-Nearest Neighbors machine learning panel.\n\nWhat it does:\nLooks at up to 'Training Window' past bars, finds the K most similar ones based on 3 market features, and votes on likely direction.\n\nPanel rows:\n• KNN AI — current directional bias (BULL / BEAR / NEUTRAL)\n• Confidence — how strong the vote is (0–100%)\n• Progress bar — visual confidence level + how many bars are in memory\n• O / V / S — current feature states (see below)\n\nFeature signals:\n• O+ = Oscillator above 50 (bullish momentum)\n• O- = Oscillator below 50 (bearish momentum)\n• V+ = Money flow inflow (buyers dominate)\n• V- = Money flow outflow (sellers dominate)\n• S+ = Oscillator above trigger line (upward cross)\n• S- = Oscillator below trigger line (downward cross)\n• K= = Number of neighbors used for the vote")
+int    knnK   = input.int   (5,     "Neighbors (K)",      minval=3, maxval=10,  group=G8,
+    tooltip="How many similar past bars vote on the current direction.\n\n3 = fast reaction, more signals, less reliable\n5 = balanced — recommended default\n10 = slow, fewer signals, higher reliability\n\nShown as K=5 in the panel footer.")
+int    knnLen = input.int   (100,   "Training Window",    minval=50, maxval=300, step=10, group=G8,
+    tooltip="How many past bars the algorithm learns from.\n\n50  = short memory — adapts fast, good for volatile markets\n100 = balanced — recommended default\n300 = long memory — stable, good for trending markets\n\nShown as '100 bars' in the panel.")
+string knnPos  = input.string("Bottom Right", "Panel Position", options=["Top Right","Bottom Right","Top Left","Bottom Left"], group=G8,
+    tooltip="Where the KNN panel appears on the oscillator pane.\n\nChoose a corner that does not overlap your other indicators.")
+string knnSize = input.string("Small", "Panel Text Size", options=["Tiny","Small","Normal","Large"], group=G8,
+    tooltip="Text size inside the KNN AI panel.\n\nTiny   = smallest, for compact chart layouts\nSmall  = default, clean and readable\nNormal = larger, comfortable reading\nLarge  = maximum visibility")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ALERT SETTINGS
+// ═══════════════════════════════════════════════════════════════════════════════
+bool alCrossOn  = input.bool(true,  "Bullish / Bearish Cross",      group=G9, tooltip="Alert when oscillator crosses the signal line.\nBull: cross up below midline.\nBear: cross down above midline.")
+bool alZoneOn   = input.bool(true,  "Exiting OB / OS Zone",         group=G9, tooltip="Alert when oscillator exits overbought or oversold zone.")
+bool alDivRegOn = input.bool(true,  "Regular Divergence",           group=G9, tooltip="Alert on regular bullish or bearish divergence detection.")
+bool alDivHidOn = input.bool(false, "Hidden Divergence",            group=G9, tooltip="Alert on hidden bullish or bearish divergence detection.")
+bool alVpOn     = input.bool(true,  "Volume Pressure Inflow/Outflow", group=G9, tooltip="Alert when Volume Pressure crosses the midline.")
+bool alMeOn     = input.bool(true,  "Momentum Exhaustion",          group=G9, tooltip="Alert when exhaustion label fires in OB or OS zone.")
+
+string divSz = divLabelSize == "Tiny" ? size.tiny : divLabelSize == "Small" ? size.small : divLabelSize == "Normal" ? size.normal : size.large
+string knnSz = knnSize == "Tiny" ? size.tiny : knnSize == "Small" ? size.small : knnSize == "Normal" ? size.normal : size.large
+
+color thDivRB  = color.new(thOb, 100 - divRegAlpha)
+color thDivRBr = color.new(thOs, 100 - divRegAlpha)
+color thDivHB  = color.new(thOb, 100 - divHidAlpha)
+color thDivHBr = color.new(thOs, 100 - divHidAlpha)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ENGINE — Directional Range Momentum
+// ═══════════════════════════════════════════════════════════════════════════════
+smooth(series float s, simple int n, simple string m) =>
+    switch m
+        "EMA" => ta.ema(s, n)
+        "SMA" => ta.sma(s, n)
+        "RMA" => ta.rma(s, n)
+        "TMA" => ta.sma(ta.sma(s, n), n)
+        =>       ta.rma(s, n)
+
+float rangePeak  = ta.highest(drmSrc, drmLen)
+float rangeValey = ta.lowest (drmSrc, drmLen)
+float rangeSpan  = rangePeak - rangeValey
+float tickDelta  = drmSrc - drmSrc[1]
+float rangeForce = rangePeak > rangePeak[1] ? rangeSpan : rangeValey < rangeValey[1] ? -rangeSpan : tickDelta
+
+float sUp    = smooth(rangeForce,           drmLen, drmMethod)
+float sAbs   = smooth(math.abs(rangeForce), drmLen, drmMethod)
+float oscVal = sAbs != 0 ? (sUp / sAbs) * 50.0 + 50.0 : 50.0
+float sigVal = smooth(oscVal, sigLen, sigMethod)
+
+// ── Volume Pressure — dual MFI with power-curve compression ──────────────────
+compress(series float x, simple float k) =>
+    float n = (x / 100.0 - 0.5) * 2.0
+    k * 100.0 * (n > 0 ? 1.0 : -1.0) * math.pow(math.abs(n), 0.75)
+
+int   vpFastLen = math.max(math.round(drmLen / 1.33), 2)
+int   vpSlowLen = math.round(drmLen * 1.33)
+float vpSrcVal  = vpSrc == "Close" ? close : vpSrc == "HL2" ? hl2 : vpSrc == "OHLC4" ? ohlc4 : hlc3
+float vpFastRaw = ta.mfi(vpSrcVal, vpFastLen)
+float vpSlowRaw = ta.mfi(vpSrcVal, vpSlowLen)
+float vpMid     = compress(ta.sma(vpFastRaw * 0.5 + vpSlowRaw * 0.5, 2), 0.7) / 2.0 + 50.0
+
+// ── Momentum State score 0–3 ──────────────────────────────────────────────────
+int   msScore  = (oscVal > sigVal ? 1 : 0) + (oscVal > 50 ? 1 : 0) + (vpMid > 50 ? 1 : 0)
+int   msFdOb   = math.max(msObAlpha - 20, 0)
+int   msFdOs   = math.max(msOsAlpha - 20, 0)
+color msObFill = not msShow ? na : msScore == 3 ? color.new(thOb, 100 - msObAlpha) : msScore == 2 ? color.new(thOb, 100 - msFdOb) : na
+color msOsFill = not msShow ? na : msScore == 0 ? color.new(thOs, 100 - msOsAlpha) : msScore == 1 ? color.new(thOs, 100 - msFdOs) : na
+
+// ── Momentum Exhaustion ───────────────────────────────────────────────────────
+bool meObWeak = oscVal >= obLevel and oscVal < oscVal[1]
+bool meOsStr  = oscVal <= osLevel and oscVal > oscVal[1]
+
+var int meObCount = 0
+var int meOsCount = 0
+meObCount := meObWeak ? meObCount + 1 : 0
+meOsCount := meOsStr  ? meOsCount + 1 : 0
+
+bool meObSignal = meShow and meObCount == meConf
+bool meOsSignal = meShow and meOsCount == meConf
+
+// ── KNN Bias ──────────────────────────────────────────────────────────────────
+var array<float> knnF1  = array.new<float>()
+var array<float> knnF2  = array.new<float>()
+var array<float> knnF3  = array.new<float>()
+var array<int>   knnOut = array.new<int>()
+
+float kf1 = oscVal / 100.0
+float kf2 = vpMid  / 100.0
+float kf3 = (oscVal - sigVal + 100.0) / 200.0
+float kAtr  = ta.atr(14)
+var int kOut = 0
+kOut := close > close[1] + kAtr * 0.1 ? 1 : close < close[1] - kAtr * 0.1 ? 0 : kOut
+
+if bar_index > 1
+    array.push(knnF1,  kf1)
+    array.push(knnF2,  kf2)
+    array.push(knnF3,  kf3)
+    array.push(knnOut, kOut)
+    if array.size(knnF1) > knnLen
+        array.shift(knnF1)
+        array.shift(knnF2)
+        array.shift(knnF3)
+        array.shift(knnOut)
+
+float knnVal = 50.0
+int   kSize  = array.size(knnF1)
+if kSize >= knnK
+    var array<float> kDist = array.new<float>()
+    array.clear(kDist)
+    for i = 0 to kSize - 1
+        float d = math.sqrt(math.pow(kf1 - array.get(knnF1,i),2) + math.pow(kf2 - array.get(knnF2,i),2) + math.pow(kf3 - array.get(knnF3,i),2))
+        array.push(kDist, d)
+    int kBull = 0
+    for _k = 0 to knnK - 1
+        int   mi = array.indexof(kDist, array.min(kDist))
+        kBull   += array.get(knnOut, mi)
+        array.set(kDist, mi, 999.0)
+    knnVal := kBull / knnK * 100.0
+
+bool  knnIsBull = knnVal >= 60.0
+bool  knnIsBear = knnVal <= 40.0
+int   knnConf   = knnIsBull ? math.round(knnVal) : knnIsBear ? math.round(100.0 - knnVal) : math.round(math.abs(knnVal - 50) * 2)
+color knnCol    = knnIsBull ? thOb : knnIsBear ? thOs : color.new(color.gray, 20)
+
+// ── KNN Table Panel ───────────────────────────────────────────────────────────
+// Single accent color rule: thOb is the only theme color used in the panel.
+// Backgrounds are pure neutral. Text uses 3 opacity levels of thOb only.
+bool  knnLight = themeChoice == "Classic" or themeChoice == "Mono"
+
+// Pure neutral backgrounds — never tinted, always clean
+color knnBgH = knnLight ? color.new(#f0f0f0, 0) : color.new(#181818, 0)  // header row
+color knnBgM = knnLight ? color.new(#fafafa, 0) : color.new(#111111, 0)  // middle rows
+color knnBgF = knnLight ? color.new(#e8e8e8, 0) : color.new(#0e0e0e, 0)  // footer row
+color knnBrd  = color.new(thOb, knnLight ? 65 : 55)                       // border: thOb
+
+// Text — all derived from thOb, 3 opacity levels only
+// Strong  (0–10%)  : header title, accent values   — most visible
+// Medium  (25–35%) : secondary labels              — readable but quiet
+// Dim     (55–65%) : metadata, K=, bars count      — barely there
+color knnTxS = color.new(thOb, knnLight ?  5 : 0)   // strong
+color knnTxM = color.new(thOb, knnLight ? 30 : 25)  // medium
+color knnTxD = color.new(thOb, knnLight ? 60 : 55)  // dim
+
+var table knnTable = na
+if knnOn and barstate.islast
+    if not na(knnTable)
+        table.delete(knnTable)
+
+    string tPos = knnPos == "Top Right"    ? position.top_right    :
+                  knnPos == "Bottom Right" ? position.bottom_right  :
+                  knnPos == "Top Left"     ? position.top_left      : position.bottom_left
+
+    knnTable := table.new(tPos, 2, 4, bgcolor=knnBgM, border_color=knnBrd, border_width=1, frame_color=knnBrd, frame_width=1)
+
+    string kDir  = knnIsBull ? "BULL" : knnIsBear ? "BEAR" : "NEUTRAL"
+    string kIcon = knnIsBull ? "▲"    : knnIsBear ? "▼"    : "◈"
+
+    // Row 0 — header: title | direction (live bull/bear/neutral)
+    table.cell(knnTable, 0, 0, "KNN AI",           text_color=knnTxS, text_size=knnSz, bgcolor=knnBgH, text_halign=text.align_left,  text_font_family=font.family_monospace)
+    table.cell(knnTable, 1, 0, kIcon + " " + kDir, text_color=knnCol, text_size=knnSz, bgcolor=knnBgH, text_halign=text.align_right, text_font_family=font.family_monospace)
+
+    // Row 1 — Confidence | value %
+    table.cell(knnTable, 0, 1, "Confidence",              text_color=knnTxS, text_size=knnSz, bgcolor=knnBgM, text_halign=text.align_left,  text_font_family=font.family_monospace)
+    table.cell(knnTable, 1, 1, str.tostring(knnConf)+"%", text_color=knnTxS, text_size=knnSz, bgcolor=knnBgM, text_halign=text.align_right, text_font_family=font.family_monospace)
+
+    // Row 2 — progress bar | bars count
+    int    filled  = math.round(knnConf / 10)
+    string bar_str = ""
+    for _i = 0 to filled - 1
+        bar_str := bar_str + "█"
+    for _i = 0 to 10 - filled - 1
+        bar_str := bar_str + "░"
+    table.cell(knnTable, 0, 2, bar_str,                    text_color=knnTxS, text_size=knnSz, bgcolor=knnBgM, text_halign=text.align_left,  text_font_family=font.family_monospace)
+    table.cell(knnTable, 1, 2, str.tostring(kSize)+" bars", text_color=knnTxS, text_size=knnSz, bgcolor=knnBgM, text_halign=text.align_right, text_font_family=font.family_monospace)
+
+    // Row 3 — features | K=
+    string fTxt = (kf1 > 0.5 ? "O+" : "O-") + "  " + (kf2 > 0.5 ? "V+" : "V-") + "  " + (kf3 > 0.5 ? "S+" : "S-")
+    table.cell(knnTable, 0, 3, fTxt,                    text_color=knnTxS, text_size=knnSz, bgcolor=knnBgF, text_halign=text.align_left,  text_font_family=font.family_monospace)
+    table.cell(knnTable, 1, 3, "K="+str.tostring(knnK), text_color=knnTxS, text_size=knnSz, bgcolor=knnBgF, text_halign=text.align_right, text_font_family=font.family_monospace)
+
+// ── Oscillator line color ─────────────────────────────────────────────────────
+color lineCol = oscVal >= obLevel ? thOb : oscVal <= osLevel ? thOs : useAdapt ? (oscVal >= 50 ? color.new(thOb, 40) : color.new(thOs, 40)) : color.new(thOb, 60)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DIVERGENCE DETECTION
+// ═══════════════════════════════════════════════════════════════════════════════
+int   pivSpan = math.max(drmLen / 2, 2)
+float phRaw   = ta.pivothigh(high, pivSpan, pivSpan)
+float plRaw   = ta.pivotlow (low,  pivSpan, pivSpan)
+
+var float pHH_px = na
+var float pHH_ox = na
+var int   pHH_bx = na
+var float pLL_px = na
+var float pLL_ox = na
+var int   pLL_bx = na
+
+float cHH_p = na
+float cHH_o = na
+float cLL_p = na
+float cLL_o = na
+
+if not na(phRaw)
+    cHH_p := high[pivSpan]
+    cHH_o := oscVal[pivSpan]
+
+if not na(plRaw)
+    cLL_p := low[pivSpan]
+    cLL_o := oscVal[pivSpan]
+
+bool dRegBull = false
+bool dRegBear = false
+bool dHidBull = false
+bool dHidBear = false
+
+if not na(cHH_p) and not na(pHH_px)
+    if cHH_p > pHH_px and cHH_o < pHH_ox
+        dRegBear := true
+    if cHH_p < pHH_px and cHH_o > pHH_ox
+        dHidBear := true
+
+if not na(cLL_p) and not na(pLL_px)
+    if cLL_p < pLL_px and cLL_o > pLL_ox
+        dRegBull := true
+    if cLL_p > pLL_px and cLL_o < pLL_ox
+        dHidBull := true
+
+// ── Smart Divergence Filter ───────────────────────────────────────────────────
+float sdfPriceRange = ta.highest(high, drmLen * 4) - ta.lowest(low, drmLen * 4)
+float sdfMinPriceAbs = sdfPriceRange * (sdfMinPct / 100.0)
+float sdfOscSwingLL = math.abs(cLL_o - pLL_ox)
+float sdfOscSwingHH = math.abs(cHH_o - pHH_ox)
+float sdfPriceSwingLL = math.abs(cLL_p - pLL_px)
+float sdfPriceSwingHH = math.abs(cHH_p - pHH_px)
+bool sdfPassBull = not sdfOn or (sdfOscSwingLL >= sdfMinOsc and sdfPriceSwingLL >= sdfMinPriceAbs and (not sdfVpConf or vpMid[pivSpan] > 50))
+bool sdfPassBear = not sdfOn or (sdfOscSwingHH >= sdfMinOsc and sdfPriceSwingHH >= sdfMinPriceAbs and (not sdfVpConf or vpMid[pivSpan] < 50))
+
+if divRegOn and dRegBull and sdfPassBull
+    line.new(pLL_bx, pLL_ox, bar_index[pivSpan], cLL_o, color=thDivRB, width=2, style=line.style_solid)
+    label.new(bar_index[pivSpan], cLL_o, "D▲", style=label.style_label_up,   color=thDivRB,  textcolor=color.white, size=divSz,
+        tooltip="Regular Bullish Divergence\nPrice: Lower Low\nOscillator: Higher Low\nSignal: Potential reversal to the upside")
+
+if divRegOn and dRegBear and sdfPassBear
+    line.new(pHH_bx, pHH_ox, bar_index[pivSpan], cHH_o, color=thDivRBr, width=2, style=line.style_solid)
+    label.new(bar_index[pivSpan], cHH_o, "D▼", style=label.style_label_down, color=thDivRBr, textcolor=color.white, size=divSz,
+        tooltip="Regular Bearish Divergence\nPrice: Higher High\nOscillator: Lower High\nSignal: Potential reversal to the downside")
+
+if divHidOn and dHidBull and sdfPassBull
+    line.new(pLL_bx, pLL_ox, bar_index[pivSpan], cLL_o, color=thDivHB, width=2, style=line.style_solid)
+    label.new(bar_index[pivSpan], cLL_o, "H▲", style=label.style_label_up,   color=thDivHB,  textcolor=color.white, size=divSz,
+        tooltip="Hidden Bullish Divergence\nPrice: Higher Low\nOscillator: Lower Low\nSignal: Uptrend continuation expected")
+
+if divHidOn and dHidBear and sdfPassBear
+    line.new(pHH_bx, pHH_ox, bar_index[pivSpan], cHH_o, color=thDivHBr, width=2, style=line.style_solid)
+    label.new(bar_index[pivSpan], cHH_o, "H▼", style=label.style_label_down, color=thDivHBr, textcolor=color.white, size=divSz,
+        tooltip="Hidden Bearish Divergence\nPrice: Lower High\nOscillator: Higher High\nSignal: Downtrend continuation expected")
+
+if not na(cHH_p)
+    pHH_px := cHH_p
+    pHH_ox := cHH_o
+    pHH_bx := bar_index[pivSpan]
+
+if not na(cLL_p)
+    pLL_px := cLL_p
+    pLL_ox := cLL_o
+    pLL_bx := bar_index[pivSpan]
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PLOTS
+// ═══════════════════════════════════════════════════════════════════════════════
+color obFillDyn  = color.new(thOb, 100 - obAlpha)
+color osFillDyn  = color.new(thOs, 100 - osAlpha)
+
+p_vpUp   = plot(vpShow ? math.max(vpMid, 50) : na, "VP Bull",  color.new(thVpBuy,  70), linewidth=1)
+p_vpDown = plot(vpShow ? math.min(vpMid, 50) : na, "VP Bear",  color.new(thVpSell, 70), linewidth=1)
+p_vpBase = plot(vpShow ? 50 : na,                  "VP Base",  color=na, editable=false)
+fill(p_vpUp,   p_vpBase, color.new(thVpBuy,  100 - vpAlpha), title="VP Bull Fill")
+fill(p_vpDown, p_vpBase, color.new(thVpSell, 100 - vpAlpha), title="VP Bear Fill")
+
+p_osc = plot(oscVal,  "DRM Oscillator", lineCol, linewidth=3)
+p_sig = plot(sigVal,  "Signal Line",    thSig,   linewidth=1)
+
+bool crossUp   = ta.crossover (oscVal, sigVal)
+bool crossDown = ta.crossunder(oscVal, sigVal)
+plotshape(sigDots and crossUp   ? sigVal : na, "Bull Cross Dot", shape.circle, location.absolute, thOb, size=size.tiny)
+plotshape(sigDots and crossDown ? sigVal : na, "Bear Cross Dot", shape.circle, location.absolute, thOs, size=size.tiny)
+
+if meObSignal
+    label.new(bar_index, oscVal + 7, "✦ OB", style=label.style_none, textcolor=thOb, size=size.small,
+        tooltip="Momentum Exhaustion — Overbought\nOscillator has been weakening for " + str.tostring(meConf) + " consecutive bars while above the OB level.\nBuying momentum is fading — potential reversal to the downside.")
+if meOsSignal
+    label.new(bar_index, oscVal - 7, "✦ OS", style=label.style_none, textcolor=thOs, size=size.small,
+        tooltip="Momentum Exhaustion — Oversold\nOscillator has been strengthening for " + str.tostring(meConf) + " consecutive bars while below the OS level.\nSelling momentum is fading — potential reversal to the upside.")
+
+p_ob  = plot(obLevel, color=na, editable=false, display=display.none)
+p_mid = plot(50,      color=na, editable=false, display=display.none)
+p_os  = plot(osLevel, color=na, editable=false, display=display.none)
+p_top = plot(100,     color=na, editable=false, display=display.none)
+p_bot = plot(0,       color=na, editable=false, display=display.none)
+
+fill(p_osc, p_ob, oscVal >= obLevel ? obFillDyn : na, title="OB Solid Fill")
+fill(p_os, p_osc, oscVal <= osLevel ? osFillDyn : na, title="OS Solid Fill")
+fill(p_osc, p_mid, obLevel, 50, obFillDyn, color.new(chart.bg_color, 100), title="Bull Gradient")
+fill(p_mid, p_osc, 50, osLevel, color.new(chart.bg_color, 100), osFillDyn, title="Bear Gradient")
+
+hline(obLevel, "OB Level", thOb, hline.style_dashed)
+hline(50,      "Midline",  color.gray, hline.style_dotted)
+hline(osLevel, "OS Level", thOs, hline.style_dashed)
+
+fill(p_top, p_ob, msObFill, title="Momentum OB State")
+fill(p_os,  p_bot, msOsFill, title="Momentum OS State")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ALERTS
+// ═══════════════════════════════════════════════════════════════════════════════
+bool aCrossUp   = ta.crossover (oscVal, sigVal)
+bool aCrossDown = ta.crossunder(oscVal, sigVal)
+bool aExitOs    = ta.crossover (oscVal, osLevel)
+bool aExitOb    = ta.crossunder(oscVal, obLevel)
+bool aVpIn      = ta.crossover (vpMid,  50)
+bool aVpOut     = ta.crossunder(vpMid,  50)
+
+if alCrossOn  and aCrossUp   and oscVal < 50
+    alert("AOP — Bullish Cross (Oversold): DRM crossed above Signal below midline.",   alert.freq_once_per_bar)
+if alCrossOn  and aCrossDown and oscVal > 50
+    alert("AOP — Bearish Cross (Overbought): DRM crossed below Signal above midline.", alert.freq_once_per_bar)
+if alZoneOn   and aExitOs
+    alert("AOP — Exiting Oversold Zone: DRM rising out of oversold.",                  alert.freq_once_per_bar)
+if alZoneOn   and aExitOb
+    alert("AOP — Exiting Overbought Zone: DRM falling out of overbought.",             alert.freq_once_per_bar)
+if alDivRegOn and dRegBull and sdfPassBull
+    alert("AOP — Regular Bullish Divergence: Price lower low, DRM higher low.",        alert.freq_once_per_bar)
+if alDivRegOn and dRegBear and sdfPassBear
+    alert("AOP — Regular Bearish Divergence: Price higher high, DRM lower high.",      alert.freq_once_per_bar)
+if alDivHidOn and dHidBull and sdfPassBull
+    alert("AOP — Hidden Bullish Divergence: Price higher low, DRM lower low.",         alert.freq_once_per_bar)
+if alDivHidOn and dHidBear and sdfPassBear
+    alert("AOP — Hidden Bearish Divergence: Price lower high, DRM higher high.",       alert.freq_once_per_bar)
+if alVpOn     and aVpIn
+    alert("AOP —Volume Pressure Inflow: buying pressure rising.",                     alert.freq_once_per_bar)
+if alVpOn     and aVpOut
+    alert("AOP —Volume Pressure Outflow: selling pressure rising.",                   alert.freq_once_per_bar)
+if alMeOn     and meObSignal
+    alert("AOP —Momentum Exhaustion OB: buying momentum fading.",                     alert.freq_once_per_bar)
+if alMeOn     and meOsSignal
+    alert("AOP —Momentum Exhaustion OS: selling momentum fading.",                    alert.freq_once_per_bar)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// END OF SCRIPT
+// ═══════════════════════════════════════════════════════════════════════════════
