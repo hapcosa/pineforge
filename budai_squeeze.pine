@@ -36,8 +36,11 @@ momLen  = input.int(20, "Momentum Longitud", minval=2, group=G_MOM)
 src     = input.source(close, "Fuente", group=G_MOM)
 
 // ════════════════ ④ SEÑALES ════════════════
-showFire = input.bool(true, "Disparo al liberar squeeze", group=G_SIG, tooltip="Marca cuando termina la compresión y el momentum define dirección = energía liberada.")
-showZero = input.bool(true, "Cruces del momentum (0)", group=G_SIG)
+showFire   = input.bool(true, "Disparo al liberar squeeze", group=G_SIG, tooltip="Solo dispara tras compresión REAL + momentum con fuerza + cooldown. Filtra ruido.")
+minSqzBars = input.int(4, "Mín. barras comprimidas", minval=1, maxval=30, group=G_SIG, tooltip="Exige compresión previa real. Más alto = menos señales, más sólidas.")
+momFilter  = input.bool(true, "Exigir momentum con fuerza (creciente)", group=G_SIG, tooltip="El momentum debe acelerar en su dirección, no solo tener signo.")
+cooldown   = input.int(6, "Cooldown entre disparos (velas)", minval=0, maxval=50, group=G_SIG, tooltip="Evita disparos repetidos seguidos.")
+showZero   = input.bool(false, "Cruces del momentum (0)", group=G_SIG)
 
 // ════════════════ ⑤ ESTÉTICA (paleta clásica neutra · se integra a todo chart) ════════════════
 upStrong = input.color(#00c853, "Mom + creciente", group=G_VIS, inline="m1")
@@ -79,7 +82,7 @@ bool noSqz  = not sqzOn and not sqzOff
 // ════════════════════════════════════════════════════════════════════════════
 float hh = ta.highest(high, momLen)
 float ll = ta.lowest(low,  momLen)
-float avgHL = math.avg(math.avg(hh, ll), ta.sma(close, momLen))
+float avgHL = ((hh + ll) / 2.0 + ta.sma(close, momLen)) / 2.0
 float mom = ta.linreg(src - avgHL, momLen, 0)
 
 // color del histograma (4 estados, estilo limpio)
@@ -96,12 +99,30 @@ color dotCol = sqzOn ? sqzOnCol : sqzOff ? sqzNoCol : color.new(#90a4ae, 45)
 plot(0, "Squeeze", color=dotCol, style=plot.style_circles, linewidth=2)
 
 // ════════════════════════════════════════════════════════════════════════════
-//  SEÑALES — disparo al liberar la compresión
+//  SEÑALES — disparo sólido al liberar compresión (anti-ruido)
 // ════════════════════════════════════════════════════════════════════════════
-// fin de squeeze: venía comprimido y ahora se libera, con momentum definiendo lado
-bool released = sqzOn[1] and not sqzOn
-bool fireUp = showFire and released and mom > 0 and barstate.isconfirmed
-bool fireDn = showFire and released and mom < 0 and barstate.isconfirmed
+// contador de barras en compresión (energía acumulada) — ANTES de usarlo
+var int sqzBars = 0
+sqzBars := sqzOn ? sqzBars + 1 : 0
+
+// barras comprimidas justo antes de soltar (en la vela previa)
+int barsBeforeRelease = nz(sqzBars[1])
+bool released = sqzOn[1] and not sqzOn                  // pasó de comprimido a libre
+bool realSqueeze = barsBeforeRelease >= minSqzBars       // compresión real, no micro
+
+// momentum con fuerza: signo + acelerando en su dirección
+bool momStrongUp = mom > 0 and (not momFilter or mom > nz(mom[1]))
+bool momStrongDn = mom < 0 and (not momFilter or mom < nz(mom[1]))
+
+// cooldown anti-spam
+var int lastFire = -1000
+bool canFire = (bar_index - lastFire) > cooldown
+
+bool fireUp = showFire and released and realSqueeze and momStrongUp and canFire and barstate.isconfirmed
+bool fireDn = showFire and released and realSqueeze and momStrongDn and canFire and barstate.isconfirmed
+if fireUp or fireDn
+    lastFire := bar_index
+
 // disparo = punto diminuto en la PARTE SUPERIOR (amarillo alcista / gris bajista)
 plotchar(fireUp, "Disparo ↑", "•", location.top, color=sigUpCol, size=size.tiny)
 plotchar(fireDn, "Disparo ↓", "•", location.top, color=sigDnCol, size=size.tiny)
@@ -113,10 +134,6 @@ bool zUp = showZero and momX_up and barstate.isconfirmed
 bool zDn = showZero and momX_dn and barstate.isconfirmed
 plotchar(zUp ? 0 : na, "Cruce ↑", "•", location.absolute, color=color.new(upStrong, 25), size=size.tiny)
 plotchar(zDn ? 0 : na, "Cruce ↓", "•", location.absolute, color=color.new(dnStrong, 25), size=size.tiny)
-
-// contador de barras en compresión (energía acumulada)
-var int sqzBars = 0
-sqzBars := sqzOn ? sqzBars + 1 : 0
 
 // ════════════════════════════════════════════════════════════════════════════
 //  DASHBOARD minimalista

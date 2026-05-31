@@ -89,7 +89,7 @@ Lo hacemos **en este orden**. No avanzamos al siguiente hasta cerrar el actual.
 
 ## ESTADO
 - [x] Paso 1 · Squeeze → `budai_squeeze.pine` ✅
-- [ ] Paso 2 · Nautilus
+- [x] Paso 2 · Nautilus → `budai_abyss.pine` (Abyss Oscillator) ✅
 - [ ] Paso 3 · Regression Slope
 - [ ] Paso 4 · Vix Fix
 - [ ] Paso 5 · SMC
