@@ -12,7 +12,7 @@
 //  Glow futurista, Money Flow, divergencias. Inspirado en Nautilus (recreado).
 //  (c) BudAI Capital - Pine v6 - estetica futurista limpia
 // ────────────────────────────────────────────────────────────────────────────
-indicator("BudAI Capital® - Abyss Oscillator", shorttitle="BudAI Capital® - Abyss Oscillator", overlay=false, precision=1, max_labels_count=300, max_lines_count=300)
+indicator("BudAI Capital® - Abyss Wave Oscillator", shorttitle="BudAI Capital® - Abyss Wave Oscillator", overlay=false, precision=1, max_labels_count=300, max_lines_count=300)
 
 // ════════════════ GRUPOS ════════════════
 G_CORE = "① Núcleo (WaveTrend)"

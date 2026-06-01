@@ -1,0 +1,246 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Pulse
+//  WaveTrend (centro de gravedad cíclico) + COG + Momentum + Money Flow + medias.
+//  Sobrecompra/sobreventa · Fibo · Trend MTF · sombras degradadas · cyberpunk.
+//  (c) BudAI Capital® — Pine v6
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Pulse Flow Oscillator", shorttitle="BudAI Capital® - Pulse Flow Oscillator", overlay=false, precision=1, max_labels_count=300, max_lines_count=200)
+
+// ════════════════ GRUPOS ════════════════
+G_CORE = "① Núcleo"
+G_MF   = "② Money Flow"
+G_MA   = "③ Medias del oscilador"
+G_LVL  = "④ Niveles (OB/OS · Fibo)"
+G_SIG  = "⑤ Señales"
+G_MTF  = "⑥ Trend MTF"
+G_VIS  = "⑦ Estética"
+G_WM   = "✦ Marca de agua"
+
+// ════════════════ ① NÚCLEO ════════════════
+chanLen = input.int(9,  "WaveTrend canal", minval=3, maxval=50, group=G_CORE, tooltip="Centro de gravedad cíclico. 9-10 scalping, 21 swing.")
+avgLen  = input.int(12, "WaveTrend promedio", minval=2, maxval=50, group=G_CORE)
+trigLen = input.int(3,  "Trigger (señal)", minval=1, maxval=20, group=G_CORE)
+useCOG  = input.bool(true, "Mezclar COG (Ehlers)", group=G_CORE)
+cogLen  = input.int(9,  "COG len", minval=3, maxval=50, group=G_CORE)
+momLen  = input.int(10, "Momentum len", minval=2, maxval=50, group=G_CORE)
+
+// ════════════════ ② MONEY FLOW ════════════════
+showMF  = input.bool(true, "Histograma Money Flow", group=G_MF)
+mfLen   = input.int(14, "Money Flow len", minval=2, maxval=50, group=G_MF)
+
+// ════════════════ ③ MEDIAS ════════════════
+showSMA = input.bool(true,  "SMA del oscilador (señal)", group=G_MA, inline="s")
+smaLen  = input.int(21, "len", minval=2, maxval=100, group=G_MA, inline="s")
+showEMA = input.bool(false, "EMA del oscilador (rápida)", group=G_MA, inline="e")
+emaLen  = input.int(9,  "len", minval=2, maxval=100, group=G_MA, inline="e")
+
+// ════════════════ ④ NIVELES ════════════════
+obLvl   = input.int(80, "Sobrecompra", minval=55, maxval=95, group=G_LVL, inline="ob")
+osLvl   = input.int(20, "Sobreventa",  minval=5,  maxval=45, group=G_LVL, inline="ob")
+showFib = input.bool(true, "Niveles Fibo (0.382 / 0.5 / 0.618)", group=G_LVL)
+
+// ════════════════ ⑤ SEÑALES ════════════════
+showCross = input.bool(true, "Círculos BULL / BEAR (cruces)", group=G_SIG)
+reqFlow   = input.bool(true, "Cruce válido solo con Money Flow a favor", group=G_SIG)
+showDiv   = input.bool(true, "Divergencias", group=G_SIG)
+divLen    = input.int(5, "Pivote divergencia", minval=2, maxval=20, group=G_SIG)
+
+// ════════════════ ⑥ TREND MTF ════════════════
+showMTF = input.bool(true, "Mini panel Trend MTF", group=G_MTF)
+
+// ════════════════ ⑦ ESTÉTICA (cyberpunk neón) ════════════════
+upCol   = input.color(#00e5ff, "Alcista (celeste)", group=G_VIS, inline="c")
+dnCol   = input.color(#ff1e6e, "Bajista (magenta)", group=G_VIS, inline="c")
+sigUp   = input.color(#ffea00, "Señal alcista", group=G_VIS, inline="sg")
+sigDn   = input.color(#9e9e9e, "Señal bajista", group=G_VIS, inline="sg")
+divUp   = input.color(#ffea00, "Divergencia alcista", group=G_VIS, inline="dv")
+divDn   = input.color(#9e9e9e, "Divergencia bajista", group=G_VIS, inline="dv")
+glow    = input.bool(true, "Relleno degradado (glow)", group=G_VIS)
+showDash = input.bool(true, "Dashboard minimalista", group=G_VIS)
+dashPos  = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda","Inferior Derecha","Superior Izquierda","Superior Derecha"], group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NÚCLEO — WaveTrend + COG + Momentum + Money Flow
+// ════════════════════════════════════════════════════════════════════════════
+float src = hlc3
+float esa = ta.ema(src, chanLen)
+float de  = ta.ema(math.abs(src - esa), chanLen)
+float ci  = de == 0 ? 0.0 : (src - esa) / (0.015 * de)
+float wt1 = ta.ema(ci, avgLen)
+float wt2 = ta.sma(wt1, trigLen)
+
+float cogNum = 0.0
+float cogDen = 0.0
+for i = 0 to cogLen - 1
+    float p = nz(src[i])
+    cogNum := cogNum + (1 + i) * p
+    cogDen := cogDen + p
+float cogRaw = cogDen != 0 ? -cogNum / cogDen + (cogLen + 1) / 2.0 : 0.0
+
+float mfi = ta.mfi(hlc3, mfLen)
+float mfm = (high - low) != 0 ? ((close - low) - (high - close)) / (high - low) : 0.0
+float vol = nz(volume) == 0 ? 1.0 : volume
+float cmf = math.sum(mfm * vol, mfLen) / math.sum(vol, mfLen)
+float momRaw = close - close[momLen]
+
+f_norm(float s, simple int len) =>
+    float lo = ta.lowest(s, len)
+    float hi = ta.highest(s, len)
+    hi - lo != 0 ? 100.0 * (s - lo) / (hi - lo) : 50.0
+
+float wtN  = f_norm(wt1, 100)
+float cogN = f_norm(cogRaw, 100)
+float momN = f_norm(momRaw, 100)
+float osc  = useCOG ? (wtN * 0.6 + cogN * 0.25 + momN * 0.15) : (wtN * 0.8 + momN * 0.2)
+float trig = f_norm(wt2, 100)
+float smaO = ta.sma(osc, smaLen)
+float emaO = ta.ema(osc, emaLen)
+
+bool isBull = osc >= trig
+bool isBear = osc < trig
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NIVELES — líneas finas
+// ════════════════════════════════════════════════════════════════════════════
+hline(100, "Tope", color.new(color.gray, 88), hline.style_dotted)
+hline(obLvl, "Sobrecompra", color.new(dnCol, 55), hline.style_dashed)
+hline(50, "Centro", color.new(color.gray, 70), hline.style_solid)
+hline(osLvl, "Sobreventa", color.new(upCol, 55), hline.style_dashed)
+hline(0, "Piso", color.new(color.gray, 88), hline.style_dotted)
+hline(showFib ? 61.8 : na, "0.618", color.new(#9d6cff, 60), hline.style_dotted)
+hline(showFib ? 38.2 : na, "0.382", color.new(#9d6cff, 60), hline.style_dotted)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PLOTS — sombras degradadas cyberpunk
+// ════════════════════════════════════════════════════════════════════════════
+plot(showMF ? 50 + cmf * 50 : na, "Money Flow", color=cmf >= 0 ? color.new(upCol, 70) : color.new(dnCol, 70), style=plot.style_columns, histbase=50)
+plot(showSMA ? smaO : na, "SMA", color=color.new(#ffd54f, 0), linewidth=1)
+plot(showEMA ? emaO : na, "EMA", color=color.new(#9d6cff, 0), linewidth=1)
+
+color oscCol = isBull ? upCol : dnCol
+pTrig = plot(trig, "Trigger", color=color.new(color.white, 35), linewidth=1)
+pOsc  = plot(osc,  "Oscilador", color=oscCol, linewidth=2)
+pMid  = plot(50, "Mid", color=color.new(color.gray, 100), display=display.none)
+
+// glow degradado a la media 50 (verde arriba / rojo abajo)
+fill(pOsc, pMid, top_value=100, bottom_value=50, top_color=glow ? color.new(upCol, 62) : na, bottom_color=glow ? color.new(upCol, 97) : na, title="Glow up")
+fill(pOsc, pMid, top_value=50, bottom_value=0,  top_color=glow ? color.new(dnCol, 97) : na, bottom_color=glow ? color.new(dnCol, 62) : na, title="Glow dn")
+// cuerpo fino entre osc y trigger
+fill(pOsc, pTrig, color=isBull ? color.new(upCol, 82) : color.new(dnCol, 82), title="Cuerpo")
+
+// ════════════════════════════════════════════════════════════════════════════
+//  SEÑALES — círculos BULL/BEAR pequeños + divergencias
+// ════════════════════════════════════════════════════════════════════════════
+bool flowUp = not reqFlow or cmf > 0
+bool flowDn = not reqFlow or cmf < 0
+bool crossUp = ta.crossover(osc, trig)  and flowUp and barstate.isconfirmed
+bool crossDn = ta.crossunder(osc, trig) and flowDn and barstate.isconfirmed
+
+float dpl = ta.pivotlow(low,  divLen, divLen)
+float dph = ta.pivothigh(high, divLen, divLen)
+var float pLo1 = na
+var float pLo2 = na
+var float oLo1 = na
+var float oLo2 = na
+var float pHi1 = na
+var float pHi2 = na
+var float oHi1 = na
+var float oHi2 = na
+if not na(dpl)
+    pLo2 := pLo1
+    pLo1 := dpl
+    oLo2 := oLo1
+    oLo1 := osc[divLen]
+if not na(dph)
+    pHi2 := pHi1
+    pHi1 := dph
+    oHi2 := oHi1
+    oHi1 := osc[divLen]
+bool bullDiv = showDiv and not na(dpl) and not na(pLo2) and pLo1 < pLo2 and oLo1 > oLo2 and barstate.isconfirmed
+bool bearDiv = showDiv and not na(dph) and not na(pHi2) and pHi1 > pHi2 and oHi1 < oHi2 and barstate.isconfirmed
+
+// círculos pequeños pegados a la línea (estándar BudAI)
+plotchar(showCross and crossUp ? osc : na, "BULL", "•", location.absolute, color=sigUp, size=size.tiny)
+plotchar(showCross and crossDn ? osc : na, "BEAR", "•", location.absolute, color=sigDn, size=size.tiny)
+plotchar(bullDiv ? osc : na, "Div+", "•", location.absolute, color=divUp, size=size.tiny)
+plotchar(bearDiv ? osc : na, "Div−", "•", location.absolute, color=divDn, size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  TREND MTF (mini, no-repaint)
+// ════════════════════════════════════════════════════════════════════════════
+f_mtf() =>
+    float e  = ta.ema(hlc3, chanLen)
+    float dd = ta.ema(math.abs(hlc3 - e), chanLen)
+    float c  = dd == 0 ? 0.0 : (hlc3 - e) / (0.015 * dd)
+    float w1 = ta.ema(c, avgLen)
+    float w2 = ta.sma(w1, trigLen)
+    w1 > w2 ? 1.0 : w1 < w2 ? -1.0 : 0.0
+
+float m15 = request.security(syminfo.tickerid, "15",  f_mtf(), lookahead=barmerge.lookahead_off)
+float m1h = request.security(syminfo.tickerid, "60",  f_mtf(), lookahead=barmerge.lookahead_off)
+float m4h = request.security(syminfo.tickerid, "240", f_mtf(), lookahead=barmerge.lookahead_off)
+float m1d = request.security(syminfo.tickerid, "D",   f_mtf(), lookahead=barmerge.lookahead_off)
+int   mtfScore = int(nz(m15) + nz(m1h) + nz(m4h) + nz(m1d))
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD minimalista (tiny)
+// ════════════════════════════════════════════════════════════════════════════
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+var table d = table.new(f_pos(dashPos), 2, 6, bgcolor=color.new(#0b0e16, 12), frame_color=color.new(upCol, 55), frame_width=1, border_width=1)
+f_cell(t, r, k, v, vc) =>
+    table.cell(t, 0, r, k, text_color=color.new(#90a4ae, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
+
+if showDash and barstate.islast
+    string biasTxt = osc >= obLvl ? "SOBRECOMPRA" : osc <= osLvl ? "SOBREVENTA" : isBull ? "Alcista" : "Bajista"
+    color  biasCol = osc >= obLvl ? dnCol : osc <= osLvl ? upCol : isBull ? upCol : dnCol
+    string flowTxt = cmf > 0 ? "ACUMULA" : "DISTRIB"
+    color  flowCol = cmf > 0 ? upCol : dnCol
+    string crossTxt = crossUp ? "BULL ▲" : crossDn ? "BEAR ▼" : isBull ? "alcista" : "bajista"
+    string mtfTxt  = (mtfScore > 0 ? "+" : "") + str.tostring(mtfScore) + " / 4"
+    color  mtfCol  = mtfScore >= 2 ? upCol : mtfScore <= -2 ? dnCol : color.new(#ffd54f, 0)
+    table.cell(d, 0, 0, "Pulse", text_color=color.white, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, str.tostring(osc, "#") + "/100", text_color=oscCol, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(d, 1, "Estado",     biasTxt,  biasCol)
+    f_cell(d, 2, "Money Flow", flowTxt,  flowCol)
+    f_cell(d, 3, "Señal",      crossTxt, crossUp ? upCol : crossDn ? dnCol : color.new(color.white,30))
+    f_cell(d, 4, "Trend MTF",  mtfTxt,   mtfCol)
+    f_cell(d, 5, "Trigger",    str.tostring(trig, "#"), color.new(color.gray, 0))
+
+// mini fila MTF visual
+var table mt = table.new(position.bottom_right, 4, 1, bgcolor=color.new(#0b0e16, 20), frame_color=color.new(upCol, 70), frame_width=1, border_width=1)
+f_mc(v) => v > 0 ? color.new(upCol, 20) : v < 0 ? color.new(dnCol, 20) : color.new(color.gray, 45)
+if showMTF and barstate.islast
+    table.cell(mt, 0, 0, "15m", bgcolor=f_mc(m15), text_color=color.white, text_size=size.tiny, text_halign=text.align_center)
+    table.cell(mt, 1, 0, "1H",  bgcolor=f_mc(m1h), text_color=color.white, text_size=size.tiny, text_halign=text.align_center)
+    table.cell(mt, 2, 0, "4H",  bgcolor=f_mc(m4h), text_color=color.white, text_size=size.tiny, text_halign=text.align_center)
+    table.cell(mt, 3, 0, "1D",  bgcolor=f_mc(m1d), text_color=color.white, text_size=size.tiny, text_halign=text.align_center)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MARCA DE AGUA — firma BudAI Cripto
+// ════════════════════════════════════════════════════════════════════════════
+f_wmPos(s) => s == "Inferior Izquierda" ? position.bottom_left : s == "Inferior Derecha" ? position.bottom_right : s == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(crossUp, "Pulse BULL", "Pulse · cruce BULL {{ticker}}")
+alertcondition(crossDn, "Pulse BEAR", "Pulse · cruce BEAR {{ticker}}")
+alertcondition(ta.crossover(osc, osLvl),  "Sale de sobreventa",  "Pulse · sale de sobreventa {{ticker}}")
+alertcondition(ta.crossunder(osc, obLvl), "Sale de sobrecompra", "Pulse · sale de sobrecompra {{ticker}}")

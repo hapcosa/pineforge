@@ -11,7 +11,7 @@
 //  Oscilador WaveTrend + Hyper Wave (doble onda) · MA · divergencias · glow neón.
 //  (c) BudAI Capital® — Pine v6 · estética futurista limpia
 // ────────────────────────────────────────────────────────────────────────────
-indicator("BudAI Capital® - Helix Pro", shorttitle="BudAI Capital® - Helix Pro", overlay=false, precision=1, max_labels_count=500, max_lines_count=500, max_bars_back=1000)
+indicator("BudAI Capital® - Helix Wave Pro", shorttitle="BudAI Capital® - Helix Wave Pro", overlay=false, precision=1, max_labels_count=500, max_lines_count=500, max_bars_back=1000)
 
 // ════════════════ GRUPOS ════════════════
 G_CORE = "① Núcleo"

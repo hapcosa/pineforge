@@ -1,0 +1,310 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Smart Market Structure
+//  SMC institucional: BOS / CHoCH · Order Blocks · FVG · EQH/EQL · Premium/Descuento.
+//  Estructura del mercado en vivo, estética cyberpunk limpia.
+//  (c) BudAI Capital® — Pine v6 · overlay
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Smart Market Structure", shorttitle="BudAI Capital® - Smart Market Structure", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_bars_back=2000)
+
+// ════════════════ GRUPOS ════════════════
+G_STR = "① Estructura (BOS / CHoCH)"
+G_OB  = "② Order Blocks"
+G_FVG = "③ Fair Value Gaps"
+G_EQ  = "④ Liquidez (EQH / EQL)"
+G_PD  = "⑤ Premium / Descuento"
+G_VIS = "⑥ Estética"
+G_WM  = "✦ Marca de agua"
+
+// ════════════════ ① ESTRUCTURA ════════════════
+swLen     = input.int(10, "Swing (pivote estructura)", minval=2, maxval=50, group=G_STR, tooltip="Más alto = estructura mayor (menos ruido). 10 equilibrado.")
+showBOS   = input.bool(true, "Mostrar BOS (rompimiento)", group=G_STR)
+showCHoCH = input.bool(true, "Mostrar CHoCH (cambio carácter)", group=G_STR)
+showHL    = input.bool(true, "Etiquetas HH/HL/LH/LL", group=G_STR)
+
+// ════════════════ ② ORDER BLOCKS ════════════════
+showOB   = input.bool(true, "Mostrar Order Blocks", group=G_OB)
+obMax    = input.int(6, "Máx OB visibles", minval=1, maxval=20, group=G_OB)
+obMitig  = input.bool(true, "Ocultar OB mitigados", group=G_OB)
+
+// ════════════════ ③ FVG ════════════════
+showFVG  = input.bool(true, "Mostrar FVG", group=G_FVG)
+fvgMax   = input.int(8, "Máx FVG visibles", minval=1, maxval=30, group=G_FVG)
+fvgMitig = input.bool(true, "Ocultar FVG mitigados", group=G_FVG)
+
+// ════════════════ ④ LIQUIDEZ EQH/EQL ════════════════
+showEQ   = input.bool(true, "Mostrar EQH / EQL (liquidez)", group=G_EQ)
+eqTol    = input.float(0.1, "Tolerancia (% ATR)", minval=0.01, maxval=1.0, step=0.05, group=G_EQ)
+
+// ════════════════ ⑤ PREMIUM / DESCUENTO ════════════════
+showPD   = input.bool(false, "Mostrar zonas Premium/EQ/Descuento", group=G_PD, tooltip="OFF por defecto — actívalo solo si quieres el dealing range dibujado.")
+pdLen    = input.int(50, "Rango (lookback)", minval=10, maxval=200, group=G_PD)
+
+// ════════════════ ⑥ ESTÉTICA (cyberpunk neón) ════════════════
+upCol    = input.color(#00e676, "Alcista", group=G_VIS, inline="c")
+dnCol    = input.color(#ff1744, "Bajista", group=G_VIS, inline="c")
+obUpCol  = input.color(color.new(#00e676, 82), "OB alcista", group=G_VIS, inline="ob")
+obDnCol  = input.color(color.new(#ff1744, 82), "OB bajista", group=G_VIS, inline="ob")
+fvgUpCol = input.color(color.new(#00e5ff, 84), "FVG alcista", group=G_VIS, inline="fv")
+fvgDnCol = input.color(color.new(#ff1e6e, 84), "FVG bajista", group=G_VIS, inline="fv")
+premCol  = input.color(color.new(#ff1744, 92), "Premium", group=G_VIS, inline="pd")
+discCol  = input.color(color.new(#00e676, 92), "Descuento", group=G_VIS, inline="pd")
+showDash = input.bool(true, "Dashboard minimalista", group=G_VIS)
+dashPos  = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda","Inferior Derecha","Superior Izquierda","Superior Derecha"], group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  BASE
+// ════════════════════════════════════════════════════════════════════════════
+float atr = ta.atr(14)
+bool  conf = barstate.isconfirmed
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ① ESTRUCTURA — pivotes, BOS/CHoCH, HH/HL/LH/LL
+// ════════════════════════════════════════════════════════════════════════════
+float ph = ta.pivothigh(high, swLen, swLen)
+float pl = ta.pivotlow(low,  swLen, swLen)
+
+var float lastPH = na
+var float lastPL = na
+var float prevPH = na
+var float prevPL = na
+var int   phBar = na
+var int   plBar = na
+if not na(ph)
+    prevPH := lastPH
+    lastPH := ph
+    phBar  := bar_index - swLen
+if not na(pl)
+    prevPL := lastPL
+    lastPL := pl
+    plBar  := bar_index - swLen
+
+var int bias = 0
+var float swingHi = na
+var float swingLo = na
+if not na(ph)
+    swingHi := ph
+if not na(pl)
+    swingLo := pl
+
+bool brokeUp = not na(swingHi) and close > swingHi and close[1] <= swingHi
+bool brokeDn = not na(swingLo) and close < swingLo and close[1] >= swingLo
+
+bool bosUp = false
+bool bosDn = false
+bool chochUp = false
+bool chochDn = false
+if brokeUp and conf
+    if bias < 0
+        chochUp := true
+    else
+        bosUp := true
+    bias := 1
+    swingHi := na
+if brokeDn and conf
+    if bias > 0
+        chochDn := true
+    else
+        bosDn := true
+    bias := -1
+    swingLo := na
+
+// arrays globales para limpieza
+var array<line>  brkLines = array.new_line()
+var array<label> brkLbls  = array.new_label()
+var array<label> hlLbls   = array.new_label()
+var array<box>   obBoxes  = array.new_box()
+var array<int>   obDir    = array.new_int()
+var array<box>   fvgBoxes = array.new_box()
+
+// ── dibujo BOS/CHoCH (inline, sin función global que reasigne) ──
+f_drawBreak(string txt, float y, int x1, color col) =>
+    if array.size(brkLines) >= 30
+        line.delete(array.shift(brkLines))
+        label.delete(array.shift(brkLbls))
+    array.push(brkLines, line.new(x1, y, bar_index, y, color=color.new(col, 30), style=line.style_dashed, width=1))
+    array.push(brkLbls,  label.new(int((x1 + bar_index) / 2), y, txt, style=label.style_none, textcolor=col, size=size.tiny))
+
+int phX = na(phBar) ? bar_index - swLen : phBar
+int plX = na(plBar) ? bar_index - swLen : plBar
+if showBOS and bosUp
+    f_drawBreak("BOS", lastPH, phX, upCol)
+if showBOS and bosDn
+    f_drawBreak("BOS", lastPL, plX, dnCol)
+if showCHoCH and chochUp
+    f_drawBreak("CHoCH", lastPH, phX, upCol)
+if showCHoCH and chochDn
+    f_drawBreak("CHoCH", lastPL, plX, dnCol)
+
+// ── etiquetas HH/HL/LH/LL ──
+f_drawHL(string txt, int x, float y, bool isHigh, color col) =>
+    if array.size(hlLbls) >= 40
+        label.delete(array.shift(hlLbls))
+    array.push(hlLbls, label.new(x, y, txt, xloc=xloc.bar_index, style=(isHigh ? label.style_label_down : label.style_label_up), color=color.new(col, 88), textcolor=col, size=size.tiny))
+
+if showHL and not na(ph)
+    bool hh = not na(prevPH) and ph > prevPH
+    f_drawHL(hh ? "HH" : "LH", bar_index - swLen, ph, true, hh ? upCol : dnCol)
+if showHL and not na(pl)
+    bool ll = not na(prevPL) and pl < prevPL
+    f_drawHL(ll ? "LL" : "HL", bar_index - swLen, pl, false, ll ? dnCol : upCol)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ② ORDER BLOCKS
+// ════════════════════════════════════════════════════════════════════════════
+f_addOB(float top, float bot, int dir) =>
+    if array.size(obBoxes) >= obMax
+        box.delete(array.shift(obBoxes))
+        array.shift(obDir)
+    color col = dir > 0 ? obUpCol : obDnCol
+    array.push(obBoxes, box.new(bar_index - swLen, top, bar_index + 6, bot, bgcolor=col, border_color=color.new(dir > 0 ? upCol : dnCol, 40), border_width=1))
+    array.push(obDir, dir)
+
+if showOB and (bosUp or chochUp)
+    f_addOB(high[swLen], low[swLen], 1)
+if showOB and (bosDn or chochDn)
+    f_addOB(high[swLen], low[swLen], -1)
+
+if array.size(obBoxes) > 0
+    int i = array.size(obBoxes) - 1
+    while i >= 0
+        box  bx = array.get(obBoxes, i)
+        int  dr = array.get(obDir, i)
+        bool mit = (dr > 0 and low <= box.get_bottom(bx)) or (dr < 0 and high >= box.get_top(bx))
+        if obMitig and mit
+            box.delete(bx)
+            array.remove(obBoxes, i)
+            array.remove(obDir, i)
+        else
+            box.set_right(bx, bar_index + 6)
+        i := i - 1
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ③ FVG — hueco de 3 velas
+// ════════════════════════════════════════════════════════════════════════════
+bool fvgUp = low > high[2]
+bool fvgDn = high < low[2]
+
+f_addFVG(float top, float bot, int dir) =>
+    if array.size(fvgBoxes) >= fvgMax
+        box.delete(array.shift(fvgBoxes))
+    color col = dir > 0 ? fvgUpCol : fvgDnCol
+    array.push(fvgBoxes, box.new(bar_index - 2, top, bar_index + 4, bot, bgcolor=col, border_color=color.new(dir > 0 ? upCol : dnCol, 50), border_width=1))
+
+if showFVG and conf and fvgUp
+    f_addFVG(low, high[2], 1)
+if showFVG and conf and fvgDn
+    f_addFVG(low[2], high, -1)
+
+if array.size(fvgBoxes) > 0
+    int i = array.size(fvgBoxes) - 1
+    while i >= 0
+        box  bx = array.get(fvgBoxes, i)
+        bool mit = low <= box.get_top(bx) and high >= box.get_bottom(bx)
+        if fvgMitig and mit
+            box.delete(bx)
+            array.remove(fvgBoxes, i)
+        else
+            box.set_right(bx, bar_index + 4)
+        i := i - 1
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ④ EQH / EQL — liquidez (máximos/mínimos iguales)
+// ════════════════════════════════════════════════════════════════════════════
+float tol = atr * eqTol
+if showEQ and not na(ph) and not na(prevPH) and math.abs(ph - prevPH) <= tol
+    line.new(phBar, ph, bar_index, ph, color=color.new(dnCol, 30), style=line.style_dotted, width=1)
+    label.new(bar_index, ph, "EQH", xloc=xloc.bar_index, style=label.style_none, textcolor=color.new(dnCol, 0), size=size.tiny)
+if showEQ and not na(pl) and not na(prevPL) and math.abs(pl - prevPL) <= tol
+    line.new(plBar, pl, bar_index, pl, color=color.new(upCol, 30), style=line.style_dotted, width=1)
+    label.new(bar_index, pl, "EQL", xloc=xloc.bar_index, style=label.style_none, textcolor=color.new(upCol, 0), size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ⑤ PREMIUM / DESCUENTO (opcional)
+// ════════════════════════════════════════════════════════════════════════════
+float drHigh = ta.highest(high, pdLen)
+float drLow  = ta.lowest(low,  pdLen)
+float eq     = (drHigh + drLow) / 2.0
+bool  premium  = close > eq
+bool  discount = close < eq
+
+var box premBox = na
+var box discBox = na
+var line eqLine = na
+if showPD
+    int xr = bar_index + 6
+    if na(premBox)
+        premBox := box.new(bar_index, drHigh, xr, eq, bgcolor=premCol, border_color=na)
+        discBox := box.new(bar_index, eq, xr, drLow, bgcolor=discCol, border_color=na)
+        eqLine  := line.new(bar_index, eq, xr, eq, color=color.new(#ffb300, 0), style=line.style_solid, width=1)
+    else
+        box.set_lefttop(premBox, bar_index, drHigh)
+        box.set_rightbottom(premBox, xr, eq)
+        box.set_lefttop(discBox, bar_index, eq)
+        box.set_rightbottom(discBox, xr, drLow)
+        line.set_xy1(eqLine, bar_index, eq)
+        line.set_xy2(eqLine, xr, eq)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ⑥ DASHBOARD minimalista (tiny)
+// ════════════════════════════════════════════════════════════════════════════
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+var table d = table.new(f_pos(dashPos), 2, 5, bgcolor=color.new(#0b0e16, 14), frame_color=color.new(upCol, 50), frame_width=1, border_width=1)
+f_cell(t, r, k, v, vc) =>
+    table.cell(t, 0, r, k, text_color=color.new(#90a4ae, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
+
+var string lastBreak = "—"
+var color  lastBreakC = color.gray
+if bosUp
+    lastBreak := "BOS ▲"
+    lastBreakC := upCol
+if bosDn
+    lastBreak := "BOS ▼"
+    lastBreakC := dnCol
+if chochUp
+    lastBreak := "CHoCH ▲"
+    lastBreakC := upCol
+if chochDn
+    lastBreak := "CHoCH ▼"
+    lastBreakC := dnCol
+
+if showDash and barstate.islast
+    string biasTxt = bias > 0 ? "ALCISTA" : bias < 0 ? "BAJISTA" : "NEUTRO"
+    color  biasCol = bias > 0 ? upCol : bias < 0 ? dnCol : color.new(#90a4ae, 0)
+    string zoneTxt = premium ? "PREMIUM" : "DESCUENTO"
+    color  zoneCol = premium ? dnCol : upCol
+    table.cell(d, 0, 0, "Estructura", text_color=color.white, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, biasTxt, text_color=biasCol, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(d, 1, "Último evento", lastBreak, lastBreakC)
+    f_cell(d, 2, "Zona", zoneTxt, zoneCol)
+    f_cell(d, 3, "OB activos", str.tostring(array.size(obBoxes)), color.new(#90a4ae, 0))
+    f_cell(d, 4, "FVG activos", str.tostring(array.size(fvgBoxes)), color.new(#00e5ff, 0))
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MARCA DE AGUA — firma BudAI Cripto
+// ════════════════════════════════════════════════════════════════════════════
+f_wmPos(s) => s == "Inferior Izquierda" ? position.bottom_left : s == "Inferior Derecha" ? position.bottom_right : s == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(bosUp,   "BOS alcista",   "Structure · BOS alcista {{ticker}}")
+alertcondition(bosDn,   "BOS bajista",   "Structure · BOS bajista {{ticker}}")
+alertcondition(chochUp, "CHoCH alcista", "Structure · CHoCH alcista {{ticker}}")
+alertcondition(chochDn, "CHoCH bajista", "Structure · CHoCH bajista {{ticker}}")

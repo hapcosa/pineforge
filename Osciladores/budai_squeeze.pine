@@ -8,11 +8,11 @@
 //         C R I P T O   ·   T R A D I N G   C A P I T A L
 // ────────────────────────────────────────────────────────────────────────────
 //  BudAI Capital® - Squeeze Momentum
-//  Compresión de volatilidad (BB dentro de Keltner) → energía acumulada → breakout.
-//  Histograma de momentum (regresión lineal) + puntos de squeeze + disparo.
-//  © BudAI Capital® — Pine v6 · estética futurista limpia
+//  Compresión de volatilidad (BB dentro de Keltner) → momentum en ONDA degradada.
+//  Disparo sólido al liberarse (anti-ruido) · estética cyberpunk.
+//  (c) BudAI Capital® — Pine v6
 // ────────────────────────────────────────────────────────────────────────────
-indicator("BudAI Capital® - Squeeze Momentum", shorttitle="BudAI Capital® - Squeeze Momentum", overlay=false, precision=2, max_labels_count=200)
+indicator("BudAI Capital® - Volatility Squeeze Momentum", shorttitle="BudAI Capital® - Volatility Squeeze", overlay=false, precision=2, max_labels_count=200)
 
 // ════════════════ GRUPOS ════════════════
 G_BB  = "① Bollinger"
@@ -34,23 +34,24 @@ useTR   = input.bool(true, "Usar True Range (recomendado)", group=G_KC)
 // ════════════════ ③ MOMENTUM ════════════════
 momLen  = input.int(20, "Momentum Longitud", minval=2, group=G_MOM)
 src     = input.source(close, "Fuente", group=G_MOM)
+smoothW = input.int(2, "Suavizado de la onda", minval=1, maxval=10, group=G_MOM)
 
 // ════════════════ ④ SEÑALES ════════════════
 showFire   = input.bool(true, "Disparo al liberar squeeze", group=G_SIG, tooltip="Solo dispara tras compresión REAL + momentum con fuerza + cooldown. Filtra ruido.")
 minSqzBars = input.int(4, "Mín. barras comprimidas", minval=1, maxval=30, group=G_SIG, tooltip="Exige compresión previa real. Más alto = menos señales, más sólidas.")
 momFilter  = input.bool(true, "Exigir momentum con fuerza (creciente)", group=G_SIG, tooltip="El momentum debe acelerar en su dirección, no solo tener signo.")
 cooldown   = input.int(6, "Cooldown entre disparos (velas)", minval=0, maxval=50, group=G_SIG, tooltip="Evita disparos repetidos seguidos.")
-showZero   = input.bool(false, "Cruces del momentum (0)", group=G_SIG)
 
-// ════════════════ ⑤ ESTÉTICA (paleta clásica neutra · se integra a todo chart) ════════════════
-upStrong = input.color(#00c853, "Mom + creciente", group=G_VIS, inline="m1")
-upWeak   = input.color(#1b5e20, "Mom + decreciente", group=G_VIS, inline="m1")
-dnStrong = input.color(#ff1744, "Mom − cayendo", group=G_VIS, inline="m2")
-dnWeak   = input.color(#7f0000, "Mom − recuperando", group=G_VIS, inline="m2")
+// ════════════════ ⑤ ESTÉTICA (cyberpunk · onda degradada) ════════════════
+upCol    = input.color(#00e676, "Alcista (verde neón)", group=G_VIS, inline="c")
+dnCol    = input.color(#ff1744, "Bajista (rojo neón)", group=G_VIS, inline="c")
+lineCol  = input.color(#ffffff, "Línea (blanca)", group=G_VIS, inline="ln")
+shadeInt = input.int(45, "Intensidad sombra", minval=20, maxval=85, group=G_VIS, inline="ln")
 sqzOnCol = input.color(#ffea00, "Squeeze ON (compresión)", group=G_VIS, inline="s")
 sqzNoCol = input.color(#607d8b, "Squeeze OFF (libre)", group=G_VIS, inline="s")
 sigUpCol = input.color(#ffea00, "Señal alcista (arriba)", group=G_VIS, inline="sg")
 sigDnCol = input.color(#9e9e9e, "Señal bajista (arriba)", group=G_VIS, inline="sg")
+neon     = input.bool(true, "Glow neón", group=G_VIS)
 showDash = input.bool(true, "Dashboard minimalista", group=G_VIS)
 dashPos  = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
 
@@ -67,97 +68,85 @@ float dev   = bbMult * ta.stdev(src, bbLen)
 float bbUpper = basis + dev
 float bbLower = basis - dev
 
-float kcBasis = ta.sma(src, kcLen)
-float kcRange = useTR ? ta.tr(true) : (high - low)
+float kcBasis   = ta.sma(src, kcLen)
+float kcRange   = useTR ? ta.tr(true) : (high - low)
 float kcRangeMa = ta.sma(kcRange, kcLen)
 float kcUpper = kcBasis + kcRangeMa * kcMult
 float kcLower = kcBasis - kcRangeMa * kcMult
 
-bool sqzOn  = bbLower > kcLower and bbUpper < kcUpper   // BB dentro de KC = compresión
-bool sqzOff = bbLower < kcLower and bbUpper > kcUpper   // BB fuera = expansión
-bool noSqz  = not sqzOn and not sqzOff
+bool sqzOn  = bbLower > kcLower and bbUpper < kcUpper
+bool sqzOff = bbLower < kcLower and bbUpper > kcUpper
 
 // ════════════════════════════════════════════════════════════════════════════
-//  MOMENTUM — regresión lineal del desvío respecto al centro del rango
+//  MOMENTUM — regresión lineal, suavizado a ONDA
 // ════════════════════════════════════════════════════════════════════════════
 float hh = ta.highest(high, momLen)
 float ll = ta.lowest(low,  momLen)
 float avgHL = ((hh + ll) / 2.0 + ta.sma(close, momLen)) / 2.0
-float mom = ta.linreg(src - avgHL, momLen, 0)
+float momRaw = ta.linreg(src - avgHL, momLen, 0)
+float mom = ta.ema(momRaw, smoothW)
 
-// color del histograma (4 estados, estilo limpio)
-color momCol = mom > 0 ? (mom > nz(mom[1]) ? upStrong : upWeak) : (mom < nz(mom[1]) ? dnStrong : dnWeak)
+bool waveUp = mom >= mom[1]
+bool isBull = mom >= 0
 
 // ════════════════════════════════════════════════════════════════════════════
-//  PLOTS — limpio, sin background
+//  PLOTS — ONDA degradada (en vez de barras)
 // ════════════════════════════════════════════════════════════════════════════
-plot(mom, "Momentum", color=momCol, style=plot.style_columns, histbase=0)
 hline(0, "Cero", color.new(color.gray, 60), hline.style_solid)
 
-// puntos de squeeze en la línea cero (amarillo intenso=compresión, gris=libre)
-color dotCol = sqzOn ? sqzOnCol : sqzOff ? sqzNoCol : color.new(#90a4ae, 45)
-plot(0, "Squeeze", color=dotCol, style=plot.style_circles, linewidth=2)
+pMom  = plot(mom, "Momentum", color.new(lineCol, 0), 2)
+pZero = plot(0, "z", color=color.new(color.white, 100), display=display.none)
+
+color shTop = isBull ? color.new(upCol, shadeInt) : color.new(dnCol, 88)
+color shBot = isBull ? color.new(upCol, 88) : color.new(dnCol, shadeInt)
+fill(pMom, pZero, top_color=shTop, bottom_color=shBot, title="Onda momentum")
+
+plot(neon ? mom : na, "Glow", color.new(isBull ? upCol : dnCol, 78), 4)
+
+// punto de squeeze SOLO cuando hay compresión (amarillo flúor) — no satura
+plotchar(sqzOn ? 0 : na, "Squeeze ON", "•", location.absolute, color=sqzOnCol, size=size.tiny)
 
 // ════════════════════════════════════════════════════════════════════════════
 //  SEÑALES — disparo sólido al liberar compresión (anti-ruido)
 // ════════════════════════════════════════════════════════════════════════════
-// contador de barras en compresión (energía acumulada) — ANTES de usarlo
 var int sqzBars = 0
 sqzBars := sqzOn ? sqzBars + 1 : 0
-
-// barras comprimidas justo antes de soltar (en la vela previa)
 int barsBeforeRelease = nz(sqzBars[1])
-bool released = sqzOn[1] and not sqzOn                  // pasó de comprimido a libre
-bool realSqueeze = barsBeforeRelease >= minSqzBars       // compresión real, no micro
-
-// momentum con fuerza: signo + acelerando en su dirección
+bool released = sqzOn[1] and not sqzOn
+bool realSqueeze = barsBeforeRelease >= minSqzBars
 bool momStrongUp = mom > 0 and (not momFilter or mom > nz(mom[1]))
 bool momStrongDn = mom < 0 and (not momFilter or mom < nz(mom[1]))
-
-// cooldown anti-spam
 var int lastFire = -1000
 bool canFire = (bar_index - lastFire) > cooldown
-
 bool fireUp = showFire and released and realSqueeze and momStrongUp and canFire and barstate.isconfirmed
 bool fireDn = showFire and released and realSqueeze and momStrongDn and canFire and barstate.isconfirmed
 if fireUp or fireDn
     lastFire := bar_index
-
-// disparo = punto diminuto en la PARTE SUPERIOR (amarillo alcista / gris bajista)
 plotchar(fireUp, "Disparo ↑", "•", location.top, color=sigUpCol, size=size.tiny)
 plotchar(fireDn, "Disparo ↓", "•", location.top, color=sigDnCol, size=size.tiny)
 
-// cruces de momentum por cero (opcional, sutil)
-bool momX_up = ta.crossover(mom, 0)
-bool momX_dn = ta.crossunder(mom, 0)
-bool zUp = showZero and momX_up and barstate.isconfirmed
-bool zDn = showZero and momX_dn and barstate.isconfirmed
-plotchar(zUp ? 0 : na, "Cruce ↑", "•", location.absolute, color=color.new(upStrong, 25), size=size.tiny)
-plotchar(zDn ? 0 : na, "Cruce ↓", "•", location.absolute, color=color.new(dnStrong, 25), size=size.tiny)
-
 // ════════════════════════════════════════════════════════════════════════════
-//  DASHBOARD minimalista
+//  DASHBOARD minimalista (tiny)
 // ════════════════════════════════════════════════════════════════════════════
 f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
 var table d = table.new(f_pos(dashPos), 2, 4, bgcolor=color.new(#0b0e16, 14), frame_color=color.new(#546e7a, 40), frame_width=1, border_width=1)
 f_cell(t, r, k, v, vc) =>
     table.cell(t, 0, r, k, text_color=color.new(#90a4ae, 0), text_size=size.tiny, text_halign=text.align_left)
     table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
-
 if showDash and barstate.islast
     string sqState = sqzOn ? "COMPRIMIDO (" + str.tostring(sqzBars) + ")" : sqzOff ? "EXPANDIDO" : "neutro"
-    color  sqCol = sqzOn ? sqzOnCol : sqzOff ? upStrong : color.new(#90a4ae, 0)
+    color  sqCol = sqzOn ? sqzOnCol : sqzOff ? upCol : color.new(#90a4ae, 0)
     string momTxt = mom > 0 ? "▲ Alcista" : "▼ Bajista"
-    color  momTxtC = mom > 0 ? upStrong : dnStrong
-    string sesgo = mom > 0 and mom > nz(mom[1]) ? "Comprando fuerte" : mom > 0 ? "Comprando débil" : mom < 0 and mom < nz(mom[1]) ? "Vendiendo fuerte" : "Vendiendo débil"
-    table.cell(d, 0, 0, "BudAI SQZ", text_color=color.white, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_left)
-    table.cell(d, 1, 0, str.tostring(mom, "#.##"), text_color=momCol, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_right)
+    color  momTxtC = mom > 0 ? upCol : dnCol
+    string sesgo = mom > 0 and waveUp ? "Comprando fuerte" : mom > 0 ? "Comprando débil" : mom < 0 and not waveUp ? "Vendiendo fuerte" : "Vendiendo débil"
+    table.cell(d, 0, 0, "Squeeze", text_color=color.white, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, str.tostring(mom, "#.##"), text_color=momTxtC, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_right)
     f_cell(d, 1, "Squeeze",  sqState, sqCol)
     f_cell(d, 2, "Momentum", momTxt,  momTxtC)
-    f_cell(d, 3, "Presión",  sesgo,   momCol)
+    f_cell(d, 3, "Presión",  sesgo,   momTxtC)
 
 // ════════════════════════════════════════════════════════════════════════════
-//  MARCA DE AGUA
+//  MARCA DE AGUA — firma BudAI Cripto
 // ════════════════════════════════════════════════════════════════════════════
 f_wmPos(s) => s == "Inferior Izquierda" ? position.bottom_left : s == "Inferior Derecha" ? position.bottom_right : s == "Superior Izquierda" ? position.top_left : position.top_right
 var table wm = table.new(f_wmPos(wmPos), 1, 1, bgcolor=color.new(color.black, 100))
@@ -167,6 +156,6 @@ if showWM and barstate.islast
 // ════════════════════════════════════════════════════════════════════════════
 //  ALERTAS
 // ════════════════════════════════════════════════════════════════════════════
-alertcondition(fireUp, "Squeeze libera ↑", "BUDAI SQZ · breakout alcista {{ticker}}")
-alertcondition(fireDn, "Squeeze libera ↓", "BUDAI SQZ · breakout bajista {{ticker}}")
-alertcondition(sqzOn and not sqzOn[1], "Entra en compresión", "BUDAI SQZ · squeeze ON {{ticker}}")
+alertcondition(fireUp, "Squeeze libera ↑", "BudAI SQZ · breakout alcista {{ticker}}")
+alertcondition(fireDn, "Squeeze libera ↓", "BudAI SQZ · breakout bajista {{ticker}}")
+alertcondition(sqzOn and not sqzOn[1], "Entra en compresión", "BudAI SQZ · squeeze ON {{ticker}}")

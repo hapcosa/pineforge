@@ -7,12 +7,12 @@
 // ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
 //         C R I P T O   ·   T R A D I N G   C A P I T A L
 // ────────────────────────────────────────────────────────────────────────────
-//  BudAI Capital® - Panic Radar
+//  BudAI Capital® - Panic & Euphoria Radar
 //  Williams Vix Fix — mide el pánico (proxy del VIX) para cazar SUELOS de mercado.
-//  Picos de miedo = oportunidad de compra. Tope de euforia = riesgo de techo.
-//  (c) BudAI Capital® — Pine v6 · estética futurista limpia
+//  Picos de miedo = oportunidad de compra · euforia extrema = riesgo de techo.
+//  Onda difuminada cyberpunk · (c) BudAI Capital® — Pine v6
 // ────────────────────────────────────────────────────────────────────────────
-indicator("BudAI Capital® - Panic Radar", shorttitle="BudAI Capital® - Panic Radar", overlay=false, precision=2, max_labels_count=300)
+indicator("BudAI Capital® - Panic & Euphoria Radar", shorttitle="BudAI Capital® - Panic & Euphoria Radar", overlay=false, precision=2, max_labels_count=300)
 
 // ════════════════ GRUPOS ════════════════
 G_CORE = "① Núcleo (Vix Fix)"
@@ -23,8 +23,9 @@ G_VIS  = "⑤ Estética"
 G_WM   = "✦ Marca de agua"
 
 // ════════════════ ① NÚCLEO ════════════════
-vixLen = input.int(22, "Vix Fix período", minval=2, maxval=100, group=G_CORE, tooltip="Williams Vix Fix clásico = 22. Mide la caída desde el máximo reciente.")
-src    = input.source(close, "Fuente", group=G_CORE)
+vixLen  = input.int(22, "Vix Fix período", minval=2, maxval=100, group=G_CORE, tooltip="Williams Vix Fix clásico = 22. Mide la caída desde el máximo reciente.")
+src     = input.source(close, "Fuente", group=G_CORE)
+smoothW = input.int(2, "Suavizado de la onda", minval=1, maxval=10, group=G_CORE)
 
 // ════════════════ ② BANDA DE PÁNICO ════════════════
 bbLen   = input.int(20, "BB período", minval=2, group=G_BB, inline="b")
@@ -39,12 +40,14 @@ showTop = input.bool(true, "Detectar euforia (posible techo)", group=G_TOP, tool
 showFloor = input.bool(true, "Suelo de pánico (compra)", group=G_SIG, tooltip="Pico de miedo que empieza a ceder = posible suelo.")
 showRoof  = input.bool(true, "Techo de euforia (venta)", group=G_SIG)
 
-// ════════════════ ⑤ ESTÉTICA (paleta BudAI) ════════════════
-panicCol = input.color(#ff1744, "Color pánico", group=G_VIS, inline="c")
-calmCol  = input.color(#26a69a, "Color calma", group=G_VIS, inline="c")
-sigUp    = input.color(#00e5ff, "Suelo (cian)", group=G_VIS, inline="sg")
-sigDn    = input.color(#b388ff, "Techo (púrpura)", group=G_VIS, inline="sg")
-glow     = input.bool(true, "Glow futurista", group=G_VIS)
+// ════════════════ ⑤ ESTÉTICA (cyberpunk · onda difuminada) ════════════════
+panicCol = input.color(#ff1744, "Pánico (rojo neón)", group=G_VIS, inline="c")
+calmCol  = input.color(#00e676, "Calma/euforia (verde)", group=G_VIS, inline="c")
+lineCol  = input.color(#ffffff, "Línea (blanca)", group=G_VIS, inline="ln")
+shadeInt = input.int(45, "Intensidad sombra", minval=20, maxval=85, group=G_VIS, inline="ln")
+sigUp    = input.color(#ffea00, "Suelo (amarillo)", group=G_VIS, inline="sg")
+sigDn    = input.color(#9e9e9e, "Techo (gris)", group=G_VIS, inline="sg")
+glow     = input.bool(true, "Glow neón", group=G_VIS)
 showDash = input.bool(true, "Dashboard minimalista", group=G_VIS)
 dashPos  = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
 
@@ -54,20 +57,18 @@ wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquie
 wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
 
 // ════════════════════════════════════════════════════════════════════════════
-//  NÚCLEO — Williams Vix Fix
-//  vixFix = qué tan lejos está el cierre del máximo de los últimos N (caída/miedo)
+//  NÚCLEO — Williams Vix Fix (pánico) + inverso (euforia)
 // ════════════════════════════════════════════════════════════════════════════
 float hh = ta.highest(src, vixLen)
-float vixFix = hh != 0 ? (hh - low) / hh * 100.0 : 0.0
-// inverso: euforia (lejos del mínimo reciente)
+float vixRaw = hh != 0 ? (hh - low) / hh * 100.0 : 0.0
+float vixFix = ta.ema(vixRaw, smoothW)
 float ll = ta.lowest(src, vixLen)
 float euph = ll != 0 ? (high - ll) / ll * 100.0 : 0.0
 
-// banda de Bollinger sobre el Vix Fix → define el "pánico" relativo
+// banda de Bollinger sobre el Vix Fix → "pánico" relativo
 float bMid = ta.sma(vixFix, bbLen)
 float bDev = bbMult * ta.stdev(vixFix, bbLen)
 float bUp  = bMid + bDev
-// rango percentil para clasificar intensidad
 float rangeHi = ta.highest(vixFix, phLen) * phUp
 bool isPanic = vixFix >= bUp or vixFix >= rangeHi
 
@@ -78,33 +79,33 @@ float eUp  = eMid + eDev
 float eRangeHi = ta.highest(euph, phLen) * phUp
 bool isEuph = showTop and (euph >= eUp or euph >= eRangeHi)
 
-// color del histograma: rojo si pánico, teal si calma
-color vixCol = isPanic ? panicCol : color.new(panicCol, 55)
-
 // ════════════════════════════════════════════════════════════════════════════
-//  PLOTS — histograma de pánico + glow
+//  PLOTS — ONDA difuminada (en vez de barras)
 // ════════════════════════════════════════════════════════════════════════════
-plot(vixFix, "Vix Fix (pánico)", color=vixCol, style=plot.style_columns, histbase=0)
-plot(bUp, "Umbral pánico", color=color.new(panicCol, 35), linewidth=1)
-plot(showTop ? euph : na, "Euforia", color=isEuph ? calmCol : color.new(calmCol, 70), linewidth=1)
+// color de la onda: rojo intenso si pánico, atenuado en calma
+color waveCol = isPanic ? panicCol : color.new(panicCol, 45)
 
-// glow sobre el pico de pánico (capa fina)
-pPanic = plot(vixFix, "p", color=color.new(color.white, 100), display=display.none)
-pZero  = plot(0, "z", color=color.new(color.white, 100), display=display.none)
-fill(pPanic, pZero, top_color=glow ? color.new(panicCol, 88) : na, bottom_color=glow ? color.new(panicCol, 97) : na, title="Glow pánico")
+pVix  = plot(vixFix, "Vix Fix (pánico)", color.new(lineCol, 0), 2)
+pZero = plot(0, "z", color=color.new(color.white, 100), display=display.none)
+// sombra difuminada hacia 0: más intensa cuanto más alto el pánico
+fill(pVix, pZero, top_color=glow ? color.new(panicCol, shadeInt) : na, bottom_color=glow ? color.new(panicCol, 92) : na, title="Onda pánico")
+// glow neón sobre la línea
+plot(glow ? vixFix : na, "Glow", color.new(waveCol, 78), 4)
+
+// umbral de pánico (línea fina) + euforia opcional
+plot(bUp, "Umbral pánico", color=color.new(panicCol, 45), linewidth=1)
+plot(showTop ? euph : na, "Euforia", color=isEuph ? calmCol : color.new(calmCol, 72), linewidth=1)
 
 // ════════════════════════════════════════════════════════════════════════════
 //  SEÑALES — suelo (pánico cede) / techo (euforia cede)
 // ════════════════════════════════════════════════════════════════════════════
 bool conf = barstate.isconfirmed
-// suelo: hubo pánico y ahora el Vix Fix empieza a bajar (miedo cediendo)
 bool panicFade = isPanic[1] and vixFix < vixFix[1]
 bool floorSig = showFloor and panicFade and conf
-// techo: hubo euforia y empieza a ceder
 bool euphFade = showTop and isEuph[1] and euph < euph[1]
 bool roofSig = showRoof and euphFade and conf
 
-// puntos muy pequeños: suelo abajo (cian) / techo arriba (púrpura)
+// círculos pequeños: suelo abajo (amarillo) / techo arriba (gris)
 plotchar(floorSig, "Suelo (compra)", "•", location.bottom, color=sigUp, size=size.tiny)
 plotchar(roofSig,  "Techo (venta)",  "•", location.top,    color=sigDn, size=size.tiny)
 
@@ -119,12 +120,12 @@ f_cell(t, r, k, v, vc) =>
 
 if showDash and barstate.islast
     string estado = isPanic ? "PÁNICO" : isEuph ? "EUFORIA" : "Calma"
-    color  estC = isPanic ? panicCol : isEuph ? sigDn : calmCol
+    color  estC = isPanic ? panicCol : isEuph ? calmCol : color.new(#90a4ae,0)
     string nivel = vixFix > rangeHi ? "Extremo" : vixFix > bUp ? "Alto" : "Normal"
     string senal = floorSig ? "▲ Suelo" : roofSig ? "▼ Techo" : "—"
     color  senalC = floorSig ? sigUp : roofSig ? sigDn : color.new(color.white, 35)
     table.cell(d, 0, 0, "Panic Radar", text_color=color.white, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_left)
-    table.cell(d, 1, 0, str.tostring(vixFix, "#.#"), text_color=vixCol, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_right)
+    table.cell(d, 1, 0, str.tostring(vixFix, "#.#"), text_color=waveCol, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_right)
     f_cell(d, 1, "Estado", estado, estC)
     f_cell(d, 2, "Nivel",  nivel,  color.new(#90a4ae,0))
     f_cell(d, 3, "Señal",  senal,  senalC)

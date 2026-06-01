@@ -8,17 +8,17 @@
 //         C R I P T O   ·   T R A D I N G   C A P I T A L
 // ────────────────────────────────────────────────────────────────────────────
 //  BudAI Capital® - Coil
-//  Squeeze de volatilidad (BB dentro de Keltner) + momentum con glow neón.
+//  Squeeze de volatilidad (BB dentro de Keltner) + momentum en ONDA degradada.
 //  Compresión = resorte cargando energía → disparo al liberarse.
-//  (c) BudAI Capital® — Pine v6 · estética futurista limpia
+//  (c) BudAI Capital® — Pine v6 · estética cyberpunk
 // ────────────────────────────────────────────────────────────────────────────
-indicator("BudAI Capital® - Coil", shorttitle="BudAI Capital® - Coil", overlay=false, precision=2, max_labels_count=200)
+indicator("BudAI Capital® - Compression Coil", shorttitle="BudAI Capital® - Compression Coil", overlay=false, precision=2, max_labels_count=200)
 
 // ════════════════ GRUPOS ════════════════
 G_CORE = "① Squeeze (BB / KC)"
 G_MOM  = "② Momentum"
-G_SIG  = "④ Señales"
-G_VIS  = "⑤ Estética"
+G_SIG  = "③ Señales"
+G_VIS  = "④ Estética"
 G_WM   = "✦ Marca de agua"
 
 // ════════════════ ① SQUEEZE ════════════════
@@ -31,15 +31,16 @@ useTR  = input.bool(true, "Usar True Range", group=G_CORE)
 // ════════════════ ② MOMENTUM ════════════════
 momLen   = input.int(20, "Momentum Longitud", group=G_MOM)
 srcInput = input.source(close, "Fuente", group=G_MOM)
+smoothW  = input.int(2, "Suavizado de la onda", minval=1, maxval=10, group=G_MOM)
 
-// ════════════════ ④ SEÑALES ════════════════
+// ════════════════ ③ SEÑALES ════════════════
 showFire = input.bool(true, "Disparo al liberar squeeze", group=G_SIG)
 
-// ════════════════ ⑤ ESTÉTICA ════════════════
-upStrong = input.color(#00c853, "Mom + creciente", group=G_VIS, inline="m1")
-upWeak   = input.color(#1b5e20, "Mom + decreciente", group=G_VIS, inline="m1")
-dnStrong = input.color(#ff1744, "Mom − cayendo", group=G_VIS, inline="m2")
-dnWeak   = input.color(#7f0000, "Mom − recuperando", group=G_VIS, inline="m2")
+// ════════════════ ④ ESTÉTICA (cyberpunk · onda degradada) ════════════════
+upCol    = input.color(#00e676, "Alcista (verde neón)", group=G_VIS, inline="c")
+dnCol    = input.color(#ff1744, "Bajista (rojo neón)", group=G_VIS, inline="c")
+lineCol  = input.color(#ffffff, "Línea (blanca)", group=G_VIS, inline="ln")
+shadeInt = input.int(45, "Intensidad sombra", minval=20, maxval=85, group=G_VIS, inline="ln")
 sqzOnCol = input.color(#ffea00, "Squeeze ON", group=G_VIS, inline="s")
 sqzNoCol = input.color(#607d8b, "Squeeze OFF", group=G_VIS, inline="s")
 sigUpCol = input.color(#ffea00, "Señal alcista (arriba)", group=G_VIS, inline="sg")
@@ -71,25 +72,39 @@ bool sqzOn  = bbLower > kcLower and bbUpper < kcUpper
 bool sqzOff = bbLower < kcLower and bbUpper > kcUpper
 
 // ════════════════════════════════════════════════════════════════════════════
-//  MOMENTUM — regresión lineal
+//  MOMENTUM — regresión lineal, suavizado a ONDA
 // ════════════════════════════════════════════════════════════════════════════
 float hh = ta.highest(high, momLen)
 float ll = ta.lowest(low, momLen)
 float avgHL = ((hh + ll) / 2.0 + ta.sma(close, momLen)) / 2.0
-float mom = ta.linreg(srcInput - avgHL, momLen, 0)
-color momColor = mom > 0 ? (mom > nz(mom[1]) ? upStrong : upWeak) : (mom < nz(mom[1]) ? dnStrong : dnWeak)
+float momRaw = ta.linreg(srcInput - avgHL, momLen, 0)
+float mom = ta.ema(momRaw, smoothW)
+
+bool waveUp = mom >= mom[1]
+bool isBull = mom >= 0
 
 // ════════════════════════════════════════════════════════════════════════════
-//  PLOTS
+//  PLOTS — ONDA degradada (en vez de barras)
 // ════════════════════════════════════════════════════════════════════════════
-plot(mom, "Momentum", momColor, style=plot.style_columns, histbase=0)
-plot(neon ? mom : na, "Glow", color.new(momColor, 80), style=plot.style_columns, histbase=0)
 hline(0, "Cero", color.new(color.gray, 60), hline.style_solid)
-color dotCol = sqzOn ? sqzOnCol : sqzOff ? sqzNoCol : color.new(#90a4ae, 45)
-plot(0, "Squeeze", color=dotCol, style=plot.style_circles, linewidth=2)
+
+// línea blanca de la onda
+pMom  = plot(mom, "Momentum", color.new(lineCol, 0), 2)
+pZero = plot(0, "z", color=color.new(color.white, 100), display=display.none)
+
+// sombra degradada: verde si onda sobre 0, rojo si bajo 0
+color shTop = isBull ? color.new(upCol, shadeInt) : color.new(dnCol, 88)
+color shBot = isBull ? color.new(upCol, 88) : color.new(dnCol, shadeInt)
+fill(pMom, pZero, top_color=shTop, bottom_color=shBot, title="Onda momentum")
+
+// glow neón
+plot(neon ? mom : na, "Glow", color.new(isBull ? upCol : dnCol, 78), 4)
+
+// punto de squeeze SOLO cuando hay compresión (amarillo flúor) — no satura
+plotchar(sqzOn ? 0 : na, "Squeeze ON", "•", location.absolute, color=sqzOnCol, size=size.tiny)
 
 // ════════════════════════════════════════════════════════════════════════════
-//  SEÑALES — disparo al liberar (con momentum a favor)
+//  SEÑALES — disparo al liberar (momentum a favor)
 // ════════════════════════════════════════════════════════════════════════════
 bool released = sqzOn[1] and not sqzOn
 bool fireUp = showFire and released and mom > 0 and barstate.isconfirmed
@@ -110,15 +125,15 @@ f_cell(t, r, k, v, vc) =>
     table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
 if showDash and barstate.islast
     string sqState = sqzOn ? "COMPRIMIDO (" + str.tostring(sqzBars) + ")" : sqzOff ? "LIBERADO" : "neutro"
-    color  sqCol = sqzOn ? sqzOnCol : sqzOff ? upStrong : color.new(#90a4ae, 0)
+    color  sqCol = sqzOn ? sqzOnCol : sqzOff ? upCol : color.new(#90a4ae, 0)
     string momTxt = mom > 0 ? "▲ Alcista" : "▼ Bajista"
-    color  momTxtC = mom > 0 ? upStrong : dnStrong
-    string sesgo = mom > 0 and mom > nz(mom[1]) ? "Comprando fuerte" : mom > 0 ? "Comprando débil" : mom < 0 and mom < nz(mom[1]) ? "Vendiendo fuerte" : "Vendiendo débil"
+    color  momTxtC = mom > 0 ? upCol : dnCol
+    string sesgo = mom > 0 and waveUp ? "Comprando fuerte" : mom > 0 ? "Comprando débil" : mom < 0 and not waveUp ? "Vendiendo fuerte" : "Vendiendo débil"
     table.cell(d, 0, 0, "Coil", text_color=color.white, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_left)
-    table.cell(d, 1, 0, str.tostring(mom, "#.##"), text_color=momColor, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_right)
+    table.cell(d, 1, 0, str.tostring(mom, "#.##"), text_color=momTxtC, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_right)
     f_cell(d, 1, "Squeeze",  sqState, sqCol)
     f_cell(d, 2, "Momentum", momTxt,  momTxtC)
-    f_cell(d, 3, "Presión",  sesgo,   momColor)
+    f_cell(d, 3, "Presión",  sesgo,   momTxtC)
 
 // ════════════════════════════════════════════════════════════════════════════
 //  MARCA DE AGUA — firma BudAI Cripto

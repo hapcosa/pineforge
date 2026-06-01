@@ -12,7 +12,7 @@
 //  Línea blanca que se tiñe verde/rojo · sombras acum/dist · histograma de flujo.
 //  (c) BudAI Capital® — Pine v6 · estética futurista limpia
 // ────────────────────────────────────────────────────────────────────────────
-indicator("BudAI Capital® - Slope Engine", shorttitle="BudAI Capital® - Slope Engine", overlay=false, precision=1, max_labels_count=300, max_lines_count=300)
+indicator("BudAI Capital® - Regression Slope Engine", shorttitle="BudAI Capital® - Regression Slope Engine", overlay=false, precision=1, max_labels_count=300, max_lines_count=300)
 
 // ════════════════ GRUPOS ════════════════
 G_CORE = "① Núcleo (Pendiente)"
