@@ -46,10 +46,10 @@ divLen   = input.int(5, "Pivote divergencia", minval=2, maxval=20, group=G_SIG)
 upCol    = input.color(#00c853, "Alcista (acumulación)", group=G_VIS, inline="c")
 dnCol    = input.color(#ff1744, "Bajista (distribución)", group=G_VIS, inline="c")
 lineCol  = input.color(#ffffff, "Línea (base blanca)", group=G_VIS)
-sigUp    = input.color(#00e5ff, "Señal alcista (cian)", group=G_VIS, inline="sg")
-sigDn    = input.color(#b388ff, "Señal bajista (púrpura)", group=G_VIS, inline="sg")
-divUpCol = input.color(#ffea00, "Divergencia alcista", group=G_VIS, inline="dv")
-divDnCol = input.color(#9e9e9e, "Divergencia bajista", group=G_VIS, inline="dv")
+sigUp    = input.color(#00e5ff, "Señal alcista (cian neón)", group=G_VIS, inline="sg")
+sigDn    = input.color(#ff00ff, "Señal bajista (magenta neón)", group=G_VIS, inline="sg")
+divUpCol = input.color(#ffff00, "Divergencia alcista (amarillo neón)", group=G_VIS, inline="dv")
+divDnCol = input.color(#ff007f, "Divergencia bajista (rosa neón)", group=G_VIS, inline="dv")
 shadeInt = input.int(55, "Intensidad de sombra", minval=20, maxval=90, group=G_VIS, tooltip="Menor = sombra más fuerte.")
 showDash = input.bool(true, "Dashboard minimalista", group=G_VIS)
 dashPos  = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
@@ -120,8 +120,15 @@ bool extUp = not reqExt or osc <= osLvl
 bool extDn = not reqExt or osc >= obLvl
 bool giroUp = showDots and xUp and osc < 0 and extUp and conf
 bool giroDn = showDots and xDn and osc > 0 and extDn and conf
+plotchar(giroUp ? osc : na, "Giro ↑ Glow", "•", location.absolute, color=color.new(sigUp, 65), size=size.small)
 plotchar(giroUp ? osc : na, "Giro ↑", "•", location.absolute, color=sigUp, size=size.tiny)
+plotchar(giroDn ? osc : na, "Giro ↓ Glow", "•", location.absolute, color=color.new(sigDn, 65), size=size.small)
 plotchar(giroDn ? osc : na, "Giro ↓", "•", location.absolute, color=sigDn, size=size.tiny)
+
+// Nodo celeste neón al cruzar cero (cambio de sesgo principal)
+bool cross0Slope = ta.cross(osc, 0)
+plotchar(cross0Slope ? 0 : na, "Cruce 0 Slope Glow", "•", location.absolute, color=color.new(#00e5ff, 60), size=size.small)
+plotchar(cross0Slope ? 0 : na, "Cruce 0 Slope", "•", location.absolute, color=color.new(#00e5ff, 0), size=size.tiny)
 
 // ── divergencias (puntos) ──
 float dpl = ta.pivotlow(low,  divLen, divLen)
@@ -146,7 +153,9 @@ if not na(dph)
     oHi1 := osc[divLen]
 bool bullDiv = showDiv and not na(dpl) and not na(pLo2) and pLo1 < pLo2 and oLo1 > oLo2 and conf
 bool bearDiv = showDiv and not na(dph) and not na(pHi2) and pHi1 > pHi2 and oHi1 < oHi2 and conf
+plotchar(bullDiv ? osc : na, "Div+ Glow", "•", location.absolute, color=color.new(divUpCol, 65), size=size.small)
 plotchar(bullDiv ? osc : na, "Div+", "•", location.absolute, color=divUpCol, size=size.tiny)
+plotchar(bearDiv ? osc : na, "Div− Glow", "•", location.absolute, color=color.new(divDnCol, 65), size=size.small)
 plotchar(bearDiv ? osc : na, "Div−", "•", location.absolute, color=divDnCol, size=size.tiny)
 
 // ════════════════════════════════════════════════════════════════════════════

@@ -1,0 +1,161 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Smart Money Flow
+//  Dinero institucional: MFI + CMF + Delta de volumen → onda 0–100.
+//  Acumulación / distribución con estética Athenea cyberpunk neón.
+//  (c) BudAI Capital® — Pine v6 · panel inferior
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Smart Money Flow", shorttitle="BudAI Capital® - Smart Money Flow", overlay=false, precision=1, max_labels_count=300, max_lines_count=100)
+
+// ════════════════ GRUPOS ════════════════
+G_CORE = "① Núcleo (flujo institucional)"
+G_SIG  = "② Señales"
+G_LVL  = "③ Niveles"
+G_VIS  = "④ Estética Cyberpunk"
+G_WM   = "✦ Marca de agua"
+
+// ════════════════ ① NÚCLEO ════════════════
+mfiLen = input.int(14, "MFI longitud", minval=2, group=G_CORE)
+cmfLen = input.int(20, "CMF longitud", minval=2, group=G_CORE)
+delLen = input.int(14, "Delta volumen longitud", minval=2, group=G_CORE)
+smooth = input.int(3,  "Suavizado de la onda", minval=1, maxval=10, group=G_CORE)
+wMfi   = input.float(0.4, "Peso MFI",   minval=0, maxval=1, step=0.1, group=G_CORE, inline="w")
+wCmf   = input.float(0.3, "Peso CMF",   minval=0, maxval=1, step=0.1, group=G_CORE, inline="w")
+wDel   = input.float(0.3, "Peso Delta", minval=0, maxval=1, step=0.1, group=G_CORE, inline="w")
+
+// ════════════════ ② SEÑALES ════════════════
+showSig = input.bool(true, "Círculos de entrada (acum/dist extrema)", group=G_SIG)
+obLvl   = input.int(75, "Distribución extrema", minval=55, maxval=95, group=G_SIG, inline="z")
+osLvl   = input.int(25, "Acumulación extrema",  minval=5,  maxval=45, group=G_SIG, inline="z")
+
+// ════════════════ ③ NIVELES ════════════════
+showFib = input.bool(true, "Niveles sutiles (Fibo)", group=G_LVL)
+
+// ════════════════ ④ ESTÉTICA (Athenea cyberpunk) ════════════════
+upCol    = input.color(#00e5ff, "Acumulación (celeste)", group=G_VIS, inline="c")
+dnCol    = input.color(#ff1e6e, "Distribución (fucsia)", group=G_VIS, inline="c")
+sigUpCol = input.color(#ffff00, "Señal alcista (amarillo neón)", group=G_VIS, inline="sg")
+sigDnCol = input.color(#ff007f, "Señal bajista (rosa neón)", group=G_VIS, inline="sg")
+glow     = input.bool(true, "Relleno degradado (glow)", group=G_VIS)
+shadeInt = input.int(55, "Opacidad onda (difuminado)", minval=20, maxval=90, group=G_VIS)
+showDash = input.bool(true, "Dashboard minimalista", group=G_VIS)
+dashPos  = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda","Inferior Derecha","Superior Izquierda","Superior Derecha"], group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NÚCLEO — fusión MFI + CMF + Delta de volumen
+// ════════════════════════════════════════════════════════════════════════════
+bool conf = barstate.isconfirmed
+float vol = nz(volume) == 0 ? 1.0 : volume
+
+// 1. MFI (0..100)
+float mfi = ta.mfi(hlc3, mfiLen)
+
+// 2. CMF (-1..+1) → 0..100
+float mfm = (high - low) != 0 ? ((close - low) - (high - close)) / (high - low) : 0.0
+float cmf = math.sum(mfm * vol, cmfLen) / math.sum(vol, cmfLen)
+float cmfN = (cmf + 1.0) / 2.0 * 100.0
+
+// 3. Delta de volumen (presión compra vs venta intrabar) → 0..100
+float buyVol  = vol * (close - low)  / math.max(high - low, syminfo.mintick)
+float sellVol = vol * (high - close) / math.max(high - low, syminfo.mintick)
+float delRaw  = math.sum(buyVol - sellVol, delLen)
+float delTot  = math.sum(buyVol + sellVol, delLen)
+float delN    = delTot != 0 ? (delRaw / delTot + 1.0) / 2.0 * 100.0 : 50.0
+
+// fusión ponderada
+float wSum = wMfi + wCmf + wDel
+float wN   = wSum == 0 ? 1.0 : wSum
+float osc  = ta.ema((mfi * wMfi + cmfN * wCmf + delN * wDel) / wN, smooth)
+
+bool isBull = osc >= 50
+bool waveUp = osc >= osc[1]
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NIVELES sutiles
+// ════════════════════════════════════════════════════════════════════════════
+hline(100, "Tope", color.new(color.gray, 92), hline.style_dotted)
+hline(showFib ? 61.8 : na, "Fibo 0.618", color.new(#9d6cff, 86), hline.style_dotted)
+hline(50, "Central", color.new(#b06aff, 72), hline.style_solid)
+hline(showFib ? 38.2 : na, "Fibo 0.382", color.new(#9d6cff, 86), hline.style_dotted)
+hline(0, "Piso", color.new(color.gray, 92), hline.style_dotted)
+hline(obLvl, "Distribución", color.new(dnCol, 70), hline.style_dashed)
+hline(osLvl, "Acumulación", color.new(upCol, 70), hline.style_dashed)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PLOTS — onda + glow fading + línea blanca brillante (Athenea)
+// ════════════════════════════════════════════════════════════════════════════
+// histograma delta de fondo (sutil)
+plot(50 + (delN - 50), "Delta fondo", color=delN >= 50 ? color.new(upCol, 80) : color.new(dnCol, 80), style=plot.style_columns, histbase=50)
+
+color waveCol = isBull ? upCol : dnCol
+pOsc = plot(osc, "Smart Money Flow", color=waveCol, linewidth=2)
+plot(osc, "Brillo Blanco", color=color.new(color.white, 0), linewidth=1)
+pMid = plot(50, "Mid", color=color.new(color.white, 100), display=display.none)
+
+// relleno degradado fading hacia 50
+fill(pOsc, pMid, top_value=100, bottom_value=50, top_color=glow ? color.new(upCol, shadeInt) : na, bottom_color=glow ? color.new(upCol, 100) : na, title="Glow superior")
+fill(pOsc, pMid, top_value=50, bottom_value=0,  top_color=glow ? color.new(dnCol, 100) : na, bottom_color=glow ? color.new(dnCol, shadeInt) : na, title="Glow inferior")
+
+// ════════════════════════════════════════════════════════════════════════════
+//  SEÑALES — giro desde acumulación/distribución extrema
+// ════════════════════════════════════════════════════════════════════════════
+bool buySig  = showSig and ta.crossover(osc, osLvl)  and conf
+bool sellSig = showSig and ta.crossunder(osc, obLvl) and conf
+
+// doble glow (grande transparente + pequeño sólido) — estilo Athenea
+plotchar(buySig  ? osc : na, "Buy Glow",  "•", location.absolute, color=color.new(sigUpCol, 65), size=size.small)
+plotchar(buySig  ? osc : na, "Buy",       "•", location.absolute, color=sigUpCol, size=size.tiny)
+plotchar(sellSig ? osc : na, "Sell Glow", "•", location.absolute, color=color.new(sigDnCol, 65), size=size.small)
+plotchar(sellSig ? osc : na, "Sell",      "•", location.absolute, color=sigDnCol, size=size.tiny)
+
+// nodo blanco al cruzar 50 (cambio de sesgo institucional)
+bool cross50 = ta.cross(osc, 50)
+plotchar(cross50 ? 50 : na, "Cruce 50 Glow", "•", location.absolute, color=color.new(color.white, 60), size=size.small)
+plotchar(cross50 ? 50 : na, "Cruce 50",      "•", location.absolute, color=color.new(color.white, 0), size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD minimalista (tiny)
+// ════════════════════════════════════════════════════════════════════════════
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+var table d = table.new(f_pos(dashPos), 2, 5, bgcolor=color.new(#0b0e16, 12), frame_color=color.new(upCol, 55), frame_width=1, border_width=1)
+f_cell(t, r, k, v, vc) =>
+    table.cell(t, 0, r, k, text_color=color.new(#90a4ae, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
+
+if showDash and barstate.islast
+    string estado = osc >= obLvl ? "DISTRIBUCIÓN" : osc <= osLvl ? "ACUMULACIÓN" : isBull ? "Comprando" : "Vendiendo"
+    color  estC = osc >= obLvl ? dnCol : osc <= osLvl ? upCol : isBull ? upCol : dnCol
+    string senal = buySig ? "▲ COMPRA" : sellSig ? "▼ VENTA" : "—"
+    color  senalC = buySig ? sigUpCol : sellSig ? sigDnCol : color.new(color.white, 35)
+    table.cell(d, 0, 0, "Money Flow", text_color=color.white, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, str.tostring(osc, "#") + "/100", text_color=waveCol, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(d, 1, "Estado", estado, estC)
+    f_cell(d, 2, "MFI", str.tostring(mfi, "#"), mfi >= 50 ? upCol : dnCol)
+    f_cell(d, 3, "CMF", str.tostring(cmf, "#.##"), cmf >= 0 ? upCol : dnCol)
+    f_cell(d, 4, "Señal", senal, senalC)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MARCA DE AGUA — firma BudAI Cripto
+// ════════════════════════════════════════════════════════════════════════════
+f_wmPos(s) => s == "Inferior Izquierda" ? position.bottom_left : s == "Inferior Derecha" ? position.bottom_right : s == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(buySig,  "SMF COMPRA", "Smart Money Flow · acumulación {{ticker}}")
+alertcondition(sellSig, "SMF VENTA",  "Smart Money Flow · distribución {{ticker}}")

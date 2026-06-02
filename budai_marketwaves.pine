@@ -1,0 +1,151 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Market Waves
+//  Smart Bands adaptativas + señales ▲▼ en rechazo de banda + Power Signals.
+//  Detecta tendencia, acumulación y reversiones sobre el precio. Sello BudAI.
+//  (c) BudAI Capital® — Pine v6 · overlay · cyberpunk
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Market Waves", shorttitle="BudAI Capital® - Market Waves", overlay=true, max_labels_count=500, max_lines_count=100)
+
+// ════════════════ GRUPOS ════════════════
+G_WAV = "① Smart Bands"
+G_SIG = "② Señales"
+G_PWR = "③ Power Signals"
+G_VIS = "④ Estética"
+G_WM  = "✦ Marca de agua"
+
+// ════════════════ ① SMART BANDS ════════════════
+wavLen  = input.int(20, "Longitud de la onda", minval=2, maxval=100, group=G_WAV, tooltip="Base de la media adaptativa. 20 = equilibrado.")
+bandMult= input.float(2.0, "Ancho de banda (ATR)", minval=0.5, maxval=6, step=0.1, group=G_WAV)
+src     = input.source(hlc3, "Fuente", group=G_WAV)
+showBand= input.bool(true, "Mostrar Smart Bands", group=G_WAV)
+
+// ════════════════ ② SEÑALES ════════════════
+showSig = input.bool(true, "Señales ▲▼ (rechazo de banda)", group=G_SIG)
+entryNC = input.bool(true, "Entrada al cierre de la vela", group=G_SIG, tooltip="Confirma la señal al cierre (no repaint).")
+
+// ════════════════ ③ POWER SIGNALS ════════════════
+showPwr = input.bool(true, "Power Signals [+] (confluencia fuerte)", group=G_PWR, tooltip="[+] cuando el rechazo coincide con tendencia y volumen alto.")
+volMult = input.float(1.5, "Volumen mínimo (x media)", minval=1, step=0.1, group=G_PWR)
+
+// ════════════════ ④ ESTÉTICA (cyberpunk neón) ════════════════
+upCol   = input.color(#00e676, "Alcista", group=G_VIS, inline="c")
+dnCol   = input.color(#ff1744, "Bajista", group=G_VIS, inline="c")
+sigUp   = input.color(#00e5ff, "Señal alcista", group=G_VIS, inline="sg")
+sigDn   = input.color(#ff1e6e, "Señal bajista", group=G_VIS, inline="sg")
+pwrCol  = input.color(#ffea00, "Power Signal", group=G_VIS)
+showFill= input.bool(true, "Relleno degradado entre bandas", group=G_VIS)
+showDash= input.bool(true, "Dashboard minimalista", group=G_VIS)
+dashPos = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda","Inferior Derecha","Superior Izquierda","Superior Derecha"], group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  SMART BANDS — media adaptativa + bandas ATR
+// ════════════════════════════════════════════════════════════════════════════
+float atr   = ta.atr(wavLen)
+bool  conf  = barstate.isconfirmed
+float basis = ta.ema(src, wavLen)
+float upper = basis + atr * bandMult
+float lower = basis - atr * bandMult
+
+// tendencia de la onda (pendiente de la media)
+int wavTrend = basis > basis[1] ? 1 : basis < basis[1] ? -1 : 0
+color basisCol = wavTrend > 0 ? upCol : dnCol
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PLOTS — bandas + media coloreada + relleno
+// ════════════════════════════════════════════════════════════════════════════
+pBasis = plot(basis, "Onda", color=color.new(basisCol, 0), linewidth=2)
+pUp = plot(showBand ? upper : na, "Banda alta", color=color.new(dnCol, 55), linewidth=1)
+pLo = plot(showBand ? lower : na, "Banda baja", color=color.new(upCol, 55), linewidth=1)
+fill(pUp, pLo, color=showFill ? color.new(basisCol, 92) : na, title="Smart Band fill")
+
+// glow de la media
+plot(basis, "Glow", color=color.new(basisCol, 80), linewidth=5)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  SEÑALES — rechazo de banda (precio toca extremo y revierte)
+// ════════════════════════════════════════════════════════════════════════════
+float avgVol = ta.sma(volume, wavLen)
+bool  volOk  = nz(volume) >= avgVol * volMult
+
+// rechazo alcista: la mecha baja toca/rompe la banda baja y el cierre vuelve dentro
+bool rejUp = low <= lower and close > lower
+// rechazo bajista: la mecha alta toca/rompe la banda alta y el cierre vuelve dentro
+bool rejDn = high >= upper and close < upper
+
+bool gate = not entryNC or conf
+bool buySig  = showSig and rejUp and gate
+bool sellSig = showSig and rejDn and gate
+
+// power signal: rechazo + tendencia a favor + volumen alto
+bool pwrUp = showPwr and buySig  and wavTrend >= 0 and volOk
+bool pwrDn = showPwr and sellSig and wavTrend <= 0 and volOk
+
+// ▲▼ normales (círculos pequeños) — power = etiqueta [+]
+plotchar(buySig and not pwrUp ? 1 : na, "Buy",  "▲", location.belowbar, color=color.new(sigUp, 0), size=size.tiny)
+plotchar(sellSig and not pwrDn ? 1 : na, "Sell", "▼", location.abovebar, color=color.new(sigDn, 0), size=size.tiny)
+plotshape(pwrUp, "Power Buy",  shape.labelup,   location.belowbar, color=color.new(pwrCol, 0), text="+", textcolor=#0d1117, size=size.tiny)
+plotshape(pwrDn, "Power Sell", shape.labeldown, location.abovebar, color=color.new(pwrCol, 0), text="+", textcolor=#0d1117, size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD minimalista (tiny)
+// ════════════════════════════════════════════════════════════════════════════
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+var table d = table.new(f_pos(dashPos), 2, 4, bgcolor=color.new(#0b0e16, 14), frame_color=color.new(upCol, 45), frame_width=1, border_width=1)
+f_cell(t, r, k, v, vc) =>
+    table.cell(t, 0, r, k, text_color=color.new(#90a4ae, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
+
+var string lastSig = "—"
+var color  lastSigC = color.gray
+if pwrUp
+    lastSig := "▲ BUY+ fuerte"
+    lastSigC := upCol
+else if buySig
+    lastSig := "▲ BUY"
+    lastSigC := upCol
+if pwrDn
+    lastSig := "▼ SELL+ fuerte"
+    lastSigC := dnCol
+else if sellSig
+    lastSig := "▼ SELL"
+    lastSigC := dnCol
+
+if showDash and barstate.islast
+    string trendTxt = wavTrend > 0 ? "ALCISTA" : wavTrend < 0 ? "BAJISTA" : "PLANO"
+    color  trendC = wavTrend > 0 ? upCol : wavTrend < 0 ? dnCol : color.gray
+    string posTxt = close > upper ? "Sobre banda" : close < lower ? "Bajo banda" : "Dentro"
+    color  posC = close > upper ? dnCol : close < lower ? upCol : color.new(#90a4ae, 0)
+    table.cell(d, 0, 0, "Market Waves", text_color=color.white, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, trendTxt, text_color=trendC, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(d, 1, "Posición precio", posTxt, posC)
+    f_cell(d, 2, "Volumen", volOk ? "ALTO" : "normal", volOk ? upCol : color.new(#90a4ae,0))
+    f_cell(d, 3, "Última señal", lastSig, lastSigC)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MARCA DE AGUA — firma BudAI Cripto
+// ════════════════════════════════════════════════════════════════════════════
+f_wmPos(s) => s == "Inferior Izquierda" ? position.bottom_left : s == "Inferior Derecha" ? position.bottom_right : s == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(buySig,  "Market Wave BUY",  "Market Waves · ▲ rechazo banda baja {{ticker}}")
+alertcondition(sellSig, "Market Wave SELL", "Market Waves · ▼ rechazo banda alta {{ticker}}")
+alertcondition(pwrUp,   "Power BUY",        "Market Waves · ▲+ power signal {{ticker}}")
+alertcondition(pwrDn,   "Power SELL",       "Market Waves · ▼+ power signal {{ticker}}")

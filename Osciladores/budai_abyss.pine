@@ -52,10 +52,10 @@ dnCol   = input.color(#ff9800, "Bajista (naranja)", group=G_VIS, inline="ln")
 gLow    = input.color(#00bcd4, "Gradiente · piso (OS)", group=G_VIS, inline="g1")
 gMid    = input.color(#26c6da, "Gradiente · centro", group=G_VIS, inline="g1")
 gHigh   = input.color(#ff9800, "Gradiente · techo (OB)", group=G_VIS, inline="g2")
-sigUp   = input.color(#00e5ff, "Señal alcista (celeste)", group=G_VIS, inline="sg")
-sigDn   = input.color(#b388ff, "Señal bajista (morado)", group=G_VIS, inline="sg")
-divUpCol = input.color(#ffea00, "Divergencia alcista (amarillo)", group=G_VIS, inline="dv")
-divDnCol = input.color(#9e9e9e, "Divergencia bajista (gris)", group=G_VIS, inline="dv")
+sigUp   = input.color(#00e5ff, "Señal alcista (celeste neón)", group=G_VIS, inline="sg")
+sigDn   = input.color(#ff00ff, "Señal bajista (magenta neón)", group=G_VIS, inline="sg")
+divUpCol = input.color(#ffff00, "Divergencia alcista (amarillo neón)", group=G_VIS, inline="dv")
+divDnCol = input.color(#ff007f, "Divergencia bajista (rosa neón)", group=G_VIS, inline="dv")
 glow    = input.bool(true, "Glow futurista", group=G_VIS)
 showDash= input.bool(true, "Dashboard minimalista", group=G_VIS)
 dashPos = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
@@ -131,7 +131,10 @@ bool simpleUp = crossUp and wt1 <= osLvl and wt1 > osX and flowUp and conf
 bool simpleDn = crossDn and wt1 >= obLvl and wt1 < obX and flowDn and conf
 
 // círculos fuertes pegados a la línea
+// círculos fuertes pegados a la línea con efecto glow
+plotchar(showDots and strongUp ? wtClamp : na, "Giro fuerte ↑ Glow", "•", location.absolute, color=color.new(sigUp, 60), size=size.small)
 plotchar(showDots and strongUp ? wtClamp : na, "Giro fuerte ↑", "•", location.absolute, color=sigUp, size=size.tiny)
+plotchar(showDots and strongDn ? wtClamp : na, "Giro fuerte ↓ Glow", "•", location.absolute, color=color.new(sigDn, 60), size=size.small)
 plotchar(showDots and strongDn ? wtClamp : na, "Giro fuerte ↓", "•", location.absolute, color=sigDn, size=size.tiny)
 // × simples
 plotchar(showX and simpleUp ? wtClamp : na, "Simple ↑", "×", location.absolute, color=color.new(sigUp, 25), size=size.tiny)
@@ -168,9 +171,16 @@ if not na(dph)
     bHi1 := bar_index - divLen
 bool bullDiv = showDiv and not na(dpl) and not na(pLo2) and pLo1 < pLo2 and oLo1 > oLo2 and conf
 bool bearDiv = showDiv and not na(dph) and not na(pHi2) and pHi1 > pHi2 and oHi1 < oHi2 and conf
-// círculos diminutos · amarillo bullish · gris bearish
+// círculos diminutos con glow · amarillo bullish · rosa neón bearish
+plotchar(bullDiv ? wtClamp : na, "Div+ Glow", "•", location.absolute, color=color.new(divUpCol, 60), size=size.small)
 plotchar(bullDiv ? wtClamp : na, "Div+", "•", location.absolute, color=divUpCol, size=size.tiny)
+plotchar(bearDiv ? wtClamp : na, "Div− Glow", "•", location.absolute, color=color.new(divDnCol, 60), size=size.small)
 plotchar(bearDiv ? wtClamp : na, "Div−", "•", location.absolute, color=divDnCol, size=size.tiny)
+
+// Nodo Celeste Neón al cruzar la línea 0 (cambio de sesgo)
+bool cross0 = ta.cross(wtClamp, 0)
+plotchar(cross0 ? 0 : na, "Cruce 0 Glow", "•", location.absolute, color=color.new(#00e5ff, 60), size=size.small)
+plotchar(cross0 ? 0 : na, "Cruce 0 Centro", "•", location.absolute, color=color.new(#00e5ff, 0), size=size.tiny)
 
 // ════════════════════════════════════════════════════════════════════════════
 //  DASHBOARD minimalista (tiny)

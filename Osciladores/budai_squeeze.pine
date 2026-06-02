@@ -49,8 +49,8 @@ lineCol  = input.color(#ffffff, "Línea (blanca)", group=G_VIS, inline="ln")
 shadeInt = input.int(45, "Intensidad sombra", minval=20, maxval=85, group=G_VIS, inline="ln")
 sqzOnCol = input.color(#ffea00, "Squeeze ON (compresión)", group=G_VIS, inline="s")
 sqzNoCol = input.color(#607d8b, "Squeeze OFF (libre)", group=G_VIS, inline="s")
-sigUpCol = input.color(#ffea00, "Señal alcista (arriba)", group=G_VIS, inline="sg")
-sigDnCol = input.color(#9e9e9e, "Señal bajista (arriba)", group=G_VIS, inline="sg")
+sigUpCol = input.color(#ffff00, "Señal alcista (amarillo neón)", group=G_VIS, inline="sg")
+sigDnCol = input.color(#ff007f, "Señal bajista (rosa neón)", group=G_VIS, inline="sg")
 neon     = input.bool(true, "Glow neón", group=G_VIS)
 showDash = input.bool(true, "Dashboard minimalista", group=G_VIS)
 dashPos  = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
@@ -97,8 +97,8 @@ hline(0, "Cero", color.new(color.gray, 60), hline.style_solid)
 pMom  = plot(mom, "Momentum", color.new(lineCol, 0), 2)
 pZero = plot(0, "z", color=color.new(color.white, 100), display=display.none)
 
-color shTop = isBull ? color.new(upCol, shadeInt) : color.new(dnCol, 88)
-color shBot = isBull ? color.new(upCol, 88) : color.new(dnCol, shadeInt)
+color shTop = isBull ? color.new(upCol, shadeInt) : color.new(dnCol, 100)
+color shBot = isBull ? color.new(upCol, 100) : color.new(dnCol, shadeInt)
 fill(pMom, pZero, top_color=shTop, bottom_color=shBot, title="Onda momentum")
 
 plot(neon ? mom : na, "Glow", color.new(isBull ? upCol : dnCol, 78), 4)
@@ -122,8 +122,15 @@ bool fireUp = showFire and released and realSqueeze and momStrongUp and canFire 
 bool fireDn = showFire and released and realSqueeze and momStrongDn and canFire and barstate.isconfirmed
 if fireUp or fireDn
     lastFire := bar_index
+plotchar(fireUp, "Disparo ↑ Glow", "•", location.top, color=color.new(sigUpCol, 65), size=size.small)
 plotchar(fireUp, "Disparo ↑", "•", location.top, color=sigUpCol, size=size.tiny)
+plotchar(fireDn, "Disparo ↓ Glow", "•", location.top, color=color.new(sigDnCol, 65), size=size.small)
 plotchar(fireDn, "Disparo ↓", "•", location.top, color=sigDnCol, size=size.tiny)
+
+// Nodo celeste neón en cruce de la onda de momentum (zero-cross)
+bool cross0Sqz = ta.cross(mom, 0)
+plotchar(cross0Sqz ? 0 : na, "Cruce 0 Sqz Glow", "•", location.absolute, color=color.new(#00e5ff, 60), size=size.small)
+plotchar(cross0Sqz ? 0 : na, "Cruce 0 Sqz", "•", location.absolute, color=color.new(#00e5ff, 0), size=size.tiny)
 
 // ════════════════════════════════════════════════════════════════════════════
 //  DASHBOARD minimalista (tiny)

@@ -48,8 +48,8 @@ divDetect  = input.bool(true, "Divergencias", group=G_SIG)
 // ════════════════ ⑤ ESTÉTICA (cyberpunk · celeste/morado) ════════════════
 upCol = input.color(#26a69a, "Acumulación (verde)", group=G_VIS, inline="c")
 dnCol = input.color(#ef5350, "Distribución (rojo)", group=G_VIS, inline="c")
-sigUp = input.color(#00e5ff, "Señal alcista", group=G_VIS, inline="s")
-sigDn = input.color(#b388ff, "Señal bajista", group=G_VIS, inline="s")
+sigUp = input.color(#00e5ff, "Señal alcista (celeste neón)", group=G_VIS, inline="s")
+sigDn = input.color(#ff00ff, "Señal bajista (magenta neón)", group=G_VIS, inline="s")
 lineCol = input.color(#ffffff, "Línea (blanca)", group=G_VIS, inline="ln")
 shadeInt = input.int(45, "Intensidad sombra", minval=20, maxval=85, group=G_VIS, inline="ln")
 showVol  = input.bool(true, "Histograma de flujo (volumen)", group=G_VIS)
@@ -143,10 +143,20 @@ bool conf = barstate.isconfirmed
 bool bounceUp = osc < osLevel and crossUp and conf
 bool bounceDn = osc > obLevel and crossDn and conf
 
+// Señales con efecto glow brillante
+plotchar(showBounce and bounceUp ? osc : na, "Rebote ↑ Glow", "•", location.absolute, color=color.new(sigUp, 65), size=size.small)
 plotchar(showBounce and bounceUp ? osc : na, "Rebote ↑", "•", location.absolute, color=sigUp, size=size.tiny)
+plotchar(showBounce and bounceDn ? osc : na, "Rebote ↓ Glow", "•", location.absolute, color=color.new(sigDn, 65), size=size.small)
 plotchar(showBounce and bounceDn ? osc : na, "Rebote ↓", "•", location.absolute, color=sigDn, size=size.tiny)
+plotchar(showCross and crossUp and conf ? osc : na, "Cruce ↑ Glow", "•", location.absolute, color=color.new(sigUp, 75), size=size.small)
 plotchar(showCross and crossUp and conf ? osc : na, "Cruce ↑", "·", location.absolute, color=color.new(sigUp,30), size=size.tiny)
+plotchar(showCross and crossDn and conf ? osc : na, "Cruce ↓ Glow", "•", location.absolute, color=color.new(sigDn, 75), size=size.small)
 plotchar(showCross and crossDn and conf ? osc : na, "Cruce ↓", "·", location.absolute, color=color.new(sigDn,30), size=size.tiny)
+
+// Nodo celeste neón al cruzar la línea cero (cruce interesante)
+bool cross0Helix = ta.cross(osc, 0)
+plotchar(cross0Helix ? 0 : na, "Cruce 0 Glow", "•", location.absolute, color=color.new(#00e5ff, 60), size=size.small)
+plotchar(cross0Helix ? 0 : na, "Cruce 0 Centro", "•", location.absolute, color=color.new(#00e5ff, 0), size=size.tiny)
 
 // ════════════════════════════════════════════════════════════════════════════
 //  DIVERGENCIAS (puntos)
@@ -170,8 +180,10 @@ if not na(pivHi)
         bearDiv := true
     lastHi := pivHi
     lastHiP := high[pvB]
-plotchar(divDetect and bullDiv and conf ? osc : na, "Div+", "•", location.absolute, color=#ffea00, size=size.tiny)
-plotchar(divDetect and bearDiv and conf ? osc : na, "Div−", "•", location.absolute, color=#9e9e9e, size=size.tiny)
+plotchar(divDetect and bullDiv and conf ? osc : na, "Div+ Glow", "•", location.absolute, color=color.new(#ffff00, 65), size=size.small)
+plotchar(divDetect and bullDiv and conf ? osc : na, "Div+", "•", location.absolute, color=#ffff00, size=size.tiny)
+plotchar(divDetect and bearDiv and conf ? osc : na, "Div− Glow", "•", location.absolute, color=color.new(#ff007f, 65), size=size.small)
+plotchar(divDetect and bearDiv and conf ? osc : na, "Div−", "•", location.absolute, color=#ff007f, size=size.tiny)
 
 // ════════════════════════════════════════════════════════════════════════════
 //  DASHBOARD minimalista (tiny)

@@ -40,11 +40,11 @@ showFire = input.bool(true, "Disparo al liberar squeeze", group=G_SIG)
 upCol    = input.color(#00e676, "Alcista (verde neón)", group=G_VIS, inline="c")
 dnCol    = input.color(#ff1744, "Bajista (rojo neón)", group=G_VIS, inline="c")
 lineCol  = input.color(#ffffff, "Línea (blanca)", group=G_VIS, inline="ln")
-shadeInt = input.int(45, "Intensidad sombra", minval=20, maxval=85, group=G_VIS, inline="ln")
+shadeInt = input.int(72, "Intensidad sombra", minval=20, maxval=92, group=G_VIS, inline="ln")
 sqzOnCol = input.color(#ffea00, "Squeeze ON", group=G_VIS, inline="s")
 sqzNoCol = input.color(#607d8b, "Squeeze OFF", group=G_VIS, inline="s")
-sigUpCol = input.color(#ffea00, "Señal alcista (arriba)", group=G_VIS, inline="sg")
-sigDnCol = input.color(#9e9e9e, "Señal bajista (arriba)", group=G_VIS, inline="sg")
+sigUpCol = input.color(#ffff00, "Señal alcista (amarillo neón)", group=G_VIS, inline="sg")
+sigDnCol = input.color(#ff007f, "Señal bajista (rosa neón)", group=G_VIS, inline="sg")
 neon     = input.bool(true, "Glow neón", group=G_VIS)
 showDash = input.bool(true, "Dashboard minimalista", group=G_VIS)
 dashPos  = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
@@ -92,13 +92,18 @@ hline(0, "Cero", color.new(color.gray, 60), hline.style_solid)
 pMom  = plot(mom, "Momentum", color.new(lineCol, 0), 2)
 pZero = plot(0, "z", color=color.new(color.white, 100), display=display.none)
 
-// sombra degradada: verde si onda sobre 0, rojo si bajo 0
-color shTop = isBull ? color.new(upCol, shadeInt) : color.new(dnCol, 88)
-color shBot = isBull ? color.new(upCol, 88) : color.new(dnCol, shadeInt)
+// sombra degradada: verde si onda sobre 0, rojo si bajo 0 — MUY DIFUMINADO, eléctrico
+color shTop = isBull ? color.new(upCol, math.max(shadeInt, 72)) : color.new(dnCol, 95)
+color shBot = isBull ? color.new(upCol, 95) : color.new(dnCol, math.max(shadeInt, 72))
 fill(pMom, pZero, top_color=shTop, bottom_color=shBot, title="Onda momentum")
 
-// glow neón
-plot(neon ? mom : na, "Glow", color.new(isBull ? upCol : dnCol, 78), 4)
+// glow neón: eléctrico muy difuminado
+plot(neon ? mom : na, "Glow", color.new(isBull ? upCol : dnCol, 85), 6)
+
+// Nodo blanco brillante al cruce del momentum (zero-cross o cambio de sesgo)
+bool momCross = ta.cross(mom, 0)
+plotchar(momCross ? 0 : na, "Cruce Momentum Glow", "•", location.absolute, color=color.new(color.white, 60), size=size.normal)
+plotchar(momCross ? 0 : na, "Cruce Momentum Centro", "•", location.absolute, color=color.new(color.white, 0), size=size.small)
 
 // punto de squeeze SOLO cuando hay compresión (amarillo flúor) — no satura
 plotchar(sqzOn ? 0 : na, "Squeeze ON", "•", location.absolute, color=sqzOnCol, size=size.tiny)
@@ -109,7 +114,9 @@ plotchar(sqzOn ? 0 : na, "Squeeze ON", "•", location.absolute, color=sqzOnCol,
 bool released = sqzOn[1] and not sqzOn
 bool fireUp = showFire and released and mom > 0 and barstate.isconfirmed
 bool fireDn = showFire and released and mom < 0 and barstate.isconfirmed
+plotchar(fireUp, "Disparo ↑ Glow", "•", location.top, color=color.new(sigUpCol, 65), size=size.small)
 plotchar(fireUp, "Disparo ↑", "•", location.top, color=sigUpCol, size=size.tiny)
+plotchar(fireDn, "Disparo ↓ Glow", "•", location.top, color=color.new(sigDnCol, 65), size=size.small)
 plotchar(fireDn, "Disparo ↓", "•", location.top, color=sigDnCol, size=size.tiny)
 
 var int sqzBars = 0

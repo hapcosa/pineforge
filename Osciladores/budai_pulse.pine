@@ -59,10 +59,10 @@ showMTF = input.bool(true, "Mini panel Trend MTF", group=G_MTF)
 // ════════════════ ⑦ ESTÉTICA (cyberpunk neón) ════════════════
 upCol   = input.color(#00e5ff, "Alcista (celeste)", group=G_VIS, inline="c")
 dnCol   = input.color(#ff1e6e, "Bajista (magenta)", group=G_VIS, inline="c")
-sigUp   = input.color(#ffea00, "Señal alcista", group=G_VIS, inline="sg")
-sigDn   = input.color(#9e9e9e, "Señal bajista", group=G_VIS, inline="sg")
-divUp   = input.color(#ffea00, "Divergencia alcista", group=G_VIS, inline="dv")
-divDn   = input.color(#9e9e9e, "Divergencia bajista", group=G_VIS, inline="dv")
+sigUp   = input.color(#ffff00, "Señal alcista (amarillo neón)", group=G_VIS, inline="sg")
+sigDn   = input.color(#ff007f, "Señal bajista (rosa neón)", group=G_VIS, inline="sg")
+divUp   = input.color(#ffff00, "Divergencia alcista (amarillo neón)", group=G_VIS, inline="dv")
+divDn   = input.color(#ff007f, "Divergencia bajista (rosa neón)", group=G_VIS, inline="dv")
 glow    = input.bool(true, "Relleno degradado (glow)", group=G_VIS)
 showDash = input.bool(true, "Dashboard minimalista", group=G_VIS)
 dashPos  = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
@@ -117,11 +117,11 @@ bool isBear = osc < trig
 // ════════════════════════════════════════════════════════════════════════════
 hline(100, "Tope", color.new(color.gray, 88), hline.style_dotted)
 hline(obLvl, "Sobrecompra", color.new(dnCol, 55), hline.style_dashed)
-hline(50, "Centro", color.new(color.gray, 70), hline.style_solid)
+hline(50, "Centro · Fibo 0.5", color.new(#b06aff, 72), hline.style_solid)
 hline(osLvl, "Sobreventa", color.new(upCol, 55), hline.style_dashed)
 hline(0, "Piso", color.new(color.gray, 88), hline.style_dotted)
-hline(showFib ? 61.8 : na, "0.618", color.new(#9d6cff, 60), hline.style_dotted)
-hline(showFib ? 38.2 : na, "0.382", color.new(#9d6cff, 60), hline.style_dotted)
+hline(showFib ? 61.8 : na, "0.618", color.new(#c39bff, 78), hline.style_dotted)
+hline(showFib ? 38.2 : na, "0.382", color.new(#c39bff, 78), hline.style_dotted)
 
 // ════════════════════════════════════════════════════════════════════════════
 //  PLOTS — sombras degradadas cyberpunk
@@ -172,10 +172,14 @@ if not na(dph)
 bool bullDiv = showDiv and not na(dpl) and not na(pLo2) and pLo1 < pLo2 and oLo1 > oLo2 and barstate.isconfirmed
 bool bearDiv = showDiv and not na(dph) and not na(pHi2) and pHi1 > pHi2 and oHi1 < oHi2 and barstate.isconfirmed
 
-// círculos pequeños pegados a la línea (estándar BudAI)
+// Círculos con glow BULL/BEAR + divergencias
+plotchar(showCross and crossUp ? osc : na, "BULL Glow", "•", location.absolute, color=color.new(sigUp, 65), size=size.small)
 plotchar(showCross and crossUp ? osc : na, "BULL", "•", location.absolute, color=sigUp, size=size.tiny)
+plotchar(showCross and crossDn ? osc : na, "BEAR Glow", "•", location.absolute, color=color.new(sigDn, 65), size=size.small)
 plotchar(showCross and crossDn ? osc : na, "BEAR", "•", location.absolute, color=sigDn, size=size.tiny)
+plotchar(bullDiv ? osc : na, "Div+ Glow", "•", location.absolute, color=color.new(divUp, 65), size=size.small)
 plotchar(bullDiv ? osc : na, "Div+", "•", location.absolute, color=divUp, size=size.tiny)
+plotchar(bearDiv ? osc : na, "Div− Glow", "•", location.absolute, color=color.new(divDn, 65), size=size.small)
 plotchar(bearDiv ? osc : na, "Div−", "•", location.absolute, color=divDn, size=size.tiny)
 
 // ════════════════════════════════════════════════════════════════════════════

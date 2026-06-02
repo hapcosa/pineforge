@@ -1,0 +1,138 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Trend Flow Matrix
+//  SuperTrend ATR + Range Filter + EMA cloud → tendencia clara con señales.
+//  Trailing dinámico, filtro de rango, confirmación de fuerza. Sello BudAI.
+//  (c) BudAI Capital® — Pine v6 · overlay · cyberpunk
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Trend Flow Matrix", shorttitle="BudAI Capital® - Trend Flow Matrix", overlay=true, max_labels_count=300, max_lines_count=100)
+
+// ════════════════ GRUPOS ════════════════
+G_ST  = "① SuperTrend (trailing)"
+G_RF  = "② Range Filter"
+G_EMA = "③ EMA Cloud"
+G_SIG = "④ Señales"
+G_VIS = "⑤ Estética"
+G_WM  = "✦ Marca de agua"
+
+// ════════════════ ① SUPERTREND ════════════════
+stLen  = input.int(10, "ATR período", minval=1, maxval=50, group=G_ST, inline="s")
+stMult = input.float(3.0, "Factor", minval=0.5, maxval=10, step=0.1, group=G_ST, inline="s")
+showST = input.bool(true, "Mostrar línea SuperTrend", group=G_ST)
+
+// ════════════════ ② RANGE FILTER ════════════════
+useRF  = input.bool(true, "Filtrar rangos (no operar lateral)", group=G_RF, tooltip="Detecta mercado lateral con ADX bajo → marca zona de NO-trade.")
+adxLen = input.int(14, "ADX período", minval=2, group=G_RF, inline="rf")
+adxThr = input.float(20, "ADX umbral tendencia", minval=5, step=1, group=G_RF, inline="rf")
+
+// ════════════════ ③ EMA CLOUD ════════════════
+showEMA = input.bool(true, "Mostrar EMA Cloud", group=G_EMA)
+emaFast = input.int(50,  "EMA rápida", minval=1, group=G_EMA, inline="e")
+emaSlow = input.int(200, "EMA lenta",  minval=1, group=G_EMA, inline="e")
+
+// ════════════════ ④ SEÑALES ════════════════
+showSig = input.bool(true, "Señales de cambio de tendencia", group=G_SIG)
+reqADX  = input.bool(true, "Solo señales con ADX a favor", group=G_SIG)
+
+// ════════════════ ⑤ ESTÉTICA (cyberpunk neón) ════════════════
+upCol  = input.color(#00e676, "Alcista", group=G_VIS, inline="c")
+dnCol  = input.color(#ff1744, "Bajista", group=G_VIS, inline="c")
+sigUp  = input.color(#00e5ff, "Señal alcista", group=G_VIS, inline="sg")
+sigDn  = input.color(#ff1e6e, "Señal bajista", group=G_VIS, inline="sg")
+rngCol = input.color(color.new(#ffea00, 88), "Zona de rango", group=G_VIS)
+showDash = input.bool(true, "Dashboard minimalista", group=G_VIS)
+dashPos  = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda","Inferior Derecha","Superior Izquierda","Superior Derecha"], group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ① SUPERTREND (ATR trailing)
+// ════════════════════════════════════════════════════════════════════════════
+[stLine, stDir] = ta.supertrend(stMult, stLen)
+bool stBull = stDir < 0   // dir<0 = alcista en ta.supertrend
+bool flipUp = stDir < 0 and stDir[1] > 0
+bool flipDn = stDir > 0 and stDir[1] < 0
+
+color stCol = stBull ? upCol : dnCol
+plot(showST ? stLine : na, "SuperTrend", color=color.new(stCol, 0), linewidth=2, style=plot.style_linebr)
+
+// glow del SuperTrend
+plot(showST ? stLine : na, "ST Glow", color=color.new(stCol, 75), linewidth=5, style=plot.style_linebr)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ② RANGE FILTER (ADX)
+// ════════════════════════════════════════════════════════════════════════════
+[diP, diM, adx] = ta.dmi(adxLen, adxLen)
+bool isRange = useRF and adx < adxThr
+bgcolor(isRange ? rngCol : na, title="Zona de rango")
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ③ EMA CLOUD
+// ════════════════════════════════════════════════════════════════════════════
+float ef = ta.ema(close, emaFast)
+float es = ta.ema(close, emaSlow)
+int emaTrend = ef > es ? 1 : ef < es ? -1 : 0
+color emaCol = emaTrend > 0 ? upCol : dnCol
+pEF = plot(showEMA ? ef : na, "EMA rápida", color=color.new(emaCol, 40), linewidth=1)
+pES = plot(showEMA ? es : na, "EMA lenta",  color=color.new(emaCol, 60), linewidth=1)
+fill(pEF, pES, color=showEMA ? color.new(emaCol, 88) : na, title="EMA Cloud")
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ④ SEÑALES — cambio de tendencia (flip SuperTrend) confirmado
+// ════════════════════════════════════════════════════════════════════════════
+bool conf = barstate.isconfirmed
+bool adxOkUp = not reqADX or (adx >= adxThr and diP > diM)
+bool adxOkDn = not reqADX or (adx >= adxThr and diM > diP)
+bool buySig  = showSig and flipUp and adxOkUp and conf
+bool sellSig = showSig and flipDn and adxOkDn and conf
+
+plotchar(buySig  ? stLine : na, "BUY",  "•", location.absolute, color=sigUp, size=size.tiny)
+plotchar(sellSig ? stLine : na, "SELL", "•", location.absolute, color=sigDn, size=size.tiny)
+plotshape(buySig,  "BUY shape",  shape.triangleup,   location.belowbar, color=color.new(sigUp, 0), size=size.tiny)
+plotshape(sellSig, "SELL shape", shape.triangledown, location.abovebar, color=color.new(sigDn, 0), size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ⑤ DASHBOARD minimalista (tiny)
+// ════════════════════════════════════════════════════════════════════════════
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+var table d = table.new(f_pos(dashPos), 2, 4, bgcolor=color.new(#0b0e16, 14), frame_color=color.new(upCol, 45), frame_width=1, border_width=1)
+f_cell(t, r, k, v, vc) =>
+    table.cell(t, 0, r, k, text_color=color.new(#90a4ae, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
+
+if showDash and barstate.islast
+    string stTxt = stBull ? "ALCISTA" : "BAJISTA"
+    color  stC = stBull ? upCol : dnCol
+    string regTxt = isRange ? "RANGO (espera)" : "TENDENCIA"
+    color  regC = isRange ? color.new(#ffea00, 0) : upCol
+    string emaTxt = emaTrend > 0 ? "▲ Alcista" : emaTrend < 0 ? "▼ Bajista" : "= Plano"
+    color  emaTc = emaTrend > 0 ? upCol : emaTrend < 0 ? dnCol : color.gray
+    table.cell(d, 0, 0, "Trend Flow", text_color=color.white, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, stTxt, text_color=stC, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(d, 1, "Régimen", regTxt + " " + str.tostring(adx, "#"), regC)
+    f_cell(d, 2, "EMA Cloud", emaTxt, emaTc)
+    f_cell(d, 3, "DI+ / DI−", str.tostring(diP, "#") + " / " + str.tostring(diM, "#"), color.new(#90a4ae, 0))
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MARCA DE AGUA — firma BudAI Cripto
+// ════════════════════════════════════════════════════════════════════════════
+f_wmPos(s) => s == "Inferior Izquierda" ? position.bottom_left : s == "Inferior Derecha" ? position.bottom_right : s == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(buySig,  "Trend BUY",  "Trend Flow · cambio a ALCISTA {{ticker}}")
+alertcondition(sellSig, "Trend SELL", "Trend Flow · cambio a BAJISTA {{ticker}}")

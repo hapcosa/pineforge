@@ -52,8 +52,8 @@ upCol    = input.color(#00e676, "Alcista", group=G_VIS, inline="c")
 dnCol    = input.color(#ff1744, "Bajista", group=G_VIS, inline="c")
 obUpCol  = input.color(color.new(#00e676, 82), "OB alcista", group=G_VIS, inline="ob")
 obDnCol  = input.color(color.new(#ff1744, 82), "OB bajista", group=G_VIS, inline="ob")
-fvgUpCol = input.color(color.new(#00e5ff, 84), "FVG alcista", group=G_VIS, inline="fv")
-fvgDnCol = input.color(color.new(#ff1e6e, 84), "FVG bajista", group=G_VIS, inline="fv")
+fvgUpCol = input.color(color.new(#00e5ff, 97), "FVG alcista", group=G_VIS, inline="fv")
+fvgDnCol = input.color(color.new(#ff1e6e, 97), "FVG bajista", group=G_VIS, inline="fv")
 premCol  = input.color(color.new(#ff1744, 92), "Premium", group=G_VIS, inline="pd")
 discCol  = input.color(color.new(#00e676, 92), "Descuento", group=G_VIS, inline="pd")
 showDash = input.bool(true, "Dashboard minimalista", group=G_VIS)
@@ -128,6 +128,7 @@ var array<label> hlLbls   = array.new_label()
 var array<box>   obBoxes  = array.new_box()
 var array<int>   obDir    = array.new_int()
 var array<box>   fvgBoxes = array.new_box()
+var array<line>  fvgLines = array.new_line()
 
 // ── dibujo BOS/CHoCH (inline, sin función global que reasigne) ──
 f_drawBreak(string txt, float y, int x1, color col) =>
@@ -200,8 +201,13 @@ bool fvgDn = high < low[2]
 f_addFVG(float top, float bot, int dir) =>
     if array.size(fvgBoxes) >= fvgMax
         box.delete(array.shift(fvgBoxes))
+        line.delete(array.shift(fvgLines))
     color col = dir > 0 ? fvgUpCol : fvgDnCol
-    array.push(fvgBoxes, box.new(bar_index - 2, top, bar_index + 4, bot, bgcolor=col, border_color=color.new(dir > 0 ? upCol : dnCol, 50), border_width=1))
+    float mid = (top + bot) / 2.0
+    // Línea 50% del FVG — sólida y brillante, da protagonismo a las líneas
+    color lineCol = color.new(dir > 0 ? upCol : dnCol, 25)
+    array.push(fvgBoxes, box.new(bar_index - 2, top, bar_index + 4, bot, bgcolor=col, border_color=color.new(dir > 0 ? upCol : dnCol, 40), border_width=1))
+    array.push(fvgLines, line.new(bar_index - 2, mid, bar_index + 4, mid, color=lineCol, style=line.style_solid, width=1))
 
 if showFVG and conf and fvgUp
     f_addFVG(low, high[2], 1)
@@ -212,12 +218,16 @@ if array.size(fvgBoxes) > 0
     int i = array.size(fvgBoxes) - 1
     while i >= 0
         box  bx = array.get(fvgBoxes, i)
+        line ln = array.get(fvgLines, i)
         bool mit = low <= box.get_top(bx) and high >= box.get_bottom(bx)
         if fvgMitig and mit
             box.delete(bx)
+            line.delete(ln)
             array.remove(fvgBoxes, i)
+            array.remove(fvgLines, i)
         else
             box.set_right(bx, bar_index + 4)
+            line.set_x2(ln, bar_index + 4)
         i := i - 1
 
 // ════════════════════════════════════════════════════════════════════════════

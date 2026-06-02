@@ -1,0 +1,213 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Smart Market Structure
+//  SMC institucional: BOS / CHoCH · Order Blocks · FVG · Sweeps.
+//  Máquina de estados de alta precisión con estética Cyberpunk.
+//  (c) BudAI Capital® — Pine v6 · overlay · prolijidad total
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Smart Market Structure", shorttitle="BudAI Capital® - Smart Market Structure", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_bars_back=3000)
+
+// ════════════════ GRUPOS ════════════════
+G_MS  = "① Estructura (SMC)"
+G_OB  = "② Order Blocks"
+G_FVG = "③ Fair Value Gaps"
+G_VIS = "④ Estética BudAI"
+G_WM  = "✦ Marca de agua"
+
+// ════════════════ ① ESTRUCTURA ════════════════
+swLen     = input.int(10, "Sensibilidad Swing", minval=2, maxval=50, group=G_MS)
+showSweep = input.bool(true, "Marcar Sweeps (x)", group=G_MS)
+showHL    = input.bool(true, "Etiquetas HH/LL", group=G_MS)
+
+// ════════════════ ② ORDER BLOCKS ════════════════
+showOB   = input.bool(true, "Mostrar Order Blocks", group=G_OB)
+obMax    = input.int(5, "OB visibles (por lado)", minval=1, maxval=10, group=G_OB)
+obAlpha  = input.int(90, "Transparencia OB", minval=50, maxval=98, group=G_OB)
+obMit    = input.string("Close", "Mitigación", options=["Close","Wick"], group=G_OB)
+
+// ════════════════ ③ FVG ════════════════
+showFVG  = input.bool(true, "Mostrar FVG", group=G_FVG)
+fvgMax   = input.int(6, "FVG visibles", minval=1, maxval=20, group=G_FVG)
+fvgAlpha = input.int(95, "Transparencia FVG", minval=50, maxval=98, group=G_FVG)
+
+// ════════════════ ④ ESTÉTICA ════════════════
+upCol    = input.color(#00e676, "Alcista (Neón)", group=G_VIS, inline="c")
+dnCol    = input.color(#ff1744, "Bajista (Neón)", group=G_VIS, inline="c")
+fvgUpCol = input.color(#00e5ff, "FVG Alcista", group=G_VIS, inline="fv")
+fvgDnCol = input.color(#ff1e6e, "FVG Bajista", group=G_VIS, inline="fv")
+eqCol    = input.color(#ffb300, "Línea Equilibrio", group=G_VIS)
+showDash = input.bool(true, "Dashboard Tiny", group=G_VIS)
+dashPos  = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda","Inferior Derecha","Superior Izquierda","Superior Derecha"], group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  TIPOS (UDT)
+// ════════════════════════════════════════════════════════════════════════════
+type OB
+    float top, float bot, int dir, box bx, line li, bool mit = false
+
+type FVG
+    float top, float bot, box bx, bool mit = false
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ESTRUCTURA - MÁQUINA DE ESTADOS
+// ════════════════════════════════════════════════════════════════════════════
+var int   trend   = 0   // 1 Bull, -1 Bear
+var float bosHi   = na, var float bosLo   = na
+var int   hiIdx   = na, var int   loIdx   = na
+var float lastHi  = na, var float lastLo  = na
+
+float ph = ta.pivothigh(high, swLen, swLen)
+float pl = ta.pivotlow(low,  swLen, swLen)
+
+if not na(ph)
+    bosHi := ph
+    hiIdx := bar_index - swLen
+    if showHL
+        label.new(hiIdx, ph, ph > lastHi ? "HH" : "LH", style=label.style_none, textcolor=ph > lastHi ? upCol : dnCol, size=size.tiny)
+    lastHi := ph
+
+if not na(pl)
+    bosLo := pl
+    loIdx := bar_index - swLen
+    if showHL
+        label.new(loIdx, pl, pl < lastLo ? "LL" : "HL", style=label.style_none, textcolor=pl < lastLo ? dnCol : upCol, size=size.tiny)
+    lastLo := pl
+
+bool conf = barstate.isconfirmed
+bool bosU = false, bool bosD = false, bool choU = false, bool choD = false
+bool swpU = false, bool swpD = false
+
+// Lógica de Ruptura (Cierre) vs Barrido (Mecha)
+if not na(bosHi) and conf
+    if close > bosHi
+        if trend < 0 
+            choU := true
+        else 
+            bosU := true
+        trend := 1
+        bosHi := na
+    else if high > bosHi and showSweep
+        swpU := true
+
+if not na(bosLo) and conf
+    if close < bosLo
+        if trend > 0 
+            choD := true
+        else 
+            bosD := true
+        trend := -1
+        bosLo := na
+    else if low < bosLo and showSweep
+        swpD := true
+
+// Dibujo de Estructura - Usamos xloc.bar_time para evitar error de "too far back"
+f_msDraw(txt, x, y, col) =>
+    line.new(x, y, bar_index, y, xloc=xloc.bar_index, color=color.new(col, 50), style=line.style_dashed)
+    label.new(int(math.avg(x, bar_index)), y, txt, xloc=xloc.bar_index, style=label.style_none, textcolor=col, size=size.tiny)
+
+if bosU  then f_msDraw("BOS", hiIdx, bosHi[bar_index-hiIdx], upCol)
+if bosD  then f_msDraw("BOS", loIdx, bosLo[bar_index-loIdx], dnCol)
+if choU  then f_msDraw("CHoCH", hiIdx, bosHi[bar_index-hiIdx], upCol)
+if choD  then f_msDraw("CHoCH", loIdx, bosLo[bar_index-loIdx], dnCol)
+if swpU  then label.new(bar_index, high, "x", style=label.style_none, textcolor=dnCol, size=size.tiny)
+if swpD  then label.new(bar_index, low, "x", style=label.style_none, textcolor=upCol, size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ORDER BLOCKS (BICOLOR DIFUMINADO)
+// ════════════════════════════════════════════════════════════════════════════
+var array<OB> obs = array.new<OB>()
+
+f_addOB(dir) =>
+    // Buscar la vela extrema del impulso previo
+    int look = swLen * 4
+    int ext = 0
+    float val = dir > 0 ? 1e10 : -1e10
+    for i = 0 to look
+        if (dir > 0 and low[i] < val) or (dir < -1 and high[i] > val)
+            val := dir > 0 ? low[i] : high[i]
+            ext := i
+    
+    float t = high[ext], float b = low[ext], float a = math.avg(t, b)
+    color c = dir > 0 ? upCol : dnCol
+    box bx  = box.new(bar_index-ext, t, bar_index, b, bgcolor=color.new(c, obAlpha), border_color=color.new(c, 70))
+    line li = line.new(bar_index-ext, a, bar_index, a, color=color.new(eqCol, 80), style=line.style_dotted)
+    
+    if array.size(obs) >= obMax * 2
+        OB old = array.shift(obs)
+        box.delete(old.bx), line.delete(old.li)
+    array.push(obs, OB.new(t, b, dir, bx, li))
+
+if (bosU or choU) then f_addOB(1)
+if (bosD or choD) then f_addOB(-1)
+
+// Mitigación OB
+if array.size(obs) > 0
+    for i = array.size(obs) - 1 to 0
+        OB o = array.get(obs, i)
+        if not o.mit
+            box.set_right(o.bx, bar_index), line.set_x2(o.li, bar_index)
+            bool hit = o.dir > 0 ? (obMit=="Close" ? close < o.bot : low < o.bot) : (obMit=="Close" ? close > o.top : high > o.top)
+            if hit
+                o.mit := true
+                box.delete(o.bx), line.delete(o.li)
+                array.remove(obs, i)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  FAIR VALUE GAPS
+// ════════════════════════════════════════════════════════════════════════════
+var array<FVG> fvgs = array.new<FVG>()
+if showFVG and conf
+    if low > high[2] // Bull FVG
+        box b = box.new(bar_index-2, low, bar_index, high[2], bgcolor=color.new(fvgUpCol, fvgAlpha), border_color=na)
+        array.push(fvgs, FVG.new(low, high[2], b))
+    if high < low[2] // Bear FVG
+        box b = box.new(bar_index-2, low[2], bar_index, high, bgcolor=color.new(fvgDnCol, fvgAlpha), border_color=na)
+        array.push(fvgs, FVG.new(low[2], high, b))
+
+if array.size(fvgs) > 0
+    for i = array.size(fvgs) - 1 to 0
+        FVG f = array.get(fvgs, i)
+        box.set_right(f.bx, bar_index)
+        if (low < f.bot and high > f.top)
+            box.delete(f.bx), array.remove(fvgs, i)
+        else if array.size(fvgs) > fvgMax
+            box.delete(array.shift(fvgs).bx)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD & MARCA AGUA
+// ════════════════════════════════════════════════════════════════════════════
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+var table d = table.new(f_pos(dashPos), 2, 4, bgcolor=color.new(#0b0e16, 14), frame_color=color.new(upCol, 40), frame_width=1)
+f_cell(t, r, k, v, vc) =>
+    table.cell(t, 0, r, k, text_color=color.new(#90a4ae, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
+
+if showDash and barstate.islast
+    table.cell(d, 0, 0, "Market Structure", text_color=color.white, bgcolor=color.new(#1b2030,0), text_size=size.tiny)
+    table.cell(d, 1, 0, trend > 0 ? "BULL" : "BEAR", text_color=trend > 0 ? upCol : dnCol, text_size=size.tiny)
+    f_cell(d, 1, "Último Evento", choU or choD ? "CHoCH" : "BOS", trend > 0 ? upCol : dnCol)
+    f_cell(d, 2, "OB Activos", str.tostring(array.size(obs)), color.white)
+    f_cell(d, 3, "FVG Activos", str.tostring(array.size(fvgs)), color.white)
+
+f_wmPos(s) => s == "Inferior Izquierda" ? position.bottom_left : s == "Inferior Derecha" ? position.bottom_right : s == "Superior Izquierda" ? position.top_left : position.top_right
+if showWM and barstate.islast
+    table.cell(table.new(f_wmPos(wmPos), 1, 1), 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(bosU or bosD, "BOS Detectado", "BudAI SMC: Break of Structure detectado.")
+alertcondition(choU or choD, "CHoCH Detectado", "BudAI SMC: Change of Character detectado.")
+alertcondition(swpU or swpD, "Sweep Detectado", "BudAI SMC: Liquidity Sweep (x).")

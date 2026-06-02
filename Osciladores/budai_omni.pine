@@ -1,0 +1,251 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Omni Oscillator
+//  El definitivo: selector de motor (WaveTrend · Slope · MoneyFlow · Squeeze · RSI)
+//  en un solo oscilador. Estética Athenea, 100% colores configurables, nodos en
+//  cruces con glow blanco. Onda única + glow fading + línea blanca brillante.
+//  (c) BudAI Capital® — Pine v6 · panel inferior
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Omni Oscillator", shorttitle="BudAI Capital® - Omni Oscillator", overlay=false, precision=1, max_labels_count=300, max_lines_count=100)
+
+// ════════════════ GRUPOS ════════════════
+G_ENG = "① Motor"
+G_SIG = "② Señales"
+G_LVL = "③ Niveles"
+G_VIS = "④ Estética (todo configurable)"
+G_WM  = "✦ Marca de agua"
+
+// ════════════════ ① MOTOR ════════════════
+engine = input.string("WaveTrend", "Motor del oscilador", options=["WaveTrend","Slope","MoneyFlow","Squeeze","RSI"], group=G_ENG, tooltip="Elige el núcleo. Todos se muestran con la misma estética Athenea.")
+src    = input.source(hlc3, "Fuente", group=G_ENG)
+len    = input.int(14, "Longitud principal", minval=2, group=G_ENG, tooltip="Período base del motor elegido.")
+trigLn = input.int(5,  "Trigger / señal", minval=1, group=G_ENG)
+smooth = input.int(2,  "Suavizado", minval=1, maxval=10, group=G_ENG)
+useCOG = input.bool(true, "Mezclar COG (Ehlers, reduce lag)", group=G_ENG)
+// Hyper Wave (2ª onda de presión) + Kernel
+showHW = input.bool(true, "Hyper Wave (presión)", group=G_ENG, inline="hw")
+hwLen  = input.int(6, "len", minval=1, group=G_ENG, inline="hw")
+kern1  = input.float(0.8, "Kernel 1", minval=0.1, maxval=2, step=0.1, group=G_ENG, inline="k", tooltip="Factor de suavizado fino del Hyper Wave.")
+kern2  = input.float(0.3, "Kernel 2", minval=0.1, maxval=2, step=0.1, group=G_ENG, inline="k")
+
+// ════════════════ ② SEÑALES ════════════════
+showSig  = input.bool(true, "Círculos de entrada (cruce en zona)", group=G_SIG)
+showNode = input.bool(true, "Nodo blanco glow en cada cruce", group=G_SIG)
+reqExt   = input.bool(true, "Solo señal en zona extrema (OB/OS)", group=G_SIG)
+
+// ════════════════ ③ NIVELES ════════════════
+obLvl   = input.int(75, "Sobrecompra", minval=55, maxval=95, group=G_LVL, inline="z")
+osLvl   = input.int(25, "Sobreventa",  minval=5,  maxval=45, group=G_LVL, inline="z")
+showFib = input.bool(true, "Niveles Fibo sutiles", group=G_LVL)
+
+// ════════════════ ④ ESTÉTICA — TODO CONFIGURABLE ════════════════
+upCol     = input.color(#00e5ff, "Línea alcista (celeste)", group=G_VIS, inline="ln")
+dnCol     = input.color(#ff1e6e, "Línea bajista (fucsia)", group=G_VIS, inline="ln")
+up2Col    = input.color(#ff9100, "Alcista 2 (naranja)", group=G_VIS, inline="ln2")
+dn2Col    = input.color(#b388ff, "Bajista 2 (morado)", group=G_VIS, inline="ln2")
+hwCol     = input.color(color.new(#00e5ff, 70), "Hyper Wave", group=G_VIS)
+useDualUp = input.bool(false, "Degradado celeste→naranja (alcista)", group=G_VIS)
+useDualDn = input.bool(false, "Degradado fucsia→morado (bajista)", group=G_VIS)
+trigCol   = input.color(color.new(#ffffff, 35), "Trigger", group=G_VIS)
+brightCol = input.color(#ffffff, "Brillo blanco (cresta)", group=G_VIS)
+sigUpCol  = input.color(#ffff00, "Señal alcista (amarillo neón)", group=G_VIS, inline="sg")
+sigDnCol  = input.color(#ff007f, "Señal bajista (rosa neón)", group=G_VIS, inline="sg")
+nodeCol   = input.color(#ffffff, "Nodo de cruce", group=G_VIS)
+fibCol    = input.color(#9d6cff, "Niveles Fibo", group=G_VIS)
+mfCol     = input.bool(true, "Histograma Money Flow de fondo", group=G_VIS)
+glow      = input.bool(true, "Relleno degradado (glow fading)", group=G_VIS)
+shadeInt  = input.int(55, "Opacidad onda (difuminado)", minval=20, maxval=90, group=G_VIS)
+lineW     = input.int(2, "Grosor línea principal", minval=1, maxval=4, group=G_VIS)
+showDash  = input.bool(true, "Dashboard minimalista", group=G_VIS)
+dashPos   = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda","Inferior Derecha","Superior Izquierda","Superior Derecha"], group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NORMALIZADOR 0..100
+// ════════════════════════════════════════════════════════════════════════════
+f_norm(float s, simple int n) =>
+    float lo = ta.lowest(s, n)
+    float hi = ta.highest(s, n)
+    hi - lo != 0 ? 100.0 * (s - lo) / (hi - lo) : 50.0
+
+bool conf = barstate.isconfirmed
+float vol = nz(volume) == 0 ? 1.0 : volume
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MOTORES — cada uno produce rawOsc (0..100) y rawTrig (0..100)
+// ════════════════════════════════════════════════════════════════════════════
+float rawOsc = 50.0
+float rawTrig = 50.0
+
+// COG Ehlers (opcional, se mezcla al WaveTrend para reducir lag)
+float cogNum = 0.0
+float cogDen = 0.0
+for i = 0 to len - 1
+    float p = nz(src[i])
+    cogNum := cogNum + (1 + i) * p
+    cogDen := cogDen + p
+float cogRaw = cogDen != 0 ? -cogNum / cogDen + (len + 1) / 2.0 : 0.0
+
+// WaveTrend (+ COG opcional)
+float esa = ta.ema(src, 9)
+float de  = ta.ema(math.abs(src - esa), 9)
+float ci  = de == 0 ? 0.0 : (src - esa) / (0.015 * de)
+float wt1 = ta.ema(ci, len)
+float wt2 = ta.sma(wt1, trigLn)
+
+// Slope (regresión)
+float lr  = ta.linreg(src, len, 0)
+float lr1 = ta.linreg(src, len, 1)
+float slopeRaw = lr - lr1
+
+// Money Flow (MFI)
+float mfiV = ta.mfi(hlc3, len)
+
+// Squeeze momentum (linreg del rango)
+float hh = ta.highest(high, len)
+float ll = ta.lowest(low, len)
+float avgHL = ((hh + ll) / 2.0 + ta.sma(close, len)) / 2.0
+float sqzMom = ta.linreg(src - avgHL, len, 0)
+
+// RSI
+float rsiV = ta.rsi(src, len)
+
+// CMF (siempre, para fondo + validación)
+float mfm = (high - low) != 0 ? ((close - low) - (high - close)) / (high - low) : 0.0
+float cmf = math.sum(mfm * vol, len) / math.sum(vol, len)
+
+// selección de motor
+if engine == "WaveTrend"
+    rawOsc := f_norm(wt1, 100)
+    rawTrig := f_norm(wt2, 100)
+else if engine == "Slope"
+    rawOsc := f_norm(slopeRaw, 100)
+    rawTrig := ta.sma(rawOsc, trigLn)
+else if engine == "MoneyFlow"
+    rawOsc := mfiV
+    rawTrig := ta.sma(mfiV, trigLn)
+else if engine == "Squeeze"
+    rawOsc := f_norm(sqzMom, 100)
+    rawTrig := ta.sma(rawOsc, trigLn)
+else
+    rawOsc := rsiV
+    rawTrig := ta.sma(rsiV, trigLn)
+
+// mezcla COG (reduce lag de los giros) sobre el oscilador elegido
+float cogN = f_norm(cogRaw, 100)
+float blended = useCOG ? rawOsc * 0.75 + cogN * 0.25 : rawOsc
+float osc  = ta.ema(blended, smooth)
+float trig = rawTrig
+bool isBull = osc >= trig
+bool waveUp = osc >= osc[1]
+
+// Hyper Wave — 2ª onda de presión (doble suavizado con kernels)
+float hw1 = ta.ema(osc, math.max(int(hwLen * kern1), 1))
+float hwave = ta.ema(hw1, math.max(int(hwLen * kern2), 1))
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NIVELES sutiles (Fibo)
+// ════════════════════════════════════════════════════════════════════════════
+hline(100, "Tope", color.new(color.gray, 92), hline.style_dotted)
+hline(showFib ? 61.8 : na, "Fibo 0.618", color.new(fibCol, 86), hline.style_dotted)
+hline(50, "Central", color.new(fibCol, 70), hline.style_solid)
+hline(showFib ? 38.2 : na, "Fibo 0.382", color.new(fibCol, 86), hline.style_dotted)
+hline(0, "Piso", color.new(color.gray, 92), hline.style_dotted)
+hline(obLvl, "Sobrecompra", color.new(dnCol, 70), hline.style_dashed)
+hline(osLvl, "Sobreventa", color.new(upCol, 70), hline.style_dashed)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PLOTS — onda Athenea (glow fading + línea blanca brillante)
+// ════════════════════════════════════════════════════════════════════════════
+plot(mfCol ? 50 + cmf * 50 : na, "Money Flow", color=cmf >= 0 ? color.new(upCol, 80) : color.new(dnCol, 80), style=plot.style_columns, histbase=50)
+
+// color de onda: degradado dual opcional (celeste→naranja / fucsia→morado por nivel)
+color upWave = useDualUp ? color.from_gradient(osc, 50, 100, upCol, up2Col) : upCol
+color dnWave = useDualDn ? color.from_gradient(osc, 0, 50, dn2Col, dnCol) : dnCol
+color waveCol = isBull ? upWave : dnWave
+
+// Hyper Wave detrás (presión)
+plot(showHW ? hwave : na, "Hyper Wave", color=hwCol, linewidth=1)
+
+pTrig = plot(trig, "Trigger", color=trigCol, linewidth=1)
+pOsc  = plot(osc, "Omni", color=waveCol, linewidth=lineW)
+plot(osc, "Brillo", color=color.new(brightCol, 0), linewidth=1)
+pMid  = plot(50, "Mid", color=color.new(color.white, 100), display=display.none)
+
+// relleno degradado fading hacia 50
+fill(pOsc, pMid, top_value=100, bottom_value=50, top_color=glow ? color.new(upCol, shadeInt) : na, bottom_color=glow ? color.new(upCol, 100) : na, title="Glow superior")
+fill(pOsc, pMid, top_value=50, bottom_value=0,  top_color=glow ? color.new(dnCol, 100) : na, bottom_color=glow ? color.new(dnCol, shadeInt) : na, title="Glow inferior")
+
+// cuerpo entre osc y trigger
+fill(pOsc, pTrig, color=isBull ? color.new(upCol, 84) : color.new(dnCol, 84), title="Cuerpo")
+
+// ════════════════════════════════════════════════════════════════════════════
+//  SEÑALES + NODOS DE CRUCE
+// ════════════════════════════════════════════════════════════════════════════
+bool crossUp = ta.crossover(osc, trig)
+bool crossDn = ta.crossunder(osc, trig)
+bool flowUp  = cmf > 0
+bool flowDn  = cmf < 0
+bool extUp = not reqExt or osc <= osLvl
+bool extDn = not reqExt or osc >= obLvl
+
+bool buySig  = showSig and crossUp and extUp and flowUp and conf
+bool sellSig = showSig and crossDn and extDn and flowDn and conf
+
+// NODO blanco con glow en TODO cruce (en el valor de osc = punto exacto del cruce)
+plotchar(showNode and (crossUp or crossDn) ? osc : na, "Nodo Glow", "•", location.absolute, color=color.new(nodeCol, 70), size=size.small)
+plotchar(showNode and (crossUp or crossDn) ? osc : na, "Nodo",      "•", location.absolute, color=color.new(nodeCol, 0), size=size.tiny)
+
+// señales de entrada (doble glow Athenea)
+plotchar(buySig  ? osc : na, "Buy Glow",  "•", location.absolute, color=color.new(sigUpCol, 65), size=size.small)
+plotchar(buySig  ? osc : na, "Buy",       "•", location.absolute, color=sigUpCol, size=size.tiny)
+plotchar(sellSig ? osc : na, "Sell Glow", "•", location.absolute, color=color.new(sigDnCol, 65), size=size.small)
+plotchar(sellSig ? osc : na, "Sell",      "•", location.absolute, color=sigDnCol, size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD minimalista (tiny)
+// ════════════════════════════════════════════════════════════════════════════
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+var table d = table.new(f_pos(dashPos), 2, 5, bgcolor=color.new(#0b0e16, 12), frame_color=color.new(upCol, 55), frame_width=1, border_width=1)
+f_cell(t, r, k, v, vc) =>
+    table.cell(t, 0, r, k, text_color=color.new(#90a4ae, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
+
+if showDash and barstate.islast
+    string estado = osc >= obLvl ? "SOBRECOMPRA" : osc <= osLvl ? "SOBREVENTA" : isBull ? "Alcista" : "Bajista"
+    color  estC = osc >= obLvl ? dnCol : osc <= osLvl ? upCol : isBull ? upCol : dnCol
+    string flow = cmf > 0 ? "ACUMULA" : "DISTRIB"
+    color  flowC = cmf > 0 ? upCol : dnCol
+    string senal = buySig ? "▲ COMPRA" : sellSig ? "▼ VENTA" : "—"
+    color  senalC = buySig ? sigUpCol : sellSig ? sigDnCol : color.new(color.white, 35)
+    table.cell(d, 0, 0, "Omni · " + engine, text_color=color.white, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, str.tostring(osc, "#") + "/100", text_color=waveCol, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(d, 1, "Estado", estado, estC)
+    f_cell(d, 2, "Money Flow", flow, flowC)
+    f_cell(d, 3, "Trigger", str.tostring(trig, "#"), color.new(color.gray, 0))
+    f_cell(d, 4, "Señal", senal, senalC)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MARCA DE AGUA — firma BudAI Cripto
+// ════════════════════════════════════════════════════════════════════════════
+f_wmPos(s) => s == "Inferior Izquierda" ? position.bottom_left : s == "Inferior Derecha" ? position.bottom_right : s == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(buySig,  "Omni COMPRA", "Omni Oscillator · COMPRA {{ticker}}")
+alertcondition(sellSig, "Omni VENTA",  "Omni Oscillator · VENTA {{ticker}}")

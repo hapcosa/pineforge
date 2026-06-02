@@ -45,8 +45,8 @@ panicCol = input.color(#ff1744, "Pánico (rojo neón)", group=G_VIS, inline="c")
 calmCol  = input.color(#00e676, "Calma/euforia (verde)", group=G_VIS, inline="c")
 lineCol  = input.color(#ffffff, "Línea (blanca)", group=G_VIS, inline="ln")
 shadeInt = input.int(45, "Intensidad sombra", minval=20, maxval=85, group=G_VIS, inline="ln")
-sigUp    = input.color(#ffea00, "Suelo (amarillo)", group=G_VIS, inline="sg")
-sigDn    = input.color(#9e9e9e, "Techo (gris)", group=G_VIS, inline="sg")
+sigUp    = input.color(#ffff00, "Suelo (amarillo neón)", group=G_VIS, inline="sg")
+sigDn    = input.color(#ff007f, "Techo (rosa neón)", group=G_VIS, inline="sg")
 glow     = input.bool(true, "Glow neón", group=G_VIS)
 showDash = input.bool(true, "Dashboard minimalista", group=G_VIS)
 dashPos  = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
@@ -80,10 +80,13 @@ float eRangeHi = ta.highest(euph, phLen) * phUp
 bool isEuph = showTop and (euph >= eUp or euph >= eRangeHi)
 
 // ════════════════════════════════════════════════════════════════════════════
-//  PLOTS — ONDA difuminada (en vez de barras)
+//  PLOTS — ONDA difuminada (en vez de barras) + BARRAS de fondo
 // ════════════════════════════════════════════════════════════════════════════
 // color de la onda: rojo intenso si pánico, atenuado en calma
 color waveCol = isPanic ? panicCol : color.new(panicCol, 45)
+
+// Barras de fondo con diferencia de color para pánico (rojo neón) y calma (verde neón)
+plot(vixFix, "Barras Pánico", style=plot.style_columns, color=isPanic ? color.new(panicCol, 55) : color.new(calmCol, 82))
 
 pVix  = plot(vixFix, "Vix Fix (pánico)", color.new(lineCol, 0), 2)
 pZero = plot(0, "z", color=color.new(color.white, 100), display=display.none)
@@ -105,8 +108,10 @@ bool floorSig = showFloor and panicFade and conf
 bool euphFade = showTop and isEuph[1] and euph < euph[1]
 bool roofSig = showRoof and euphFade and conf
 
-// círculos pequeños: suelo abajo (amarillo) / techo arriba (gris)
+// Círculos con glow: suelo abajo (amarillo) / techo arriba (rosa)
+plotchar(floorSig, "Suelo (compra) Glow", "•", location.bottom, color=color.new(sigUp, 65), size=size.small)
 plotchar(floorSig, "Suelo (compra)", "•", location.bottom, color=sigUp, size=size.tiny)
+plotchar(roofSig,  "Techo (venta) Glow",  "•", location.top,    color=color.new(sigDn, 65), size=size.small)
 plotchar(roofSig,  "Techo (venta)",  "•", location.top,    color=sigDn, size=size.tiny)
 
 // ════════════════════════════════════════════════════════════════════════════

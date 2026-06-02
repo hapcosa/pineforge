@@ -1,0 +1,160 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Smart Money Flow Tide
+//  Doble línea de flujo institucional (MFI rápido + lento) con glow fino, fill
+//  bicolor, ribbons de presión y círculos OB/OS. Estética marina neón.
+//  (c) BudAI Capital® — Pine v6 · panel inferior
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Smart Money Flow Tide", shorttitle="BudAI Capital® - Smart Money Flow Tide", overlay=false, precision=1, max_labels_count=300, max_lines_count=100)
+
+// ════════════════ GRUPOS ════════════════
+G_CORE = "① Núcleo (doble flujo)"
+G_RIB  = "② Ribbons de presión"
+G_SIG  = "③ Señales OB / OS"
+G_VIS  = "④ Estética"
+G_WM   = "✦ Marca de agua"
+
+// ════════════════ ① NÚCLEO ════════════════
+fastLen = input.int(14, "Flujo rápido (azul)", minval=2, group=G_CORE)
+slowLen = input.int(28, "Flujo lento (rojo)", minval=2, group=G_CORE)
+cmfLen  = input.int(20, "CMF (acum/dist)", minval=2, group=G_CORE)
+smooth  = input.int(2,  "Suavizado", minval=1, maxval=10, group=G_CORE)
+
+// ════════════════ ② RIBBONS ════════════════
+showRib = input.bool(true, "Ribbons de presión (arriba/abajo)", group=G_RIB)
+ribTop  = input.int(105,  "Altura ribbon superior", group=G_RIB, inline="r")
+ribBot  = input.int(-105, "Altura ribbon inferior", group=G_RIB, inline="r")
+
+// ════════════════ ③ SEÑALES ════════════════
+showSig = input.bool(true, "Círculos OB / OS", group=G_SIG)
+obLvl   = input.int(60,  "Distribución (OB)", minval=20, maxval=99, group=G_SIG, inline="l")
+osLvl   = input.int(-60, "Acumulación (OS)",  minval=-99, maxval=-20, group=G_SIG, inline="l")
+
+// ════════════════ ④ ESTÉTICA (marina neón · líneas finas) ════════════════
+fastCol = input.color(#2196f3, "Flujo rápido (azul)", group=G_VIS, inline="c")
+slowCol = input.color(#f23645, "Flujo lento (rojo)", group=G_VIS, inline="c")
+fillUp  = input.color(color.new(#00e676, 72), "Fill acumulación", group=G_VIS, inline="f")
+fillDn  = input.color(color.new(#e040fb, 72), "Fill distribución", group=G_VIS, inline="f")
+sigUp   = input.color(#00e676, "Señal OS (verde)", group=G_VIS, inline="sg")
+sigDn   = input.color(#ffeb00, "Señal OB (amarillo)", group=G_VIS, inline="sg")
+glow    = input.bool(true, "Glow neón sutil", group=G_VIS)
+showDash= input.bool(true, "Dashboard minimalista", group=G_VIS)
+dashPos = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda","Inferior Derecha","Superior Izquierda","Superior Derecha"], group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NÚCLEO — doble Money Flow (MFI rápido + lento), escala ±100
+// ════════════════════════════════════════════════════════════════════════════
+bool conf = barstate.isconfirmed
+float vol = nz(volume) == 0 ? 1.0 : volume
+
+// MFI centrado en 0 (±100): (mfi-50)*2
+float mfiFast = (ta.mfi(hlc3, fastLen) - 50.0) * 2.0
+float mfiSlow = (ta.mfi(hlc3, slowLen) - 50.0) * 2.0
+float fast = ta.ema(math.max(-100.0, math.min(100.0, mfiFast)), smooth)
+float slow = ta.ema(math.max(-100.0, math.min(100.0, mfiSlow)), smooth)
+
+// CMF para validar
+float mfm = (high - low) != 0 ? ((close - low) - (high - close)) / (high - low) : 0.0
+float cmf = math.sum(mfm * vol, cmfLen) / math.sum(vol, cmfLen)
+
+bool isBull = fast >= slow
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NIVELES
+// ════════════════════════════════════════════════════════════════════════════
+hline(0,     "Centro",       color.new(color.gray, 70), hline.style_solid)
+hline(obLvl, "Distribución", color.new(slowCol, 80), hline.style_dotted)
+hline(osLvl, "Acumulación",  color.new(fastCol, 80), hline.style_dotted)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PLOTS — glow fino + doble línea delgada + fill bicolor
+// ════════════════════════════════════════════════════════════════════════════
+// glow sutil
+plot(glow ? fast : na, "Glow rápida", color.new(fastCol, 84), 3)
+plot(glow ? slow : na, "Glow lenta",  color.new(slowCol, 84), 3)
+
+// doble línea fina
+pFast = plot(fast, "Flujo rápido", color=color.new(fastCol, 0), linewidth=1)
+pSlow = plot(slow, "Flujo lento",  color=color.new(slowCol, 0), linewidth=1)
+
+// fill bicolor entre líneas
+fill(pFast, pSlow, color=isBull ? fillUp : fillDn, title="Fill flujo")
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ② RIBBONS de presión
+// ════════════════════════════════════════════════════════════════════════════
+// micro-segmentos finos espaciados (cada 2 barras) — no franja sólida
+bool ribTick = bar_index % 2 == 0
+color ribTopCol = fast >= obLvl ? slowCol : color.new(#e040fb, 40)
+color ribBotCol = fast <= osLvl ? sigUp : color.new(slowCol, 50)
+plotchar(showRib and ribTick ? ribTop : na, "Ribbon superior", "▬", location.absolute, color=ribTopCol, size=size.tiny)
+plotchar(showRib and ribTick ? ribBot : na, "Ribbon inferior", "▬", location.absolute, color=ribBotCol, size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ③ SEÑALES — círculos OB/OS (fuerte ○ glow / simple ×)
+// ════════════════════════════════════════════════════════════════════════════
+bool crossUp = ta.crossover(fast, slow)
+bool crossDn = ta.crossunder(fast, slow)
+bool flowUp  = cmf > 0
+bool flowDn  = cmf < 0
+bool strongUp = crossUp and fast <= osLvl and flowUp and conf
+bool strongDn = crossDn and fast >= obLvl and flowDn and conf
+bool simpleUp = crossUp and fast > osLvl and fast < 0 and flowUp and conf
+bool simpleDn = crossDn and fast < obLvl and fast > 0 and flowDn and conf
+
+// nodo blanco con glow en todo cruce (fino, elegante)
+plotchar((crossUp or crossDn) ? fast : na, "Nodo Glow", "•", location.absolute, color=color.new(color.white, 70), size=size.small)
+plotchar((crossUp or crossDn) ? fast : na, "Nodo",      "•", location.absolute, color=color.new(color.white, 0), size=size.tiny)
+
+plotchar(showSig and strongUp ? fast : na, "OS Glow", "•", location.absolute, color=color.new(sigUp, 60), size=size.small)
+plotchar(showSig and strongUp ? fast : na, "OS",      "•", location.absolute, color=sigUp, size=size.tiny)
+plotchar(showSig and strongDn ? fast : na, "OB Glow", "•", location.absolute, color=color.new(sigDn, 60), size=size.small)
+plotchar(showSig and strongDn ? fast : na, "OB",      "•", location.absolute, color=sigDn, size=size.tiny)
+plotchar(showSig and simpleUp ? fast : na, "OS x", "×", location.absolute, color=color.new(sigUp, 30), size=size.tiny)
+plotchar(showSig and simpleDn ? fast : na, "OB x", "×", location.absolute, color=color.new(sigDn, 30), size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ④ DASHBOARD minimalista (tiny)
+// ════════════════════════════════════════════════════════════════════════════
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+var table d = table.new(f_pos(dashPos), 2, 4, bgcolor=color.new(#0b0e16, 14), frame_color=color.new(fastCol, 45), frame_width=1, border_width=1)
+f_cell(t, r, k, v, vc) =>
+    table.cell(t, 0, r, k, text_color=color.new(#90a4ae, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
+
+if showDash and barstate.islast
+    string dirTxt = isBull ? "▲ Acumula" : "▼ Distrib"
+    color  dirC = isBull ? fastCol : slowCol
+    string zona = fast >= obLvl ? "DISTRIBUCIÓN" : fast <= osLvl ? "ACUMULACIÓN" : "Neutro"
+    color  zCol = fast >= obLvl ? sigDn : fast <= osLvl ? sigUp : color.new(#90a4ae,0)
+    table.cell(d, 0, 0, "Money Flow Tide", text_color=color.white, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, str.tostring(fast, "#"), text_color=dirC, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(d, 1, "Dirección", dirTxt, dirC)
+    f_cell(d, 2, "Zona", zona, zCol)
+    f_cell(d, 3, "CMF", str.tostring(cmf, "#.##"), cmf >= 0 ? sigUp : slowCol)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MARCA DE AGUA — firma BudAI Cripto
+// ════════════════════════════════════════════════════════════════════════════
+f_wmPos(s) => s == "Inferior Izquierda" ? position.bottom_left : s == "Inferior Derecha" ? position.bottom_right : s == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(strongUp, "Tide acumulación", "Money Flow Tide · acumulación fuerte {{ticker}}")
+alertcondition(strongDn, "Tide distribución", "Money Flow Tide · distribución fuerte {{ticker}}")
