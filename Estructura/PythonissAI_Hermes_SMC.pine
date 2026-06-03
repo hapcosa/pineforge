@@ -8,9 +8,10 @@
 //         C R I P T O   ·   T R A D I N G   C A P I T A L
 // ────────────────────────────────────────────────────────────────────────────
 //  PythonissAI® - Hermes · SMC
-//  Smart Money Concepts limpio: BOS / CHoCH · HH/HL/LH/LL · Order Blocks · FVG ·
-//  IFVG (gap invertido) · EQH/EQL (liquidez) · Premium/Descuento. Estructura en
-//  vivo, trazos finos, cajas difusas. Exporta el sesgo (conn_smc) para el Cónclave.
+//  Smart Money Concepts limpio: BOS / CHoCH · HH/HL/LH/LL inteligente ·
+//  Order Blocks volumétricos (fondo + cuerpo bicolor + volumen y %) · FVG / IFVG
+//  recortados con línea 50% · EQH/EQL · Premium/Descuento. Trazos finos.
+//  Exporta el sesgo (conn_smc / conn_fvg) para el Cónclave.
 //  (c) PythonissAI® — Pine v6 · overlay
 // ────────────────────────────────────────────────────────────────────────────
 indicator("PythonissAI® - Hermes · SMC", shorttitle="Hermes", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_bars_back=2000)
@@ -26,35 +27,37 @@ G_COL = "⑦ Paleta"
 G_WM  = "✦ Marca de agua"
 
 // ════════════════ ① ESTRUCTURA ════════════════
-swLen     = input.int(10, "Swing (pivote estructura)", minval=2, maxval=50, group=G_STR, tooltip="Más alto = estructura mayor (menos ruido). 10 equilibrado.")
+swLen     = input.int(10, "Swing (pivote estructura)", minval=2, maxval=50, group=G_STR, tooltip="Más alto = estructura mayor (menos ruido).")
 showBOS   = input.bool(true, "Mostrar BOS (rompimiento)", group=G_STR)
 showCHoCH = input.bool(true, "Mostrar CHoCH (cambio carácter)", group=G_STR)
 showHL    = input.bool(true, "Etiquetas HH/HL/LH/LL", group=G_STR)
+maxHL     = input.int(4, "Máx etiquetas por lado (anti-saturación)", minval=1, maxval=20, group=G_STR, tooltip="Sólo mantiene las últimas N por lado para no ensuciar.")
 
 // ════════════════ ② ORDER BLOCKS ════════════════
 showOB    = input.bool(true, "Mostrar Order Blocks", group=G_OB)
 obMax     = input.int(6, "Máx OB visibles", minval=1, maxval=20, group=G_OB)
-obMitig   = input.bool(true, "Ocultar OB mitigados", group=G_OB)
-showOBVol = input.bool(false, "Etiqueta de volumen (estilo Beluga)", group=G_OB)
+showOBVol = input.bool(true, "Volumen + % de fuerza", group=G_OB)
 
 // ════════════════ ③ FVG / IFVG ════════════════
 showFVG  = input.bool(true, "Mostrar FVG", group=G_FVG)
-showIFVG = input.bool(true, "Mostrar IFVG (gap invertido)", group=G_FVG, tooltip="Cuando el precio cierra atravesando todo el FVG, este se invierte y pasa a actuar como soporte/resistencia opuesto.")
+showIFVG = input.bool(true, "Mostrar IFVG (gap invertido)", group=G_FVG)
 fvgMax   = input.int(8, "Máx FVG visibles", minval=1, maxval=30, group=G_FVG)
 fvgMitig = input.bool(true, "Mitigar FVG (si IFVG off)", group=G_FVG)
-fvgMin   = input.float(0.0, "Tamaño mínimo ×ATR", minval=0.0, step=0.05, group=G_FVG, tooltip="Filtra micro-gaps. 0 = mostrar todos.")
+fvgMin   = input.float(0.0, "Tamaño mínimo ×ATR", minval=0.0, step=0.05, group=G_FVG)
+fvgLen   = input.int(6, "Ancho del FVG (recortado, velas)", minval=2, maxval=30, group=G_FVG)
 
 // ════════════════ ④ LIQUIDEZ EQH/EQL ════════════════
 showEQ   = input.bool(true, "Mostrar EQH / EQL (liquidez)", group=G_EQ)
 eqTol    = input.float(0.1, "Tolerancia (% ATR)", minval=0.01, maxval=1.0, step=0.05, group=G_EQ)
 
 // ════════════════ ⑤ PREMIUM / DESCUENTO ════════════════
-showPD   = input.bool(false, "Mostrar zonas Premium/EQ/Descuento", group=G_PD, tooltip="OFF por defecto — actívalo solo si quieres el dealing range dibujado.")
+showPD   = input.bool(false, "Mostrar zonas Premium/EQ/Descuento", group=G_PD)
 pdLen    = input.int(50, "Rango (lookback)", minval=10, maxval=200, group=G_PD)
 
 // ════════════════ ⑥ ESTÉTICA ════════════════
-obFill   = input.int(84, "Opacidad relleno OB (transp.)", minval=70, maxval=95, group=G_VIS)
-fvgFill  = input.int(90, "Opacidad relleno FVG (transp.)", minval=80, maxval=97, group=G_VIS)
+obBgOp   = input.int(82, "Fondo OB (transp.)", minval=70, maxval=95, group=G_VIS, tooltip="Rectángulo de fondo de baja opacidad.")
+obBodyOp = input.int(30, "Cuerpo bicolor OB (transp.)", minval=10, maxval=60, group=G_VIS, tooltip="El cuerpo sólido encima. ~30 = pintado al 70-75%.")
+fvgFill  = input.int(88, "Relleno FVG (transp.)", minval=80, maxval=97, group=G_VIS)
 showDash = input.bool(true, "Dashboard minimalista", group=G_VIS)
 dashPos  = input.string("Arriba Derecha", "Posición dashboard", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
 
@@ -130,20 +133,18 @@ if brokeDn and conf
     bias := -1
     swingLo := na
 
-// arrays para limpieza
 var array<line>  brkLines = array.new_line()
 var array<label> brkLbls  = array.new_label()
-var array<label> hlLbls   = array.new_label()
-var array<box>   obBoxes  = array.new_box()
-var array<int>   obDir    = array.new_int()
-var array<label> obLbls   = array.new_label()
+var array<label> hiLbls   = array.new_label()
+var array<label> loLbls   = array.new_label()
 
+// BOS/CHoCH = texto simple (sin caja), línea fina del nivel roto
 f_drawBreak(string txt, float y, int x1, color col) =>
     if array.size(brkLines) >= 30
         line.delete(array.shift(brkLines))
         label.delete(array.shift(brkLbls))
-    array.push(brkLines, line.new(x1, y, bar_index, y, color=color.new(col, 30), style=line.style_dashed, width=1))
-    array.push(brkLbls,  label.new(int((x1 + bar_index) / 2), y, txt, style=label.style_none, textcolor=col, size=size.tiny))
+    array.push(brkLines, line.new(x1, y, bar_index, y, color=color.new(col, 55), style=line.style_dashed, width=1))
+    array.push(brkLbls,  label.new(bar_index, y, txt, style=label.style_none, textcolor=col, size=size.tiny))
 
 int phX = na(phBar) ? bar_index - swLen : phBar
 int plX = na(plBar) ? bar_index - swLen : plBar
@@ -156,57 +157,105 @@ if showCHoCH and chochUp
 if showCHoCH and chochDn
     f_drawBreak("CHoCH", lastPL, plX, dnCol)
 
-f_drawHL(string txt, int x, float y, bool isHigh, color col) =>
-    if array.size(hlLbls) >= 40
-        label.delete(array.shift(hlLbls))
-    array.push(hlLbls, label.new(x, y, txt, xloc=xloc.bar_index, style=(isHigh ? label.style_label_down : label.style_label_up), color=color.new(col, 88), textcolor=col, size=size.tiny))
+// HH/HL/LH/LL inteligente — sólo las últimas N por lado
+f_addHL(array<label> arr, string txt, float y, bool isHigh, color col) =>
+    if array.size(arr) >= maxHL
+        label.delete(array.shift(arr))
+    array.push(arr, label.new(bar_index - swLen, y, txt, xloc=xloc.bar_index, style=isHigh ? label.style_label_down : label.style_label_up, color=color.new(col, 90), textcolor=col, size=size.tiny))
 
 if showHL and not na(ph)
     bool hh = not na(prevPH) and ph > prevPH
-    f_drawHL(hh ? "HH" : "LH", bar_index - swLen, ph, true, hh ? upCol : dnCol)
+    f_addHL(hiLbls, hh ? "HH" : "LH", ph, true, hh ? upCol : dnCol)
 if showHL and not na(pl)
     bool ll = not na(prevPL) and pl < prevPL
-    f_drawHL(ll ? "LL" : "HL", bar_index - swLen, pl, false, ll ? dnCol : upCol)
+    f_addHL(loLbls, ll ? "LL" : "HL", pl, false, ll ? dnCol : upCol)
 
 // ════════════════════════════════════════════════════════════════════════════
-//  ② ORDER BLOCKS — borde fino + relleno difuso, con mitigación
+//  ② ORDER BLOCKS volumétricos — fondo faint + cuerpo bicolor + nivel con vol/%
 // ════════════════════════════════════════════════════════════════════════════
-f_addOB(float top, float bot, int dir) =>
-    if array.size(obBoxes) >= obMax
-        box.delete(array.shift(obBoxes))
-        array.shift(obDir)
-        label.delete(array.shift(obLbls))
-    color c = dir > 0 ? upCol : dnCol
-    array.push(obBoxes, box.new(bar_index - swLen, top, bar_index + 6, bot, bgcolor=color.new(c, obFill), border_color=color.new(c, 45), border_width=1))
-    array.push(obDir, dir)
+type OB
+    box   bg
+    box   body
+    line  lvl
+    label lb
+    float top
+    float bot
+    float vol
+    int   dir
+    bool  mit
+
+var array<OB> obs = array.new<OB>()
+
+f_addOB(int dir) =>
+    float t  = high[swLen]
+    float b  = low[swLen]
+    float bt = math.max(open[swLen], close[swLen])
+    float bb = math.min(open[swLen], close[swLen])
+    float v  = volume[swLen]
+    color zc = dir == 1 ? upCol : dnCol     // zona (dirección del OB)
+    color bc = dir == 1 ? dnCol : upCol     // cuerpo bicolor (opuesto = vela origen)
+    box bg = na
+    box bd = na
+    line lv = na
     label lb = na
-    if showOBVol
-        lb := label.new(bar_index - swLen, dir > 0 ? bot : top, str.tostring(volume[swLen], format.volume), style=dir > 0 ? label.style_label_up : label.style_label_down, color=color.new(c, 92), textcolor=color.new(c, 10), size=size.tiny)
-    array.push(obLbls, lb)
+    if showOB
+        bg := box.new(bar_index - swLen, t, bar_index + 2, b, bgcolor=color.new(zc, obBgOp), border_color=color.new(zc, 55), border_width=1)
+        bd := box.new(bar_index - swLen, bt, bar_index + 2, bb, bgcolor=color.new(bc, obBodyOp), border_color=color.new(bc, 100), border_width=0)
+        float prox = dir == 1 ? t : b
+        lv := line.new(bar_index, prox, bar_index + 2, prox, color=color.new(zc, 40), style=line.style_dashed, width=1)
+        if showOBVol
+            lb := label.new(bar_index + 2, prox, "", style=label.style_label_left, color=color.new(#000000, 100), textcolor=zc, size=size.tiny)
+    OB o = OB.new(bg, bd, lv, lb, t, b, v, dir, false)
+    array.unshift(obs, o)
+    int cnt = 0
+    int i = 0
+    while i < array.size(obs)
+        OB x = array.get(obs, i)
+        if x.dir == dir and not x.mit
+            cnt += 1
+            if cnt > obMax
+                box.delete(x.bg)
+                box.delete(x.body)
+                line.delete(x.lvl)
+                label.delete(x.lb)
+                array.remove(obs, i)
+                continue
+        i += 1
 
 if showOB and (bosUp or chochUp)
-    f_addOB(high[swLen], low[swLen], 1)
+    f_addOB(1)
 if showOB and (bosDn or chochDn)
-    f_addOB(high[swLen], low[swLen], -1)
+    f_addOB(-1)
 
-if array.size(obBoxes) > 0
-    int i = array.size(obBoxes) - 1
-    while i >= 0
-        box  bx = array.get(obBoxes, i)
-        int  dr = array.get(obDir, i)
-        bool mit = (dr > 0 and low <= box.get_bottom(bx)) or (dr < 0 and high >= box.get_top(bx))
-        if obMitig and mit
-            box.delete(bx)
-            label.delete(array.get(obLbls, i))
-            array.remove(obBoxes, i)
-            array.remove(obDir, i)
-            array.remove(obLbls, i)
-        else
-            box.set_right(bx, bar_index + 6)
-        i := i - 1
+// gestión: extender, % de fuerza, mitigación
+if array.size(obs) > 0
+    float maxVol = 0.0
+    for i = 0 to array.size(obs) - 1
+        OB o = array.get(obs, i)
+        if not o.mit and o.vol > maxVol
+            maxVol := o.vol
+    for i = array.size(obs) - 1 to 0
+        OB o = array.get(obs, i)
+        if o.mit
+            continue
+        bool broken = (o.dir == 1 and close < o.bot) or (o.dir == -1 and close > o.top)
+        if broken
+            o.mit := true
+            box.delete(o.bg)
+            box.delete(o.body)
+            line.delete(o.lvl)
+            label.delete(o.lb)
+            continue
+        box.set_right(o.bg, bar_index + 2)
+        box.set_right(o.body, bar_index + 2)
+        line.set_x2(o.lvl, bar_index + 2)
+        if not na(o.lb)
+            int pct = maxVol > 0 ? int(math.round(o.vol / maxVol * 100)) : 0
+            label.set_x(o.lb, bar_index + 2)
+            label.set_text(o.lb, str.tostring(o.vol, format.volume) + " (" + str.tostring(pct) + "%)")
 
 // ════════════════════════════════════════════════════════════════════════════
-//  ③ FVG / IFVG — hueco de 3 velas con inversión
+//  ③ FVG / IFVG — recortados (cortos), con trazo + línea 50%
 // ════════════════════════════════════════════════════════════════════════════
 type FVG
     box   bx
@@ -229,8 +278,11 @@ f_addFVG(float top, float bot, int dir) =>
         line.delete(old.ln)
     color c = dir > 0 ? upCol : dnCol
     float mid = (top + bot) / 2.0
-    box bx = box.new(bar_index - 2, top, bar_index + 4, bot, bgcolor=color.new(c, fvgFill), border_color=color.new(c, 55), border_width=1)
-    line ln = line.new(bar_index - 2, mid, bar_index + 4, mid, color=color.new(c, 30), style=line.style_solid, width=1)
+    // recortado: ancho fijo corto (no se extiende)
+    int xl = bar_index - 1
+    int xr = bar_index + fvgLen
+    box bx = box.new(xl, top, xr, bot, bgcolor=color.new(c, fvgFill), border_color=color.new(c, 50), border_width=1)
+    line ln = line.new(xl, mid, xr, mid, color=color.new(c, 25), style=line.style_solid, width=1)
     array.push(fvgs, FVG.new(bx, ln, top, bot, dir, false, false))
 
 if showFVG and conf and fvgUp
@@ -250,8 +302,8 @@ if array.size(fvgs) > 0
             if violated and showIFVG
                 f.inv := true
                 box.set_bgcolor(f.bx, color.new(cIfvg, fvgFill - 2))
-                box.set_border_color(f.bx, color.new(cIfvg, 50))
-                line.set_color(f.ln, color.new(cIfvg, 30))
+                box.set_border_color(f.bx, color.new(cIfvg, 45))
+                line.set_color(f.ln, color.new(cIfvg, 25))
             else if (violated or touched) and not showIFVG and fvgMitig
                 f.dead := true
                 box.delete(f.bx)
@@ -262,11 +314,8 @@ if array.size(fvgs) > 0
                 f.dead := true
                 box.delete(f.bx)
                 line.delete(f.ln)
-        if not f.dead
-            box.set_right(f.bx, bar_index + 4)
-            line.set_x2(f.ln, bar_index + 4)
-            if close <= f.top and close >= f.bot
-                fvgBias := f.inv ? -f.dir : f.dir
+        if not f.dead and close <= f.top and close >= f.bot
+            fvgBias := f.inv ? -f.dir : f.dir
 
 // ════════════════════════════════════════════════════════════════════════════
 //  ④ EQH / EQL — liquidez (máximos/mínimos iguales)
@@ -285,8 +334,7 @@ if showEQ and not na(pl) and not na(prevPL) and math.abs(pl - prevPL) <= tol
 float drHigh = ta.highest(high, pdLen)
 float drLow  = ta.lowest(low,  pdLen)
 float eq     = (drHigh + drLow) / 2.0
-bool  premium  = close > eq
-bool  discount = close < eq
+bool  premium = close > eq
 
 pPrem = plot(showPD ? drHigh : na, "Premium", color=color.new(dnCol, 100))
 pEq   = plot(showPD ? eq : na, "Eq", color=showPD ? color.new(cLiq, 35) : na, linewidth=1)
@@ -297,11 +345,11 @@ fill(pEq, pDisc, top_value=eq, bottom_value=drLow, top_color=color.new(upCol, 10
 // ════════════════════════════════════════════════════════════════════════════
 //  CONECTOR (display.none) — para el Cónclave
 // ════════════════════════════════════════════════════════════════════════════
-plot(bias, "conn_smc", display=display.none)       // +1 estructura alcista · -1 bajista
-plot(fvgBias, "conn_fvg", display=display.none)    // +1 soporte FVG/IFVG · -1 resistencia
+plot(bias, "conn_smc", display=display.none)
+plot(fvgBias, "conn_fvg", display=display.none)
 
 // ════════════════════════════════════════════════════════════════════════════
-//  ⑥ DASHBOARD minimalista (tiny)
+//  ⑥ DASHBOARD minimalista
 // ════════════════════════════════════════════════════════════════════════════
 f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
 var table d = table.new(f_pos(dashPos), 2, 5, bgcolor=color.new(#0b0e16, 14), frame_color=color.new(cNeu, 55), frame_width=1, border_width=1)
@@ -333,7 +381,7 @@ if showDash and barstate.islast
     table.cell(d, 1, 0, biasTxt, text_color=biasCol, bgcolor=color.new(#1b2030, 0), text_size=size.tiny, text_halign=text.align_right)
     f_cell(d, 1, "Último evento", lastBreak, lastBreakC)
     f_cell(d, 2, "Zona", zoneTxt, zoneCol)
-    f_cell(d, 3, "OB activos", str.tostring(array.size(obBoxes)), cNeu)
+    f_cell(d, 3, "OB activos", str.tostring(array.size(obs)), cNeu)
     f_cell(d, 4, "FVG/IFVG", str.tostring(array.size(fvgs)), cIfvg)
 
 // ════════════════════════════════════════════════════════════════════════════
