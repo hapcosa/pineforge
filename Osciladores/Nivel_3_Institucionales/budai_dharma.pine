@@ -1,0 +1,221 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Dharma · Session Flow
+//  Flujo de capital institucional que solo cuenta en horas de liquidez real:
+//  sesiones de London y New York. Mide acumulación/distribución con volumen y
+//  apaga la lectura fuera de sesión. Marca aperturas y el solape de máxima
+//  liquidez. Filtro de "cuándo operar", no de "hacia dónde".
+//  (c) BudAI Capital® — Pine v6 · panel inferior
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Dharma", shorttitle="BudAI · Dharma", overlay=false, precision=1, max_labels_count=200, max_lines_count=100)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  GRUPOS
+// ════════════════════════════════════════════════════════════════════════════
+G_PROF = "① Perfil"
+G_SES  = "② Sesiones"
+G_SIG  = "③ Señales"
+G_LVL  = "④ Niveles"
+G_VIS  = "⑤ Visual"
+G_COL  = "⑥ Colores"
+G_WM   = "✦ Marca de agua"
+
+// ════════════════ ① PERFIL ════════════════
+profile = input.string("Day Trader", "Perfil", options=["Scalper","Day Trader","Swing Trader"], group=G_PROF, tooltip="Ajusta la longitud del flujo y el suavizado.")
+
+bool isScalp = profile == "Scalper"
+bool isDay   = profile == "Day Trader"
+
+int flowLen = isScalp ? 10 : isDay ? 14 : 21
+int smooth  = isScalp ? 2  : isDay ? 3  : 4
+int rvolLen = 20
+
+// ════════════════ ② SESIONES ════════════════
+useLon = input.bool(true, "Sesión London", group=G_SES, inline="lon")
+lonSes = input.session("0800-1630", "", group=G_SES, inline="lon")
+lonTz  = input.string("Europe/London", "TZ London", group=G_SES)
+useNY  = input.bool(true, "Sesión New York", group=G_SES, inline="ny")
+nySes  = input.session("0930-1600", "", group=G_SES, inline="ny")
+nyTz   = input.string("America/New_York", "TZ New York", group=G_SES)
+onlySession = input.bool(true, "Apagar lectura fuera de sesión", group=G_SES, tooltip="La onda se vuelve gris y no hay señales fuera de London/NY.")
+
+// ════════════════ ③ SEÑALES ════════════════
+showSig  = input.bool(true, "Señales de flujo (Acum/Distrib)", group=G_SIG)
+rvolMin  = input.float(1.3, "Volumen relativo mínimo", minval=1.0, step=0.1, group=G_SIG, tooltip="El giro de flujo necesita participación real.")
+showOpen = input.bool(true, "Marcar aperturas de sesión", group=G_SIG)
+showStrip= input.bool(true, "Franja de sesión (timeline)", group=G_SIG)
+
+// ════════════════ ④ NIVELES ════════════════
+obLvl = input.int(50, "Distribución fuerte", minval=20, maxval=99, group=G_LVL, inline="l")
+osLvl = input.int(-50, "Acumulación fuerte", minval=-99, maxval=-20, group=G_LVL, inline="l")
+
+// ════════════════ ⑤ VISUAL ════════════════
+glow     = input.bool(true, "Glow / efecto rayo", group=G_VIS)
+shadeInt = input.int(72, "Opacidad relleno (difuminado)", minval=45, maxval=92, group=G_VIS)
+showRvol = input.bool(true, "Área de volumen relativo (base)", group=G_VIS)
+showDash = input.bool(true, "Dashboard", group=G_VIS)
+dashPos  = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════ ⑥ COLORES ════════════════
+upCol  = input.color(#00e5ff, "Acumulación (cian)", group=G_COL, inline="c")
+dnCol  = input.color(#ff6a00, "Distribución (naranjo)", group=G_COL, inline="c")
+neutCol= input.color(#90a4ae, "Fuera de sesión (gris)", group=G_COL)
+lonCol = input.color(#7c4dff, "London (violeta)", group=G_COL, inline="s")
+nyCol  = input.color(#ffb300, "New York (ámbar)", group=G_COL, inline="s")
+strongCol = input.color(#ffffff, "Solape / confirmación (blanco)", group=G_COL)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda","Inferior Derecha","Superior Izquierda","Superior Derecha"], group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  FUNCIONES
+// ════════════════════════════════════════════════════════════════════════════
+f_clamp(float v, float lo, float hi) => math.max(lo, math.min(hi, v))
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+f_wmPos(s) => s == "Inferior Izquierda" ? position.bottom_left : s == "Inferior Derecha" ? position.bottom_right : s == "Superior Izquierda" ? position.top_left : position.top_right
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  SESIONES (London / New York con su zona horaria)
+// ════════════════════════════════════════════════════════════════════════════
+bool inLon = useLon and not na(time(timeframe.period, lonSes, lonTz))
+bool inNY  = useNY  and not na(time(timeframe.period, nySes, nyTz))
+bool overlap   = inLon and inNY
+bool inSession = inLon or inNY
+
+bool lonOpen = inLon and not inLon[1]
+bool nyOpen  = inNY  and not inNY[1]
+
+// Color de sesión para la franja: solape = blanco · NY = ámbar · London = violeta · fuera = gris
+color sesCol = overlap ? strongCol : inNY ? nyCol : inLon ? lonCol : neutCol
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MÓDULO — MONEY FLOW INSTITUCIONAL (CMF + MFI + volumen), escala ±100
+// ════════════════════════════════════════════════════════════════════════════
+float vol = nz(volume) == 0 ? 1.0 : volume
+float mfm = (high - low) != 0 ? ((close - low) - (high - close)) / (high - low) : 0.0
+float cmf = math.sum(mfm * vol, flowLen) / math.sum(vol, flowLen)
+float mfi = ta.mfi(hlc3, flowLen)
+float volN = f_clamp(50 + cmf * 50, 0, 100) * 0.5 + mfi * 0.5
+float flowRaw = (volN - 50) * 2.0                         // ±100
+float flow = ta.ema(flowRaw, smooth)
+
+// Volumen relativo (participación)
+float volAvg = ta.sma(volume, rvolLen)
+float rvol   = volAvg != 0 ? nz(volume) / volAvg : 1.0
+bool  rvolOk = rvol >= rvolMin
+float rvolN  = math.min(rvol / 3.0 * 100.0, 100.0)
+
+bool flowBull = flow >= 0
+bool active   = not onlySession or inSession
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  SEÑALES (solo dentro de sesión, en cierre)
+// ════════════════════════════════════════════════════════════════════════════
+bool conf = barstate.isconfirmed
+bool acum    = showSig and active and ta.crossover(flow, 0) and rvolOk and conf
+bool distrib = showSig and active and ta.crossunder(flow, 0) and rvolOk and conf
+bool strongAcum    = acum and (overlap or rvol >= rvolMin * 1.5) and flow > osLvl
+bool strongDistrib = distrib and (overlap or rvol >= rvolMin * 1.5) and flow < obLvl
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NIVELES
+// ════════════════════════════════════════════════════════════════════════════
+hline(100, "Tope", color.new(color.gray, 92), hline.style_dotted)
+hline(obLvl, "Distribución", color.new(dnCol, 80), hline.style_dashed)
+hline(0, "Centro", color.new(neutCol, 70), hline.style_solid)
+hline(osLvl, "Acumulación", color.new(upCol, 80), hline.style_dashed)
+hline(-100, "Piso", color.new(color.gray, 92), hline.style_dotted)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  VISUAL — área RVOL + onda de flujo (rayo) + franja de sesión + señales
+// ════════════════════════════════════════════════════════════════════════════
+// Volumen relativo como área degradada en la base (difuminado)
+plot(showRvol ? rvolN - 100 : na, "RVOL", color=color.new(rvolOk ? sesCol : neutCol, 92), style=plot.style_area, histbase=-100)
+
+// Color de onda: gris fuera de sesión (no liquidez), cian/naranjo dentro
+color waveCol = not active ? neutCol : flowBull ? upCol : dnCol
+
+// ── Efecto RAYO: doble halo difuso + línea finísima + núcleo blanco-eléctrico ──
+plot(glow and active ? flow : na, "Flujo resplandor", color=color.new(waveCol, 88), linewidth=6)
+plot(glow and active ? flow : na, "Flujo halo", color=color.new(waveCol, 70), linewidth=3)
+pFlow = plot(flow, "Money Flow", color=color.new(waveCol, 0), linewidth=1)
+plot(active ? flow : na, "Núcleo rayo", color=color.new(strongCol, active ? 18 : 100), linewidth=1)
+pMid = plot(0, "centro", color=color.new(color.white, 100), display=display.none)
+// Relleno degradado difuminado hacia el centro (solo en sesión activa)
+fill(pFlow, pMid, top_value=100, bottom_value=0, top_color=glow and active ? color.new(upCol, shadeInt) : na, bottom_color=glow and active ? color.new(upCol, 100) : na, title="Difuminado acum")
+fill(pFlow, pMid, top_value=0, bottom_value=-100, top_color=glow and active ? color.new(dnCol, 100) : na, bottom_color=glow and active ? color.new(dnCol, shadeInt) : na, title="Difuminado distrib")
+
+// ── Nodo de cruce de línea media (cambio acum↔distrib): círculo diminuto con glow ──
+bool midCross = active and ta.cross(flow, 0)
+plotchar(midCross ? 0 : na, "Cruce 0 glow", "•", location.absolute, color=color.new(strongCol, 55), size=size.small)
+plotchar(midCross ? 0 : na, "Cruce 0", "•", location.absolute, color=color.new(flowBull ? upCol : dnCol, 0), size=size.tiny)
+
+// Franja de sesión (timeline en la base, sin background)
+plotchar(showStrip and inSession ? -108 : na, "Franja sesión", "▬", location.absolute, color=sesCol, size=size.tiny)
+
+// Aperturas de sesión (línea vertical sutil + punto)
+plotchar(showOpen and lonOpen ? 0 : na, "Apertura London", "•", location.absolute, color=color.new(lonCol, 0), size=size.small)
+plotchar(showOpen and nyOpen ? 0 : na, "Apertura New York", "•", location.absolute, color=color.new(nyCol, 0), size=size.small)
+
+// Señales de flujo: círculo con glow, alineado al valor de la onda
+plotchar(acum ? flow : na, "Acum glow", "•", location.absolute, color=color.new(upCol, 55), size=size.small)
+plotchar(acum ? flow : na, "Acumulación", "•", location.absolute, color=upCol, size=size.tiny)
+plotchar(distrib ? flow : na, "Distrib glow", "•", location.absolute, color=color.new(dnCol, 55), size=size.small)
+plotchar(distrib ? flow : na, "Distribución", "•", location.absolute, color=dnCol, size=size.tiny)
+// Acento blanco en flujo fuerte (solape / volumen alto)
+plotchar((strongAcum or strongDistrib) ? flow : na, "Flujo fuerte", "•", location.absolute, color=color.new(strongCol, 30), size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD COMPACTO
+// ════════════════════════════════════════════════════════════════════════════
+var table d = table.new(f_pos(dashPos), 2, 5, bgcolor=color.new(#0b0e16, 10), frame_color=color.new(upCol, 55), frame_width=1, border_width=1)
+f_cell(t, r, k, v, vc) =>
+    table.cell(t, 0, r, k, text_color=color.new(#90a4ae, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
+
+if showDash and barstate.islast
+    string sesTxt = overlap ? "SOLAPE (máx liq.)" : inNY ? "NEW YORK" : inLon ? "LONDON" : "FUERA DE SESIÓN"
+    string flowTxt = not active ? "—" : flowBull ? "▲ Acumulación" : "▼ Distribución"
+    color  flowC = not active ? neutCol : flowBull ? upCol : dnCol
+    string stTxt = not active ? "NO OPERAR (sin liq.)" : strongAcum ? "ACUM FUERTE" : strongDistrib ? "DISTRIB FUERTE" : acum ? "Acumulación" : distrib ? "Distribución" : "Observar"
+    color  stCol = not active ? neutCol : (strongAcum or acum) ? upCol : (strongDistrib or distrib) ? dnCol : color.new(color.white, 35)
+
+    table.cell(d, 0, 0, "DHARMA · " + profile, text_color=color.white, bgcolor=color.new(#1b2030, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, sesTxt, text_color=sesCol, bgcolor=color.new(#1b2030, 0), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(d, 1, "Flujo", flowTxt, flowC)
+    f_cell(d, 2, "CMF", str.tostring(cmf, "#.##"), cmf >= 0 ? upCol : dnCol)
+    f_cell(d, 3, "RVOL", str.tostring(rvol, "#.#") + "×", rvolOk ? sesCol : neutCol)
+    f_cell(d, 4, "Estado", stTxt, stCol)
+
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+var table wm = table.new(f_wmPos(wmPos), 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(acum,    "Dharma Acumulación", "Dharma · Flujo gira a acumulación en sesión {{ticker}}")
+alertcondition(distrib, "Dharma Distribución", "Dharma · Flujo gira a distribución en sesión {{ticker}}")
+alertcondition(strongAcum,    "Dharma Acumulación fuerte", "Dharma · Acumulación fuerte (solape/volumen) {{ticker}}")
+alertcondition(strongDistrib, "Dharma Distribución fuerte", "Dharma · Distribución fuerte (solape/volumen) {{ticker}}")
+alertcondition(lonOpen, "Apertura London", "Dharma · Apertura de London {{ticker}}")
+alertcondition(nyOpen,  "Apertura New York", "Dharma · Apertura de New York {{ticker}}")

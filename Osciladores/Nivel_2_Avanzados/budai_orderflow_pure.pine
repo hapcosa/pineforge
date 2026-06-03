@@ -1,0 +1,190 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Order Flow Pro
+//  Order flow puro: velas de delta (footprint) con presión real compra vs venta.
+//  Cuerpo = delta neto · mechas = máximo/mínimo de delta intrabar · CVD de sesión.
+//  Lectura directa e institucional, sin adornos que distraigan.
+//  (c) BudAI Capital® — Pine v6
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Order Flow Pro", shorttitle="BudAI Capital® - Order Flow Pro", overlay=false, precision=0, max_labels_count=300)
+
+// ════════════════ GRUPOS ════════════════
+G_CORE = "① Núcleo Order Flow"
+G_SIG  = "② Presión y Señales"
+G_VIS  = "③ Estética"
+G_WM   = "✦ Marca de agua"
+
+// ════════════════ ① NÚCLEO ════════════════
+ltfRes    = input.timeframe("1", "Timeframe interno (LTF)", group=G_CORE, tooltip="Velas inferiores para clasificar agresión compradora/vendedora. '1' = 1 minuto.")
+maLen     = input.int(21, "Media de Presión (Delta MA)", minval=1, group=G_CORE, tooltip="Tendencia del delta neto: línea de presión sostenida.")
+strongMlt = input.float(1.8, "Umbral Delta Fuerte (×prom)", minval=1.0, step=0.1, group=G_CORE, tooltip="Resalta velas con delta muy superior al promedio (agresión intensa).")
+showCum   = input.bool(true, "Línea CVD acumulado de sesión", group=G_CORE, tooltip="Delta acumulado que se reinicia cada día. Escalado al panel.")
+
+// ════════════════ ② PRESIÓN Y SEÑALES ════════════════
+showFlip  = input.bool(true, "Marcar giro de presión (cruce 0)", group=G_SIG)
+showDiv   = input.bool(true, "Marcar Absorción / Divergencia", group=G_SIG, tooltip="Precio hace nuevo extremo pero el delta NO lo confirma.")
+divLen    = input.int(14, "Ventana de Absorción", minval=3, group=G_SIG)
+
+// ════════════════ ③ ESTÉTICA ════════════════
+deltaUp   = input.color(#00e676, "Delta Comprador", group=G_VIS, inline="d")
+deltaDn   = input.color(#ff1744, "Delta Vendedor", group=G_VIS, inline="d")
+strongUp  = input.color(#00e5ff, "Compra Fuerte", group=G_VIS, inline="s")
+strongDn  = input.color(#ff1e6e, "Venta Fuerte", group=G_VIS, inline="s")
+maCol     = input.color(#ffea00, "Línea de Presión", group=G_VIS)
+cvdCol    = input.color(#b388ff, "Línea CVD", group=G_VIS)
+absCol    = input.color(#ffea00, "Absorción (flúor)", group=G_VIS)
+showDash  = input.bool(true, "Dashboard minimalista", group=G_VIS)
+dashPos   = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda","Inferior Derecha","Superior Izquierda","Superior Derecha"], group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  CÁLCULOS — DELTA FOOTPRINT (running delta intrabar)
+// ════════════════════════════════════════════════════════════════════════════
+array<float> aVol   = request.security_lower_tf(syminfo.tickerid, ltfRes, volume)
+array<float> aClose = request.security_lower_tf(syminfo.tickerid, ltfRes, close)
+array<float> aOpen  = request.security_lower_tf(syminfo.tickerid, ltfRes, open)
+
+float run     = 0.0
+float dMax    = 0.0
+float dMin    = 0.0
+float buyVol  = 0.0
+float sellVol = 0.0
+int   nLtf    = array.size(aVol)
+
+if nLtf > 0 and array.size(aClose) == nLtf and array.size(aOpen) == nLtf
+    for ob = 0 to nLtf - 1
+        float v = nz(array.get(aVol, ob))
+        float c = nz(array.get(aClose, ob))
+        float o = nz(array.get(aOpen, ob))
+        if c > o
+            run     += v
+            buyVol  += v
+        else if c < o
+            run     -= v
+            sellVol += v
+        else
+            buyVol  += v * 0.5
+            sellVol += v * 0.5
+        dMax := math.max(dMax, run)
+        dMin := math.min(dMin, run)
+
+// Respaldo si no hay datos LTF: proxy por posición del cierre
+if nLtf == 0
+    float rng = high - low
+    float prox = nz(volume) == 0 ? 1.0 : volume
+    float ratioC = rng != 0 ? ((close - low) - (high - close)) / rng : 0.0
+    buyVol  := prox * (0.5 + ratioC * 0.5)
+    sellVol := prox * (0.5 - ratioC * 0.5)
+    run     := buyVol - sellVol
+    dMax    := math.max(run, 0.0)
+    dMin    := math.min(run, 0.0)
+
+float delta    = run
+float totalVol = buyVol + sellVol
+float deltaMa  = ta.ema(delta, maLen)
+
+// Delta fuerte (agresión intensa) vs delta normal
+float avgAbs   = ta.ema(math.abs(delta), 50)
+bool  isStrong = math.abs(delta) > avgAbs * strongMlt
+
+// CVD acumulado de sesión (reinicia cada día), escalado al rango del delta
+var float sesCvd = 0.0
+bool newDay = ta.change(time("D")) != 0
+if newDay
+    sesCvd := 0.0
+sesCvd := sesCvd + delta
+// Escalar el CVD a la amplitud del delta para que no aplaste las velas en el panel
+float cvdAbs   = ta.highest(math.abs(sesCvd), 50)
+float deltaAmp = ta.highest(math.abs(delta), 50)
+float cvdScaled = cvdAbs != 0 ? sesCvd / cvdAbs * deltaAmp : 0.0
+
+// Absorción / Divergencia
+bool priceHi = high >= ta.highest(high, divLen)
+bool priceLo = low  <= ta.lowest(low, divLen)
+bool cumHi   = sesCvd >= ta.highest(sesCvd, divLen)
+bool cumLo   = sesCvd <= ta.lowest(sesCvd, divLen)
+bool bearAbsorb = showDiv and priceHi and not cumHi and barstate.isconfirmed
+bool bullAbsorb = showDiv and priceLo and not cumLo and barstate.isconfirmed
+
+// Giro de presión (delta cruza 0)
+bool flipUp = showFlip and ta.crossover(delta, 0)
+bool flipDn = showFlip and ta.crossunder(delta, 0)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PLOTS — VELAS DE DELTA (FOOTPRINT)
+// ════════════════════════════════════════════════════════════════════════════
+hline(0, "Equilibrio", color.new(color.gray, 60), hline.style_solid)
+
+color bodyCol = delta >= 0 ? (isStrong ? strongUp : deltaUp) : (isStrong ? strongDn : deltaDn)
+plotcandle(0, dMax, dMin, delta, "Delta Footprint", color=bodyCol, wickcolor=color.new(bodyCol, 35), bordercolor=bodyCol)
+
+// Línea de presión (delta MA)
+plot(deltaMa, "Presión (Delta MA)", color=color.new(maCol, 0), linewidth=2)
+
+// CVD de sesión escalado (línea morada)
+plot(showCum ? cvdScaled : na, "CVD Sesión", color=color.new(cvdCol, 10), linewidth=1)
+
+// Giros de presión (nodo blanco alineado en el valor del delta)
+plotchar(flipUp ? delta : na, "Giro Alcista Glow", "•", location.absolute, color=color.new(color.white, 60), size=size.small)
+plotchar(flipUp ? delta : na, "Giro Alcista", "•", location.absolute, color=color.new(color.white, 0), size=size.tiny)
+plotchar(flipDn ? delta : na, "Giro Bajista Glow", "•", location.absolute, color=color.new(color.white, 60), size=size.small)
+plotchar(flipDn ? delta : na, "Giro Bajista", "•", location.absolute, color=color.new(color.white, 0), size=size.tiny)
+
+// Absorción / Divergencia (× flúor sobre la propia vela de delta)
+plotchar(bullAbsorb ? dMin : na, "Absorción Alcista Glow", "×", location.absolute, color=color.new(absCol, 55), size=size.small)
+plotchar(bullAbsorb ? dMin : na, "Absorción Alcista", "×", location.absolute, color=absCol, size=size.tiny)
+plotchar(bearAbsorb ? dMax : na, "Absorción Bajista Glow", "×", location.absolute, color=color.new(absCol, 55), size=size.small)
+plotchar(bearAbsorb ? dMax : na, "Absorción Bajista", "×", location.absolute, color=absCol, size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD MINIMALISTA
+// ════════════════════════════════════════════════════════════════════════════
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+var table d = table.new(f_pos(dashPos), 2, 5, bgcolor=color.new(#0b0e16, 12), frame_color=color.new(deltaUp, 55), frame_width=1, border_width=1)
+f_cell(t, r, k, v, vc) =>
+    table.cell(t, 0, r, k, text_color=color.new(#90a4ae, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
+
+if showDash and barstate.islast
+    float buyPct  = totalVol > 0 ? buyVol / totalVol * 100.0 : 50.0
+    string deltaTxt = delta >= 0 ? "▲ " + str.tostring(delta, format.volume) : "▼ " + str.tostring(math.abs(delta), format.volume)
+    color  deltaC   = delta >= 0 ? deltaUp : deltaDn
+    string presTxt  = deltaMa >= 0 ? "COMPRADORA" : "VENDEDORA"
+    color  presC    = deltaMa >= 0 ? deltaUp : deltaDn
+    string absTxt   = bullAbsorb ? "AGOTAMIENTO ↓" : bearAbsorb ? "AGOTAMIENTO ↑" : isStrong ? "AGRESIÓN FUERTE" : "—"
+    color  absC2    = (bullAbsorb or bearAbsorb) ? absCol : isStrong ? (delta >= 0 ? strongUp : strongDn) : color.new(#90a4ae, 0)
+
+    table.cell(d, 0, 0, "Order Flow Pro", text_color=color.white, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, str.tostring(buyPct, "#") + "% buy", text_color=deltaC, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(d, 1, "Delta vela", deltaTxt, deltaC)
+    f_cell(d, 2, "Presión", presTxt, presC)
+    f_cell(d, 3, "CVD sesión", str.tostring(sesCvd, format.volume), sesCvd >= 0 ? deltaUp : deltaDn)
+    f_cell(d, 4, "Estado", absTxt, absC2)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+f_wmPos(s) => s == "Inferior Izquierda" ? position.bottom_left : s == "Inferior Derecha" ? position.bottom_right : s == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(flipUp, "Giro de presión ALCISTA", "Order Flow Pro · Delta cruza a comprador {{ticker}}")
+alertcondition(flipDn, "Giro de presión BAJISTA", "Order Flow Pro · Delta cruza a vendedor {{ticker}}")
+alertcondition(bullAbsorb or bearAbsorb, "Absorción / Divergencia", "Order Flow Pro · Absorción detectada {{ticker}}")

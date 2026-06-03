@@ -1,0 +1,329 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Oscillator Pro · Onda Fusión (Híbrida + Estocástico)
+//  Motor estructural privado: estructura de mercado (BOS/CHoCH) + premium/discount
+//  + barrido de liquidez + flujo + Kumo/régimen, destilado en LONG/SHORT/NO TRADE.
+//  Variante de onda: fusión de la base híbrida (WT+Slope+COG) con timing estocástico.
+//  (c) BudAI Capital® — Pine v6 · panel inferior
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Oscillator Pro · Fusión", shorttitle="BudAI · OscPro Fusión", overlay=false, precision=1, max_labels_count=200, max_lines_count=100)
+
+// ════════════════ GRUPOS ════════════════
+G_PROF = "① Perfil"
+G_STR  = "② Estructura (SMC)"
+G_LIQ  = "③ Liquidez"
+G_CTX  = "④ Contexto (Régimen / Kumo)"
+G_SIG  = "⑤ Señal"
+G_VIS  = "⑥ Visual"
+G_COL  = "⑦ Colores"
+G_WM   = "✦ Marca de agua"
+
+// ════════════════ ① PERFIL ════════════════
+profile = input.string("Day Trader", "Perfil", options=["Scalper","Day Trader","Swing Trader"], group=G_PROF)
+src     = input.source(hlc3, "Fuente", group=G_PROF)
+
+bool isScalp = profile == "Scalper"
+bool isDay   = profile == "Day Trader"
+
+int chanLen  = isScalp ? 7  : isDay ? 9  : 13
+int avgLen   = isScalp ? 9  : isDay ? 12 : 21
+int trigLen  = isScalp ? 3  : isDay ? 4  : 6
+int slopeLen = isScalp ? 14 : isDay ? 20 : 30
+int cogLen   = isScalp ? 9  : isDay ? 14 : 21
+int volLen   = isScalp ? 14 : isDay ? 20 : 34
+int erLen    = isScalp ? 10 : isDay ? 14 : 20
+float threshold = isScalp ? 55.0 : isDay ? 62.0 : 70.0
+float erMin     = isScalp ? 0.18 : isDay ? 0.25 : 0.32
+
+// ════════════════ ② ESTRUCTURA ════════════════
+pivotLen = input.int(0, "Fuerza del swing (0=auto)", minval=0, maxval=30, group=G_STR, tooltip="Pivotes para BOS/CHoCH. 0 usa el perfil.")
+rangeLen = input.int(0, "Rango de negociación (0=auto)", minval=0, maxval=300, group=G_STR, tooltip="Ventana del dealing range para premium/discount.")
+pdBand   = input.float(0.0, "Banda de equilibrio ± (0=auto)", minval=0, maxval=0.3, step=0.01, group=G_STR)
+useCogPD = input.bool(true, "Confirmar premium/discount con COG", group=G_STR)
+
+int   pvLen = pivotLen > 0 ? pivotLen : (isScalp ? 5 : isDay ? 8 : 12)
+int   rgLen = rangeLen > 0 ? rangeLen : (isScalp ? 30 : isDay ? 50 : 80)
+float pdB   = pdBand > 0 ? pdBand : (isScalp ? 0.10 : isDay ? 0.12 : 0.15)
+
+// ════════════════ ③ LIQUIDEZ ════════════════
+swpLen   = input.int(0, "Ventana de liquidez (0=auto)", minval=0, maxval=60, group=G_LIQ)
+wickMult = input.float(0.0, "Mecha de barrido ×ATR (0=auto)", minval=0, maxval=3, step=0.1, group=G_LIQ)
+int   spLen   = swpLen > 0 ? swpLen : (isScalp ? 10 : isDay ? 16 : 24)
+float wickMin = wickMult > 0 ? wickMult : (isScalp ? 0.5 : isDay ? 0.7 : 0.9)
+
+// ════════════════ ④ CONTEXTO ════════════════
+useKumo = input.bool(true, "Filtro Kumo (Ichimoku)", group=G_CTX, tooltip="No comprar bajo la nube ni vender sobre ella.")
+useReg  = input.bool(true, "Filtro de régimen (Efficiency Ratio)", group=G_CTX)
+
+// ════════════════ ⑤ SEÑAL ════════════════
+showSig = input.bool(true, "Marcadores LONG / SHORT", group=G_SIG)
+showLiq = input.bool(true, "Marcar barridos de liquidez", group=G_SIG)
+holdGap = input.int(15, "Histéresis de salida (score)", minval=0, maxval=40, group=G_SIG)
+
+// ════════════════ ⑥ VISUAL ════════════════
+glow     = input.bool(true, "Glow / efecto rayo", group=G_VIS)
+shadeInt = input.int(72, "Opacidad relleno (difuminado)", minval=45, maxval=92, group=G_VIS)
+showZones= input.bool(true, "Líneas premium/discount", group=G_VIS)
+showDash = input.bool(true, "Dashboard", group=G_VIS)
+dashPos  = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════ ⑦ COLORES ════════════════
+upCol  = input.color(#00e5ff, "Bull (cian)", group=G_COL, inline="c")
+dnCol  = input.color(#ff6a00, "Bear (naranjo)", group=G_COL, inline="c")
+neutCol= input.color(#90a4ae, "Neutral / No Trade (gris)", group=G_COL)
+liqCol = input.color(#ffb300, "Liquidez (ámbar)", group=G_COL)
+strCol = input.color(#b388ff, "Estructura (violeta)", group=G_COL)
+strongCol = input.color(#ffffff, "Confirmación (blanco)", group=G_COL)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda","Inferior Derecha","Superior Izquierda","Superior Derecha"], group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  FUNCIONES
+// ════════════════════════════════════════════════════════════════════════════
+f_norm(float s, simple int len) =>
+    float lo = ta.lowest(s, len)
+    float hi = ta.highest(s, len)
+    hi - lo != 0 ? 100.0 * (s - lo) / (hi - lo) : 50.0
+f_clamp(float v, float lo, float hi) => math.max(lo, math.min(hi, v))
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+f_wmPos(s) => s == "Inferior Izquierda" ? position.bottom_left : s == "Inferior Derecha" ? position.bottom_right : s == "Superior Izquierda" ? position.top_left : position.top_right
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ESPINA 1 — ESTRUCTURA DE MERCADO (BOS / CHoCH por pivotes)
+// ════════════════════════════════════════════════════════════════════════════
+float ph = ta.pivothigh(high, pvLen, pvLen)
+float pl = ta.pivotlow(low, pvLen, pvLen)
+var float swH = na
+var float swL = na
+if not na(ph)
+    swH := ph
+if not na(pl)
+    swL := pl
+
+var int bias = 0
+if not na(swH) and close > swH
+    bias := 1
+if not na(swL) and close < swL
+    bias := -1
+bool choch = bias != bias[1]
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ESPINA 2 — PREMIUM / DISCOUNT (dealing range = equilibrio tipo COG)
+// ════════════════════════════════════════════════════════════════════════════
+float rngHi = ta.highest(high, rgLen)
+float rngLo = ta.lowest(low, rgLen)
+float pos   = rngHi - rngLo != 0 ? (close - rngLo) / (rngHi - rngLo) : 0.5
+
+float cgNum = 0.0
+float cgDen = 0.0
+for i = 0 to cogLen - 1
+    float p = src[i]
+    cgNum := cgNum + (1 + i) * p
+    cgDen := cgDen + p
+float cogRaw = cgDen != 0 ? -cgNum / cgDen + (cogLen + 1) / 2.0 : 0.0
+float cogN   = f_norm(ta.sma(cogRaw, 3), 100)
+
+bool discount = pos < 0.5 - pdB and (not useCogPD or cogN < 50)
+bool premium  = pos > 0.5 + pdB and (not useCogPD or cogN > 50)
+bool equil    = not discount and not premium
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ESPINA 3 — LIQUIDEZ (barrido de máximos/mínimos con mecha de rechazo)
+// ════════════════════════════════════════════════════════════════════════════
+float atr = ta.atr(14)
+float upWick = high - math.max(open, close)
+float dnWick = math.min(open, close) - low
+float prevHigh = ta.highest(high, spLen)[1]
+float prevLow  = ta.lowest(low, spLen)[1]
+bool sweepUp = high > prevHigh and close < prevHigh and upWick >= atr * wickMin
+bool sweepDn = low < prevLow and close > prevLow and dnWick >= atr * wickMin
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ESPINA 4 — FLUJO (CMF + MFI)
+// ════════════════════════════════════════════════════════════════════════════
+float vol = nz(volume) == 0 ? 1.0 : volume
+float mfm = (high - low) != 0 ? ((close - low) - (high - close)) / (high - low) : 0.0
+float cmf = math.sum(mfm * vol, volLen) / math.sum(vol, volLen)
+float volN = f_clamp(50 + cmf * 50, 0, 100) * 0.5 + ta.mfi(hlc3, volLen) * 0.5
+float volS = f_clamp((volN - 50) / 50, -1, 1)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ESPINA 5 — CONTEXTO (régimen + Kumo)
+// ════════════════════════════════════════════════════════════════════════════
+float change = math.abs(close - close[erLen])
+float noise  = math.sum(math.abs(close - close[1]), erLen)
+float er = noise != 0 ? change / noise : 0.0
+bool  regOk = not useReg or er >= erMin
+
+float conv  = (ta.highest(high, 9) + ta.lowest(low, 9)) / 2
+float base  = (ta.highest(high, 26) + ta.lowest(low, 26)) / 2
+float spanA = (conv + base) / 2
+float spanB = (ta.highest(high, 52) + ta.lowest(low, 52)) / 2
+bool kumoBull = close > math.max(spanA, spanB)
+bool kumoBear = close < math.min(spanA, spanB)
+bool kumoOkL = not useKumo or not kumoBear
+bool kumoOkS = not useKumo or not kumoBull
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ONDA PRINCIPAL — FUSIÓN (híbrida WT+Slope+COG + estocástico)
+// ════════════════════════════════════════════════════════════════════════════
+int rsiLen   = isScalp ? 9  : isDay ? 14 : 21
+int stochLen = isScalp ? 9  : isDay ? 14 : 21
+float esa = ta.ema(src, chanLen)
+float de  = ta.ema(math.abs(src - esa), chanLen)
+float ci  = de == 0 ? 0.0 : (src - esa) / (0.015 * de)
+float wt1 = ta.ema(ci, avgLen)
+float wtN = f_norm(wt1, 100)
+float lr  = ta.linreg(src, slopeLen, 0)
+float slopeN = f_norm(lr - ta.linreg(src, slopeLen, 1), 100)
+float aN  = wtN * 0.5 + slopeN * 0.3 + cogN * 0.2     // base híbrida
+float rsi = ta.rsi(src, rsiLen)
+float stochR = ta.stoch(rsi, rsi, rsi, stochLen)
+float k = ta.sma(stochR, 3)
+float comp = aN * 0.65 + k * 0.35                     // fusión 0..100
+float trig = ta.sma(comp, trigLen)
+bool momTurnUp = ta.crossover(comp, trig)
+bool momTurnDn = ta.crossunder(comp, trig)
+float momS = f_clamp((comp - 50) / 50, -1, 1)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  VEREDICTO ESTRUCTURAL — LONG / SHORT / NO TRADE
+// ════════════════════════════════════════════════════════════════════════════
+bool bullCtx = bias >= 0 and discount and kumoOkL
+bool bearCtx = bias <= 0 and premium and kumoOkS
+bool trigLong  = sweepDn or momTurnUp
+bool trigShort = sweepUp or momTurnDn
+
+int scoreL = (bias > 0 ? 25 : bias == 0 ? 12 : 0) + (discount ? 20 : 0) + (sweepDn ? 15 : 0) + (momS > 0 or momTurnUp ? 15 : 0) + (volS > 0 ? 15 : 0) + (regOk ? 10 : 0)
+int scoreS = (bias < 0 ? 25 : bias == 0 ? 12 : 0) + (premium ? 20 : 0) + (sweepUp ? 15 : 0) + (momS < 0 or momTurnDn ? 15 : 0) + (volS < 0 ? 15 : 0) + (regOk ? 10 : 0)
+
+bool conf = barstate.isconfirmed
+bool rawLong  = showSig and bullCtx and trigLong and volS >= 0 and regOk and scoreL >= threshold and conf
+bool rawShort = showSig and bearCtx and trigShort and volS <= 0 and regOk and scoreS >= threshold and conf
+
+int   activeScore = rawLong ? scoreL : rawShort ? scoreS : math.max(scoreL, scoreS)
+float exitTh = threshold - holdGap
+
+var int state = 0
+if rawLong
+    state := 1
+else if rawShort
+    state := -1
+else if (state == 1 and (scoreL < exitTh or bias < 0)) or (state == -1 and (scoreS < exitTh or bias > 0))
+    state := 0
+
+bool isLong = state == 1
+bool isShort = state == -1
+bool noTrade = state == 0
+bool enterLong  = isLong and state[1] != 1
+bool enterShort = isShort and state[1] != -1
+bool exitLong   = state[1] == 1 and not isLong
+bool exitShort  = state[1] == -1 and not isShort
+bool strongLong  = enterLong and scoreL >= threshold + 15
+bool strongShort = enterShort and scoreS >= threshold + 15
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NIVELES
+// ════════════════════════════════════════════════════════════════════════════
+hline(100, "Tope", color.new(color.gray, 92), hline.style_dotted)
+hline(showZones ? 62 : na, "Premium", color.new(dnCol, 82), hline.style_dotted)
+hline(50, "Equilibrio", color.new(strCol, 70), hline.style_solid)
+hline(showZones ? 38 : na, "Discount", color.new(upCol, 82), hline.style_dotted)
+hline(0, "Piso", color.new(color.gray, 92), hline.style_dotted)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  VISUAL — onda (rayo) + zonas + liquidez + señales
+// ════════════════════════════════════════════════════════════════════════════
+color stateCol = isLong ? upCol : isShort ? dnCol : neutCol
+
+plot(pos * 100, "Premium/Discount", color=color.new(strCol, 90), style=plot.style_area, histbase=50)
+
+plot(glow ? comp : na, "Onda resplandor", color=color.new(stateCol, 88), linewidth=6)
+plot(glow ? comp : na, "Onda halo", color=color.new(stateCol, 70), linewidth=3)
+pComp = plot(comp, "Onda", color=color.new(stateCol, 0), linewidth=1)
+plot(comp, "Núcleo rayo", color=color.new(strongCol, 18), linewidth=1)
+plot(trig, "Trigger", color=color.new(strongCol, 55), linewidth=1)
+pMid = plot(50, "Mid", color=color.new(color.white, 100), display=display.none)
+fill(pComp, pMid, top_value=100, bottom_value=50, top_color=glow ? color.new(upCol, shadeInt) : na, bottom_color=glow ? color.new(upCol, 100) : na, title="Difuminado sup")
+fill(pComp, pMid, top_value=50, bottom_value=0, top_color=glow ? color.new(dnCol, 100) : na, bottom_color=glow ? color.new(dnCol, shadeInt) : na, title="Difuminado inf")
+
+bool midCross = ta.cross(comp, 50)
+plotchar(midCross ? comp : na, "Cruce 50 glow", "•", location.absolute, color=color.new(strongCol, 55), size=size.small)
+plotchar(midCross ? comp : na, "Cruce 50", "•", location.absolute, color=color.new(stateCol, 0), size=size.tiny)
+
+plotchar(showLiq and sweepUp ? 96 : na, "Barrido máx glow", "•", location.absolute, color=color.new(liqCol, 60), size=size.small)
+plotchar(showLiq and sweepUp ? 96 : na, "Barrido máximos", "•", location.absolute, color=liqCol, size=size.tiny)
+plotchar(showLiq and sweepDn ? 4 : na, "Barrido mín glow", "•", location.absolute, color=color.new(liqCol, 60), size=size.small)
+plotchar(showLiq and sweepDn ? 4 : na, "Barrido mínimos", "•", location.absolute, color=liqCol, size=size.tiny)
+plotchar(choch ? 50 : na, "CHoCH glow", "•", location.absolute, color=color.new(strCol, 55), size=size.small)
+plotchar(choch ? 50 : na, "CHoCH", "•", location.absolute, color=color.new(strCol, 0), size=size.tiny)
+
+plotchar(enterLong ? comp : na, "LONG glow", "•", location.absolute, color=color.new(upCol, 55), size=size.small)
+plotchar(enterLong ? comp : na, "LONG", "•", location.absolute, color=upCol, size=size.tiny)
+plotchar(enterShort ? comp : na, "SHORT glow", "•", location.absolute, color=color.new(dnCol, 55), size=size.small)
+plotchar(enterShort ? comp : na, "SHORT", "•", location.absolute, color=dnCol, size=size.tiny)
+plotchar((strongLong or strongShort) ? comp : na, "Entrada fuerte", "•", location.absolute, color=color.new(strongCol, 30), size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD COMPACTO
+// ════════════════════════════════════════════════════════════════════════════
+var table d = table.new(f_pos(dashPos), 2, 7, bgcolor=color.new(#0b0e16, 10), frame_color=color.new(upCol, 55), frame_width=1, border_width=1)
+f_cell(t, r, k2, v, vc) =>
+    table.cell(t, 0, r, k2, text_color=color.new(#90a4ae, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
+
+if showDash and barstate.islast
+    string strTxt = bias > 0 ? "Alcista (BOS↑)" : bias < 0 ? "Bajista (BOS↓)" : "Indefinida"
+    color  strC = bias > 0 ? upCol : bias < 0 ? dnCol : neutCol
+    string zonaTxt = discount ? "DISCOUNT" : premium ? "PREMIUM" : "Equilibrio"
+    color  zonaC = discount ? upCol : premium ? dnCol : neutCol
+    string liqTxt = sweepDn ? "Barrido mín ↓" : sweepUp ? "Barrido máx ↑" : "—"
+    string stTxt = isLong ? "LONG" : isShort ? "SHORT" : "NO TRADE"
+    color  stC = isLong ? upCol : isShort ? dnCol : neutCol
+    string reason = noTrade ? (bias == 0 ? "Estructura indefinida" : equil ? "Sin premium/discount" : not regOk ? "Sin régimen" : "Falta confluencia") : isLong ? "Discount + estructura↑" : "Premium + estructura↓"
+
+    table.cell(d, 0, 0, "OSC PRO Fusión", text_color=color.white, bgcolor=color.new(#1b2030, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, str.tostring(comp, "#") + "/100", text_color=stateCol, bgcolor=color.new(#1b2030, 0), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(d, 1, "Estructura", strTxt, strC)
+    f_cell(d, 2, "Zona", zonaTxt, zonaC)
+    f_cell(d, 3, "Liquidez", liqTxt, (sweepUp or sweepDn) ? liqCol : neutCol)
+    f_cell(d, 4, "Score", str.tostring(activeScore) + " / " + str.tostring(threshold, "#"), activeScore >= threshold ? stC : neutCol)
+    f_cell(d, 5, "Estado", stTxt, stC)
+    f_cell(d, 6, "Motivo", reason, stC)
+
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+var table wm = table.new(f_wmPos(wmPos), 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(isLong,  "OscPro LONG",  "BudAI OscPro · LONG (discount + estructura alcista) {{ticker}}")
+alertcondition(isShort, "OscPro SHORT", "BudAI OscPro · SHORT (premium + estructura bajista) {{ticker}}")
+alertcondition(noTrade, "OscPro NO TRADE", "BudAI OscPro · NO TRADE {{ticker}}")
+alertcondition(enterLong,  "OscPro entra LONG",  "BudAI OscPro · entrada LONG {{ticker}}")
+alertcondition(enterShort, "OscPro entra SHORT", "BudAI OscPro · entrada SHORT {{ticker}}")
+alertcondition(exitLong or exitShort, "OscPro salida", "BudAI OscPro · salida de posición {{ticker}}")
+alertcondition(strongLong,  "OscPro LONG fuerte",  "BudAI OscPro · LONG fuerte {{ticker}}")
+alertcondition(strongShort, "OscPro SHORT fuerte", "BudAI OscPro · SHORT fuerte {{ticker}}")
+alertcondition(choch, "OscPro CHoCH", "BudAI OscPro · cambio de estructura {{ticker}}")

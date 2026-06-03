@@ -1,0 +1,158 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Reversal Cloud
+//  Nube de tendencia adaptativa con rastreo dinámico y señales de reversión.
+//  Cambia de color al girar el sesgo y marca el agotamiento por sobreextensión.
+//  Diseño premium cyberpunk neón con relleno degradado.
+//  (c) BudAI Capital® — Pine v6
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Reversal Cloud", shorttitle="BudAI Capital® - Reversal Cloud", overlay=true, max_labels_count=300, max_lines_count=300)
+
+// ════════════════ GRUPOS ════════════════
+G_CORE = "① Núcleo de Reversión"
+G_EXH  = "② Agotamiento"
+G_SIG  = "③ Señales"
+G_VIS  = "④ Estética Cyberpunk"
+G_WM   = "✦ Marca de agua"
+
+// ════════════════ ① NÚCLEO ════════════════
+src     = input.source(hl2, "Fuente", group=G_CORE)
+atrLen  = input.int(14, "ATR Período", minval=1, group=G_CORE)
+mult    = input.float(2.5, "Multiplicador (ancho de nube)", minval=0.5, step=0.1, group=G_CORE, tooltip="Sensibilidad del rastreo. Mayor = menos giros, nube más amplia.")
+basisLen = input.int(34, "Línea Media (basis)", minval=1, group=G_CORE, tooltip="Media que forma el borde interno de la nube.")
+smooth  = input.int(3, "Suavizado de la nube", minval=1, maxval=20, group=G_CORE)
+
+// ════════════════ ② AGOTAMIENTO ════════════════
+showExh  = input.bool(true, "Marcar Agotamiento (sobreextensión)", group=G_EXH)
+exhMult  = input.float(3.0, "Distancia de Agotamiento (×ATR)", minval=1.0, step=0.1, group=G_EXH, tooltip="Cuánto debe alejarse el precio de la media para considerarse sobreextendido.")
+
+// ════════════════ ③ SEÑALES ════════════════
+showSig  = input.bool(true, "Mostrar Señales de Reversión", group=G_SIG)
+showLbl  = input.bool(true, "Etiquetas BUY/SELL", group=G_SIG)
+
+// ════════════════ ④ ESTÉTICA CYBERPUNK ════════════════
+upCol    = input.color(#00e5ff, "Alcista (celeste)", group=G_VIS, inline="c")
+dnCol    = input.color(#ff1e6e, "Bajista (fucsia)", group=G_VIS, inline="c")
+sigUpCol = input.color(#ffff00, "Señal Alcista (amarillo neón)", group=G_VIS, inline="sg")
+sigDnCol = input.color(#ff007f, "Señal Bajista (rosa neón)", group=G_VIS, inline="sg")
+exhCol   = input.color(#ffea00, "Agotamiento (flúor)", group=G_VIS)
+cloudInt = input.int(78, "Opacidad de la nube", minval=50, maxval=95, group=G_VIS)
+showDash = input.bool(true, "Dashboard minimalista", group=G_VIS)
+dashPos  = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda","Inferior Derecha","Superior Izquierda","Superior Derecha"], group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NÚCLEO — RASTREO ADAPTATIVO (trailing) Y NUBE
+// ════════════════════════════════════════════════════════════════════════════
+float atr = ta.atr(atrLen)
+
+// Rastreo tipo trailing-stop adaptativo
+float up = src - mult * atr
+float dn = src + mult * atr
+var float upLine = up
+var float dnLine = dn
+upLine := close[1] > upLine[1] ? math.max(up, nz(upLine[1])) : up
+dnLine := close[1] < dnLine[1] ? math.min(dn, nz(dnLine[1])) : dn
+
+var int dir = 1
+dir := close > nz(dnLine[1]) ? 1 : close < nz(upLine[1]) ? -1 : nz(dir[1], 1)
+
+float trailRaw = dir == 1 ? upLine : dnLine
+float trail    = ta.sma(trailRaw, smooth)
+float basis    = ta.sma(src, basisLen)
+
+bool isBull = dir == 1
+
+// Reversión = giro de dirección
+bool revUp = showSig and dir == 1 and dir[1] == -1
+bool revDn = showSig and dir == -1 and dir[1] == 1
+
+// Agotamiento = precio sobreextendido respecto a la media (sólo al entrar en la zona)
+float dist     = atr != 0 ? (close - basis) / atr : 0.0
+bool  bullExh  = showExh and dist >= exhMult and dist[1] < exhMult and barstate.isconfirmed
+bool  bearExh  = showExh and dist <= -exhMult and dist[1] > -exhMult and barstate.isconfirmed
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PLOTS — NUBE DEGRADADA
+// ════════════════════════════════════════════════════════════════════════════
+color cloudCol = isBull ? upCol : dnCol
+
+pTrail = plot(trail, "Rastreo", color=color.new(cloudCol, 0), linewidth=2)
+pBasis = plot(basis, "Media", color=color.new(cloudCol, 45), linewidth=1)
+// Brillo blanco sobre el rastreo
+plot(trail, "Brillo", color=color.new(color.white, 55), linewidth=1)
+
+// Nube degradada entre el rastreo y la media
+fill(pTrail, pBasis, color=color.new(cloudCol, cloudInt), title="Nube Reversión")
+
+// Glow extra de la nube (capa difusa)
+fill(pTrail, pBasis, color=color.new(cloudCol, math.min(cloudInt + 12, 98)), title="Nube Glow")
+
+// Señales de reversión (ancladas al precio → glow alineado)
+plotchar(revUp ? low : na, "BUY Glow", "•", location.absolute, color=color.new(sigUpCol, 60), size=size.normal)
+plotchar(revUp ? low : na, "BUY", "•", location.absolute, color=sigUpCol, size=size.small)
+plotchar(revDn ? high : na, "SELL Glow", "•", location.absolute, color=color.new(sigDnCol, 60), size=size.normal)
+plotchar(revDn ? high : na, "SELL", "•", location.absolute, color=sigDnCol, size=size.small)
+
+// Agotamiento (× flúor)
+plotchar(bullExh ? high : na, "Agotamiento Alcista Glow", "×", location.absolute, color=color.new(exhCol, 55), size=size.small)
+plotchar(bullExh ? high : na, "Agotamiento Alcista", "×", location.absolute, color=exhCol, size=size.tiny)
+plotchar(bearExh ? low : na, "Agotamiento Bajista Glow", "×", location.absolute, color=color.new(exhCol, 55), size=size.small)
+plotchar(bearExh ? low : na, "Agotamiento Bajista", "×", location.absolute, color=exhCol, size=size.tiny)
+
+// Etiquetas BUY/SELL
+if showLbl and revUp
+    label.new(bar_index, low, "BUY", style=label.style_label_up, color=color.new(sigUpCol, 15), textcolor=color.black, size=size.small)
+if showLbl and revDn
+    label.new(bar_index, high, "SELL", style=label.style_label_down, color=color.new(sigDnCol, 15), textcolor=color.white, size=size.small)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD MINIMALISTA
+// ════════════════════════════════════════════════════════════════════════════
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+var table d = table.new(f_pos(dashPos), 2, 4, bgcolor=color.new(#0b0e16, 12), frame_color=color.new(upCol, 55), frame_width=1, border_width=1)
+f_cell(t, r, k, v, vc) =>
+    table.cell(t, 0, r, k, text_color=color.new(#90a4ae, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
+
+if showDash and barstate.islast
+    string trendTxt = isBull ? "ALCISTA" : "BAJISTA"
+    color  trendC   = isBull ? upCol : dnCol
+    string exhTxt   = bullExh ? "SOBRECOMPRA ↑" : bearExh ? "SOBREVENTA ↓" : "Equilibrio"
+    color  exhC     = (bullExh or bearExh) ? exhCol : color.new(#90a4ae, 0)
+    string sigTxt   = revUp ? "▲ REVERSIÓN BUY" : revDn ? "▼ REVERSIÓN SELL" : "Ninguna"
+    color  sigC     = revUp ? sigUpCol : revDn ? sigDnCol : color.new(color.white, 35)
+
+    table.cell(d, 0, 0, "Reversal Cloud", text_color=color.white, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, trendTxt, text_color=trendC, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(d, 1, "Distancia", str.tostring(dist, "#.#") + " ATR", dist >= 0 ? upCol : dnCol)
+    f_cell(d, 2, "Estado", exhTxt, exhC)
+    f_cell(d, 3, "Señal", sigTxt, sigC)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+f_wmPos(s) => s == "Inferior Izquierda" ? position.bottom_left : s == "Inferior Derecha" ? position.bottom_right : s == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(revUp, "Reversión ALCISTA", "Reversal Cloud · Giro alcista {{ticker}}")
+alertcondition(revDn, "Reversión BAJISTA", "Reversal Cloud · Giro bajista {{ticker}}")
+alertcondition(bullExh or bearExh, "Agotamiento", "Reversal Cloud · Sobreextensión {{ticker}}")

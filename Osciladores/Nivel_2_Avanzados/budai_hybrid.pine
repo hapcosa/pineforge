@@ -1,0 +1,262 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Apex Confluence Oscillator
+//  Oscilador maestro de confluencia: momentum + presión de volumen + tendencia.
+//  Puntúa la alineación de los módulos y filtra entradas débiles, fuertes y "no operar".
+//  (c) BudAI Capital® — Pine v6
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Apex Confluence Oscillator", shorttitle="BudAI Capital® - Apex Confluence Oscillator", overlay=false, precision=1, max_labels_count=300, max_lines_count=300)
+
+// ════════════════ GRUPOS ════════════════
+G_CALC = "① Cálculo (Módulos)"
+G_FILT = "② Filtros"
+G_SIG  = "③ Señales"
+G_LVL  = "④ Niveles"
+G_VIS  = "⑤ Visual"
+G_COL  = "⑥ Colores"
+G_WM   = "✦ Marca de agua"
+
+// ════════════════ ① CÁLCULO ════════════════
+src      = input.source(hlc3, "Fuente", group=G_CALC)
+momLen   = input.int(9, "Momentum (WaveTrend) Canal", minval=2, group=G_CALC)
+momAvg   = input.int(12, "Momentum Promedio", minval=2, group=G_CALC)
+trigLen  = input.int(4, "Trigger (Señal)", minval=1, group=G_CALC)
+volLen   = input.int(20, "Volumen (presión) Longitud", minval=2, group=G_CALC)
+trendLen = input.int(34, "Tendencia Longitud", minval=2, group=G_CALC)
+maType   = input.string("EMA", "Tipo de Media (tendencia)", options=["EMA","SMA","RMA","WMA","HMA"], group=G_CALC)
+normLen  = input.int(100, "Normalización (0..100)", minval=10, group=G_CALC)
+wMom     = input.float(0.5, "Peso Momentum", minval=0, maxval=1, step=0.05, group=G_CALC, inline="w")
+wVol     = input.float(0.25, "Peso Volumen", minval=0, maxval=1, step=0.05, group=G_CALC, inline="w")
+wTrend   = input.float(0.25, "Peso Tendencia", minval=0, maxval=1, step=0.05, group=G_CALC, inline="w")
+
+// ════════════════ ② FILTROS ════════════════
+mode     = input.string("Normal", "Modo de Señal", options=["Conservador","Normal","Agresivo"], group=G_FILT, tooltip="Conservador exige las 3 confluencias; Agresivo sólo el cruce.")
+useVolF  = input.bool(true, "Filtro de volumen", group=G_FILT)
+useTrendF = input.bool(true, "Filtro de tendencia", group=G_FILT)
+neutralBand = input.int(8, "Banda neutral (no operar) ±", minval=0, maxval=25, group=G_FILT, tooltip="Zona alrededor de 50 donde no se generan señales.")
+
+// ════════════════ ③ SEÑALES ════════════════
+showSig   = input.bool(true, "Mostrar Entradas", group=G_SIG)
+showNoTrade = input.bool(true, "Mostrar zona 'No Operar'", group=G_SIG)
+showNodes = input.bool(true, "Nodos de cruce", group=G_SIG)
+showGlow  = input.bool(true, "Glow blanco en señal fuerte", group=G_SIG)
+showExh   = input.bool(true, "Señal de agotamiento", group=G_SIG)
+
+// ════════════════ ④ NIVELES ════════════════
+obLvl   = input.int(78, "Sobrecompra", group=G_LVL)
+osLvl   = input.int(22, "Sobreventa", group=G_LVL)
+showFib = input.bool(true, "Fibonacci sutiles", group=G_LVL)
+showBars = input.bool(true, "Barras superiores/inferiores", group=G_LVL)
+
+// ════════════════ ⑤ VISUAL ════════════════
+glow     = input.bool(true, "Relleno Degradado (nube)", group=G_VIS)
+shadeInt = input.int(55, "Opacidad nube", minval=20, maxval=90, group=G_VIS)
+showVol  = input.bool(true, "Barras de presión de fondo", group=G_VIS)
+showDash = input.bool(true, "Dashboard", group=G_VIS)
+dashPos  = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════ ⑥ COLORES ════════════════
+upCol    = input.color(#00e5ff, "Alcista (celeste)", group=G_COL, inline="c")
+dnCol    = input.color(#ff1e6e, "Bajista (fucsia)", group=G_COL, inline="c")
+sigUpCol = input.color(#ffff00, "Señal fuerte alcista", group=G_COL, inline="s")
+sigDnCol = input.color(#ff007f, "Señal fuerte bajista", group=G_COL, inline="s")
+weakCol  = input.color(#90a4ae, "Señal débil", group=G_COL)
+noTradeCol = input.color(#ffb300, "No operar", group=G_COL)
+nodeCol  = input.color(#ffffff, "Nodo de cruce", group=G_COL)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda","Inferior Derecha","Superior Izquierda","Superior Derecha"], group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  CÁLCULOS — MÓDULOS
+// ════════════════════════════════════════════════════════════════════════════
+f_norm(float s, simple int len) =>
+    float lo = ta.lowest(s, len)
+    float hi = ta.highest(s, len)
+    hi - lo != 0 ? 100.0 * (s - lo) / (hi - lo) : 50.0
+
+f_ma(float s, simple int len, simple string t) =>
+    t == "SMA" ? ta.sma(s, len) : t == "RMA" ? ta.rma(s, len) : t == "WMA" ? ta.wma(s, len) : t == "HMA" ? ta.hma(s, len) : ta.ema(s, len)
+
+// A. Módulo Momentum (WaveTrend normalizado)
+float esa = ta.ema(src, momLen)
+float de  = ta.ema(math.abs(src - esa), momLen)
+float ci  = de == 0 ? 0.0 : (src - esa) / (0.015 * de)
+float wt1 = ta.ema(ci, momAvg)
+float momN = f_norm(wt1, normLen)
+
+// B. Módulo Volumen (Chaikin Money Flow normalizado)
+float mfm = (high - low) != 0 ? ((close - low) - (high - close)) / (high - low) : 0.0
+float vol = nz(volume) == 0 ? 1.0 : volume
+float cmf = math.sum(mfm * vol, volLen) / math.sum(vol, volLen)
+float volN = 50 + cmf * 50
+bool  volBull = cmf >= 0
+
+// C. Módulo Tendencia (pendiente de la media)
+float ma    = f_ma(src, trendLen, maType)
+float slope = ma - ma[1]
+float trendN = f_norm(slope, normLen)
+bool  trendBull = slope >= 0
+
+// Composite (suma ponderada, pesos normalizados)
+float wSum = wMom + wVol + wTrend
+float osc  = wSum != 0 ? (momN * wMom + volN * wVol + trendN * wTrend) / wSum : 50.0
+float trig = ta.sma(osc, trigLen)
+bool  isBull = osc >= trig
+
+// Score de confluencia (0..3): cuántos módulos apuntan al alza
+int scoreUp = (momN >= 50 ? 1 : 0) + (volBull ? 1 : 0) + (trendBull ? 1 : 0)
+int scoreNet = scoreUp - (3 - scoreUp)   // -3..+3
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NIVELES
+// ════════════════════════════════════════════════════════════════════════════
+hline(100, "Tope", color.new(color.gray, 92), hline.style_dotted)
+hline(showFib ? 61.8 : na, "Fibo 0.618", color.new(#c39bff, 80), hline.style_dotted)
+hline(50, "Central", color.new(#b06aff, 72), hline.style_solid)
+hline(showFib ? 38.2 : na, "Fibo 0.382", color.new(#c39bff, 80), hline.style_dotted)
+hline(0, "Piso", color.new(color.gray, 92), hline.style_dotted)
+hline(obLvl, "Sobrecompra", color.new(dnCol, 78), hline.style_dashed)
+hline(osLvl, "Sobreventa", color.new(upCol, 78), hline.style_dashed)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PLOTS
+// ════════════════════════════════════════════════════════════════════════════
+// Barras de presión de fondo (volumen)
+plot(showVol ? volN : na, "Presión Volumen", color=volBull ? color.new(upCol, 80) : color.new(dnCol, 80), style=plot.style_columns, histbase=50)
+
+color waveCol = isBull ? upCol : dnCol
+pTrig = plot(trig, "Trigger", color=color.new(color.white, 35), linewidth=1)
+pOsc  = plot(osc, "Apex", color=waveCol, linewidth=2)
+plot(osc, "Brillo Blanco", color=color.new(color.white, 0), linewidth=1)
+pMid  = plot(50, "Mid", color=color.new(color.white, 100), display=display.none)
+
+fill(pOsc, pMid, top_value=100, bottom_value=50, top_color=glow ? color.new(upCol, shadeInt) : na, bottom_color=glow ? color.new(upCol, 100) : na, title="Nube Superior")
+fill(pOsc, pMid, top_value=50, bottom_value=0,  top_color=glow ? color.new(dnCol, 100) : na, bottom_color=glow ? color.new(dnCol, shadeInt) : na, title="Nube Inferior")
+fill(pOsc, pTrig, color=isBull ? color.new(upCol, 84) : color.new(dnCol, 84), title="Ribbon Cruce")
+
+// Barras superiores/inferiores segmentadas
+bool seg = bar_index % 2 == 0
+plotchar(showBars and seg ? 99 : na, "Barra Superior", "▬", location.absolute, color=trendBull ? color.new(upCol, 55) : color.new(dnCol, 55), size=size.tiny)
+plotchar(showBars and seg ? 1  : na, "Barra Inferior", "▬", location.absolute, color=trendBull ? color.new(upCol, 55) : color.new(dnCol, 55), size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  LÓGICA DE SEÑALES (modos + confluencia + no operar)
+// ════════════════════════════════════════════════════════════════════════════
+bool crossUp = ta.crossover(osc, trig)
+bool crossDn = ta.crossunder(osc, trig)
+
+// Confirmaciones según filtros
+bool confVolUp = not useVolF or volBull
+bool confVolDn = not useVolF or not volBull
+bool confTrUp  = not useTrendF or trendBull
+bool confTrDn  = not useTrendF or not trendBull
+
+// Requisitos por modo
+bool fullUp = crossUp and confVolUp and confTrUp
+bool fullDn = crossDn and confVolDn and confTrDn
+
+bool buyRaw  = mode == "Agresivo" ? crossUp : mode == "Normal" ? (crossUp and (confVolUp or confTrUp)) : fullUp
+bool sellRaw = mode == "Agresivo" ? crossDn : mode == "Normal" ? (crossDn and (confVolDn or confTrDn)) : fullDn
+
+// Zona neutral = no operar
+bool inNeutral = math.abs(osc - 50) <= neutralBand
+bool noTrade = inNeutral or (scoreNet == 1 or scoreNet == -1) and mode == "Conservador"
+
+bool buy  = showSig and buyRaw and not inNeutral and barstate.isconfirmed
+bool sell = showSig and sellRaw and not inNeutral and barstate.isconfirmed
+
+// Fuerza: las 3 confluencias alineadas y saliendo de extremo
+bool strongBuy  = buy and fullUp and osc < osLvl + 15
+bool strongSell = sell and fullDn and osc > obLvl - 15
+bool weakBuy  = buy and not strongBuy
+bool weakSell = sell and not strongSell
+
+// Agotamiento (divergencia simple osc vs precio en extremo) — sólo al iniciarse el evento
+bool exhTopRaw = osc > obLvl and high >= ta.highest(high, 14) and osc < ta.highest(osc, 14)
+bool exhBotRaw = osc < osLvl and low  <= ta.lowest(low, 14)  and osc > ta.lowest(osc, 14)
+bool exhTop = showExh and exhTopRaw and not exhTopRaw[1] and barstate.isconfirmed
+bool exhBot = showExh and exhBotRaw and not exhBotRaw[1] and barstate.isconfirmed
+
+// Nodos
+bool crossAny = crossUp or crossDn
+plotchar(showNodes and crossAny ? osc : na, "Nodo Glow", "•", location.absolute, color=color.new(nodeCol, 60), size=size.small)
+plotchar(showNodes and crossAny ? osc : na, "Nodo Centro", "•", location.absolute, color=color.new(nodeCol, 0), size=size.tiny)
+
+// Señales débiles
+plotchar(weakBuy ? osc : na, "Buy débil", "•", location.absolute, color=color.new(weakCol, 20), size=size.tiny)
+plotchar(weakSell ? osc : na, "Sell débil", "•", location.absolute, color=color.new(weakCol, 20), size=size.tiny)
+
+// Señales fuertes con glow
+plotchar(strongBuy ? osc : na, "Buy fuerte Glow", "•", location.absolute, color=color.new(sigUpCol, 60), size=size.small)
+plotchar(strongBuy ? osc : na, "Buy fuerte", "•", location.absolute, color=sigUpCol, size=size.tiny)
+plotchar(strongSell ? osc : na, "Sell fuerte Glow", "•", location.absolute, color=color.new(sigDnCol, 60), size=size.small)
+plotchar(strongSell ? osc : na, "Sell fuerte", "•", location.absolute, color=sigDnCol, size=size.tiny)
+plotchar(showGlow and (strongBuy or strongSell) ? osc : na, "Glow blanco", "•", location.absolute, color=color.new(color.white, 55), size=size.normal)
+
+// Agotamiento (× flúor)
+plotchar(exhBot ? 4 : na, "Agotamiento abajo", "×", location.absolute, color=noTradeCol, size=size.tiny)
+plotchar(exhTop ? 96 : na, "Agotamiento arriba", "×", location.absolute, color=noTradeCol, size=size.tiny)
+
+// Marca de "No Operar" sobre la línea media
+plotchar(showNoTrade and noTrade ? 50 : na, "No Operar", "◌", location.absolute, color=color.new(noTradeCol, 30), size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD
+// ════════════════════════════════════════════════════════════════════════════
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+var table d = table.new(f_pos(dashPos), 2, 6, bgcolor=color.new(#0b0e16, 12), frame_color=color.new(upCol, 55), frame_width=1, border_width=1)
+f_cell(t, r, k, v, vc) =>
+    table.cell(t, 0, r, k, text_color=color.new(#90a4ae, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
+
+if showDash and barstate.islast
+    string estado = osc >= obLvl ? "SOBRECOMPRA" : osc <= osLvl ? "SOBREVENTA" : isBull ? "Alcista" : "Bajista"
+    color  estCol = osc >= obLvl ? dnCol : osc <= osLvl ? upCol : isBull ? upCol : dnCol
+    string mTxt   = momN >= 50 ? "+" : "−"
+    string vTxt   = volBull ? "+" : "−"
+    string tTxt   = trendBull ? "+" : "−"
+    string confTxt = "M" + mTxt + " V" + vTxt + " T" + tTxt
+    color  confC   = scoreNet >= 2 ? upCol : scoreNet <= -2 ? dnCol : noTradeCol
+    string sigTxt  = strongBuy ? "▲ FUERTE" : strongSell ? "▼ FUERTE" : weakBuy ? "▲ débil" : weakSell ? "▼ débil" : noTrade ? "NO OPERAR" : "—"
+    color  sigC    = strongBuy ? sigUpCol : strongSell ? sigDnCol : (weakBuy or weakSell) ? weakCol : noTrade ? noTradeCol : color.new(color.white, 35)
+
+    table.cell(d, 0, 0, "Apex · " + mode, text_color=color.white, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, str.tostring(osc, "#") + "/100", text_color=waveCol, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(d, 1, "Estado", estado, estCol)
+    f_cell(d, 2, "Confluencia", confTxt, confC)
+    f_cell(d, 3, "Score", str.tostring(scoreNet) + "/3", confC)
+    f_cell(d, 4, "Señal", sigTxt, sigC)
+    f_cell(d, 5, "Contexto", noTrade ? "Lateral/Ruido" : isBull ? "Tendencia ↑" : "Tendencia ↓", noTrade ? noTradeCol : estCol)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+f_wmPos(s) => s == "Inferior Izquierda" ? position.bottom_left : s == "Inferior Derecha" ? position.bottom_right : s == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(buy, "Compra", "Apex · Compra {{ticker}}")
+alertcondition(sell, "Venta", "Apex · Venta {{ticker}}")
+alertcondition(strongBuy, "Compra FUERTE", "Apex · Compra fuerte (3 confluencias) {{ticker}}")
+alertcondition(strongSell, "Venta FUERTE", "Apex · Venta fuerte (3 confluencias) {{ticker}}")
+alertcondition(exhTop or exhBot, "Agotamiento", "Apex · Posible agotamiento {{ticker}}")
+alertcondition(crossUp, "Cambio momentum alcista", "Apex · Momentum gira al alza {{ticker}}")
+alertcondition(crossDn, "Cambio momentum bajista", "Apex · Momentum gira a la baja {{ticker}}")

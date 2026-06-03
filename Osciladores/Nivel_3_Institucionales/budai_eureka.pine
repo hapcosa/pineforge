@@ -1,0 +1,240 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Eureka · Liquidity Pulse
+//  Caza la TRAMPA, no entra en ella. Detecta barridos de liquidez (sweeps de
+//  máximos/mínimos con mecha de rechazo) confirmados por volumen relativo y por
+//  el giro del momentum (WaveTrend). La señal aparece tras el rechazo, no durante
+//  el barrido — para entrar después de que cazan a los demás.
+//  (c) BudAI Capital® — Pine v6 · panel inferior
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Eureka", shorttitle="BudAI · Eureka", overlay=false, precision=1, max_labels_count=200, max_lines_count=100)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  GRUPOS
+// ════════════════════════════════════════════════════════════════════════════
+G_PROF = "① Perfil"
+G_SWP  = "② Barrido de Liquidez"
+G_SIG  = "③ Confirmación"
+G_LVL  = "④ Niveles"
+G_VIS  = "⑤ Visual"
+G_COL  = "⑥ Colores"
+G_WM   = "✦ Marca de agua"
+
+// ════════════════ ① PERFIL ════════════════
+profile = input.string("Day Trader", "Perfil", options=["Scalper","Day Trader","Swing Trader"], group=G_PROF, tooltip="Scalper 1-5m · Day 5m-1H · Swing 4H-1D.")
+src     = input.source(hlc3, "Fuente (momentum)", group=G_PROF)
+
+bool isScalp = profile == "Scalper"
+bool isDay   = profile == "Day Trader"
+
+// Longitudes derivadas (simple int)
+int chanLen = isScalp ? 7  : isDay ? 9  : 12
+int avgLen  = isScalp ? 9  : isDay ? 12 : 18
+int trigLen = isScalp ? 3  : isDay ? 4  : 6
+int swpLen  = isScalp ? 10 : isDay ? 16 : 24     // ventana de liquidez (máx/mín previos)
+int rvolLen = isScalp ? 14 : isDay ? 20 : 30
+
+// ════════════════ ② BARRIDO DE LIQUIDEZ ════════════════
+wickMult = input.float(0.0, "Mecha de rechazo mínima (×ATR, 0=auto)", minval=0, maxval=3, step=0.1, group=G_SWP, tooltip="Tamaño de la mecha que rechaza el barrido. 0 usa el valor del perfil.")
+useWtZone = input.bool(true, "Exigir momentum en zona (OB/OS)", group=G_SWP, tooltip="El barrido bajista debe ocurrir con WaveTrend alto; el alcista, con WaveTrend bajo.")
+
+float wickMin = wickMult > 0 ? wickMult : (isScalp ? 0.5 : isDay ? 0.7 : 0.9)
+
+// ════════════════ ③ CONFIRMACIÓN ════════════════
+rvolMin  = input.float(1.5, "Volumen relativo mínimo (×prom)", minval=1.0, step=0.1, group=G_SIG, tooltip="El barrido necesita participación: volumen sobre el promedio.")
+reqWtTurn= input.bool(true, "Exigir giro de WaveTrend a favor", group=G_SIG)
+showSig  = input.bool(true, "Mostrar señales LONG / SHORT", group=G_SIG)
+showSweep= input.bool(true, "Marcar barridos (× tenue)", group=G_SIG)
+
+// ════════════════ ④ NIVELES ════════════════
+obLvl = input.int(53, "Sobrecompra (WaveTrend)", minval=20, maxval=98, group=G_LVL, inline="l")
+osLvl = input.int(-53, "Sobreventa (WaveTrend)", minval=-98, maxval=-20, group=G_LVL, inline="l")
+
+// ════════════════ ⑤ VISUAL ════════════════
+glow     = input.bool(true, "Glow / efecto rayo", group=G_VIS)
+shadeInt = input.int(72, "Opacidad relleno (difuminado)", minval=45, maxval=92, group=G_VIS)
+showRvol = input.bool(true, "Área de volumen relativo (base)", group=G_VIS)
+showDash = input.bool(true, "Dashboard", group=G_VIS)
+dashPos  = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════ ⑥ COLORES ════════════════
+upCol  = input.color(#00e5ff, "Bull (cian neón)", group=G_COL, inline="c")
+dnCol  = input.color(#ff6a00, "Bear (naranjo neón)", group=G_COL, inline="c")
+neutCol= input.color(#90a4ae, "Neutral (gris)", group=G_COL)
+strongCol = input.color(#ffffff, "Confirmación (blanco)", group=G_COL)
+sweepCol = input.color(#ffb300, "Barrido (ámbar)", group=G_COL)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda","Inferior Derecha","Superior Izquierda","Superior Derecha"], group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  FUNCIONES
+// ════════════════════════════════════════════════════════════════════════════
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+f_wmPos(s) => s == "Inferior Izquierda" ? position.bottom_left : s == "Inferior Derecha" ? position.bottom_right : s == "Superior Izquierda" ? position.top_left : position.top_right
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MÓDULO A — MOMENTUM (WaveTrend ±100)
+// ════════════════════════════════════════════════════════════════════════════
+float esa = ta.ema(src, chanLen)
+float de  = ta.ema(math.abs(src - esa), chanLen)
+float ci  = de == 0 ? 0.0 : (src - esa) / (0.015 * de)
+float wt1 = ta.ema(ci, avgLen)
+float wt2 = ta.sma(wt1, trigLen)
+float wt  = math.max(-100.0, math.min(100.0, wt1))
+float wtt = math.max(-100.0, math.min(100.0, wt2))
+
+bool wtTurnUp = ta.crossover(wt1, wt2)
+bool wtTurnDn = ta.crossunder(wt1, wt2)
+bool wtRising = wt1 > wt1[1]
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MÓDULO B — DETECTOR DE BARRIDO (sweep de liquidez con mecha de rechazo)
+// ════════════════════════════════════════════════════════════════════════════
+float atr = ta.atr(14)
+float upWick = high - math.max(open, close)
+float dnWick = math.min(open, close) - low
+
+float prevHigh = ta.highest(high, swpLen)[1]   // liquidez por encima
+float prevLow  = ta.lowest(low, swpLen)[1]     // liquidez por debajo
+
+// Barrido de máximos (trampa alcista → sesgo SHORT): rompe el máximo y cierra debajo, con mecha superior
+bool sweepUp = high > prevHigh and close < prevHigh and upWick >= atr * wickMin
+// Barrido de mínimos (trampa bajista → sesgo LONG): rompe el mínimo y cierra arriba, con mecha inferior
+bool sweepDn = low < prevLow and close > prevLow and dnWick >= atr * wickMin
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MÓDULO C — VOLUMEN RELATIVO (participación real)
+// ════════════════════════════════════════════════════════════════════════════
+float volAvg = ta.sma(volume, rvolLen)
+float rvol   = volAvg != 0 ? nz(volume) / volAvg : 1.0
+bool  rvolOk = rvol >= rvolMin
+float rvolN  = math.min(rvol / 3.0 * 100.0, 100.0)        // 0..100 para el área de base
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  SEÑAL — barrido + volumen + giro de momentum (tras la trampa, en cierre)
+// ════════════════════════════════════════════════════════════════════════════
+bool conf = barstate.isconfirmed
+bool zoneOkL = not useWtZone or wt1 < 0
+bool zoneOkS = not useWtZone or wt1 > 0
+bool turnOkL = not reqWtTurn or wtTurnUp or wtRising
+bool turnOkS = not reqWtTurn or wtTurnDn or not wtRising
+
+bool longPulse  = showSig and sweepDn and rvolOk and zoneOkL and turnOkL and conf
+bool shortPulse = showSig and sweepUp and rvolOk and zoneOkS and turnOkS and conf
+
+// Fuerza: barrido en zona extrema con volumen muy alto
+bool strongLong  = longPulse  and wt1 <= osLvl and rvol >= rvolMin * 1.4
+bool strongShort = shortPulse and wt1 >= obLvl and rvol >= rvolMin * 1.4
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NIVELES
+// ════════════════════════════════════════════════════════════════════════════
+hline(100, "Tope", color.new(color.gray, 92), hline.style_dotted)
+hline(obLvl, "Sobrecompra", color.new(dnCol, 80), hline.style_dashed)
+hline(0, "Centro", color.new(neutCol, 70), hline.style_solid)
+hline(osLvl, "Sobreventa", color.new(upCol, 80), hline.style_dashed)
+hline(-100, "Piso", color.new(color.gray, 92), hline.style_dotted)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  VISUAL — área RVOL + onda WaveTrend neón (glow en capas) + señales alineadas
+// ════════════════════════════════════════════════════════════════════════════
+// Volumen relativo como área degradada suave en la base (difuminado)
+plot(showRvol ? rvolN - 100 : na, "RVOL", color=color.new(rvolOk ? sweepCol : neutCol, 92), style=plot.style_area, histbase=-100)
+
+color waveCol = wt1 >= wt2 ? upCol : dnCol
+
+// Trigger fino
+plot(wtt, "Trigger", color=color.new(strongCol, 45), linewidth=1)
+
+// Onda WaveTrend: efecto RAYO (doble halo difuso + línea finísima + núcleo blanco-eléctrico)
+plot(glow ? wt : na, "Onda resplandor", color=color.new(waveCol, 88), linewidth=6)
+plot(glow ? wt : na, "Onda halo", color=color.new(waveCol, 70), linewidth=3)
+pWave = plot(wt, "WaveTrend", color=color.new(waveCol, 0), linewidth=1)
+plot(wt, "Núcleo rayo", color=color.new(strongCol, 18), linewidth=1)
+pMid = plot(0, "centro", color=color.new(color.white, 100), display=display.none)
+// Relleno degradado difuminado hacia el centro 0 (se desvanece), colores por dirección
+fill(pWave, pMid, top_value=100, bottom_value=0, top_color=glow ? color.new(upCol, shadeInt) : na, bottom_color=glow ? color.new(upCol, 100) : na, title="Difuminado alcista")
+fill(pWave, pMid, top_value=0, bottom_value=-100, top_color=glow ? color.new(dnCol, 100) : na, bottom_color=glow ? color.new(dnCol, shadeInt) : na, title="Difuminado bajista")
+
+// Nodo de cruce de línea media (giro de momentum): círculo diminuto con glow
+bool midCross = ta.cross(wt1, 0)
+plotchar(midCross ? wt : na, "Cruce 0 glow", "•", location.absolute, color=color.new(strongCol, 55), size=size.small)
+plotchar(midCross ? wt : na, "Cruce 0", "•", location.absolute, color=color.new(waveCol, 0), size=size.tiny)
+
+// ── Barridos: círculo ámbar diminuto con glow ──
+plotchar(showSweep and sweepUp ? 96 : na, "Barrido máx glow", "•", location.absolute, color=color.new(sweepCol, 60), size=size.small)
+plotchar(showSweep and sweepUp ? 96 : na, "Barrido máximos", "•", location.absolute, color=sweepCol, size=size.tiny)
+plotchar(showSweep and sweepDn ? -96 : na, "Barrido mín glow", "•", location.absolute, color=color.new(sweepCol, 60), size=size.small)
+plotchar(showSweep and sweepDn ? -96 : na, "Barrido mínimos", "•", location.absolute, color=sweepCol, size=size.tiny)
+
+// ── Señales LONG / SHORT: círculo con glow alineado al valor de la onda ──
+plotchar(longPulse ? wt : na, "LONG glow", "•", location.absolute, color=color.new(upCol, 55), size=size.small)
+plotchar(longPulse ? wt : na, "LONG", "•", location.absolute, color=upCol, size=size.tiny)
+plotchar(shortPulse ? wt : na, "SHORT glow", "•", location.absolute, color=color.new(dnCol, 55), size=size.small)
+plotchar(shortPulse ? wt : na, "SHORT", "•", location.absolute, color=dnCol, size=size.tiny)
+// Acento blanco en pulso fuerte (rayo)
+plotchar((strongLong or strongShort) ? wt : na, "Pulso fuerte", "•", location.absolute, color=color.new(strongCol, 30), size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD COMPACTO
+// ════════════════════════════════════════════════════════════════════════════
+var table d = table.new(f_pos(dashPos), 2, 5, bgcolor=color.new(#0b0e16, 10), frame_color=color.new(upCol, 55), frame_width=1, border_width=1)
+f_cell(t, r, k, v, vc) =>
+    table.cell(t, 0, r, k, text_color=color.new(#90a4ae, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
+
+// Memoria del último barrido (para contexto en el dashboard)
+var string lastSweep = "—"
+var color  lastSwC   = neutCol
+if sweepUp
+    lastSweep := "Máximos ↑ (trampa)"
+    lastSwC   := dnCol
+else if sweepDn
+    lastSweep := "Mínimos ↓ (trampa)"
+    lastSwC   := upCol
+
+if showDash and barstate.islast
+    string stTxt = strongLong ? "LONG FUERTE" : strongShort ? "SHORT FUERTE" : longPulse ? "LONG" : shortPulse ? "SHORT" : "—"
+    color  stCol = (strongLong or longPulse) ? upCol : (strongShort or shortPulse) ? dnCol : neutCol
+    string biasTxt = wt1 >= wt2 ? "▲ Alcista" : "▼ Bajista"
+    color  biasC = wt1 >= wt2 ? upCol : dnCol
+
+    table.cell(d, 0, 0, "EUREKA · " + profile, text_color=color.white, bgcolor=color.new(#1b2030, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, str.tostring(wt, "#") + "/100", text_color=waveCol, bgcolor=color.new(#1b2030, 0), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(d, 1, "Pulso", stTxt, stCol)
+    f_cell(d, 2, "Momentum", biasTxt, biasC)
+    f_cell(d, 3, "RVOL", str.tostring(rvol, "#.#") + "×", rvolOk ? sweepCol : neutCol)
+    f_cell(d, 4, "Último barrido", lastSweep, lastSwC)
+
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+var table wm = table.new(f_wmPos(wmPos), 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(longPulse,  "Eureka LONG",  "Eureka · LONG tras barrido de mínimos {{ticker}}")
+alertcondition(shortPulse, "Eureka SHORT", "Eureka · SHORT tras barrido de máximos {{ticker}}")
+alertcondition(strongLong,  "Eureka LONG fuerte",  "Eureka · LONG fuerte (barrido extremo + volumen) {{ticker}}")
+alertcondition(strongShort, "Eureka SHORT fuerte", "Eureka · SHORT fuerte (barrido extremo + volumen) {{ticker}}")
+alertcondition(sweepUp, "Barrido de máximos", "Eureka · Barrido de liquidez en máximos {{ticker}}")
+alertcondition(sweepDn, "Barrido de mínimos", "Eureka · Barrido de liquidez en mínimos {{ticker}}")

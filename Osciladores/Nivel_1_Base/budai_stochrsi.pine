@@ -1,0 +1,181 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Stoch RSI Pro
+//  Estocástico del RSI con doble suavizado y bandas dinámicas adaptativas.
+//  Fusiona el sesgo del RSI con el timing fino del estocástico para entradas precisas.
+//  Diseño premium cyberpunk neón con desvanecimiento de onda hacia el centro.
+//  (c) BudAI Capital® — Pine v6
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Stoch RSI Pro", shorttitle="BudAI Capital® - Stoch RSI Pro", overlay=false, precision=1, max_labels_count=300, max_lines_count=300)
+
+// ════════════════ GRUPOS ════════════════
+G_CORE = "① Núcleo Stoch RSI"
+G_BAND = "② Bandas Dinámicas"
+G_SIG  = "③ Señales y Fusión"
+G_LVL  = "④ Niveles"
+G_VIS  = "⑤ Estética Cyberpunk"
+G_WM   = "✦ Marca de agua"
+
+// ════════════════ ① NÚCLEO ════════════════
+src     = input.source(close, "Fuente", group=G_CORE)
+rsiLen  = input.int(14, "RSI Período", minval=1, group=G_CORE)
+stochLen = input.int(14, "Estocástico Período", minval=1, group=G_CORE)
+smoothK = input.int(3, "Suavizado %K", minval=1, group=G_CORE)
+smoothD = input.int(3, "Suavizado %D (Trigger)", minval=1, group=G_CORE)
+showRsi = input.bool(true, "Mostrar RSI de contexto (sesgo)", group=G_CORE, tooltip="Línea lenta del RSI como filtro de tendencia de fondo.")
+
+// ════════════════ ② BANDAS DINÁMICAS ════════════════
+useDyn   = input.bool(true, "Bandas dinámicas (media ± desviación)", group=G_BAND, tooltip="Sobrecompra/venta adaptativas según la volatilidad reciente del oscilador.")
+bandLen  = input.int(50, "Ventana de bandas", minval=5, group=G_BAND)
+bandMult = input.float(1.5, "Multiplicador desviación", minval=0.5, step=0.1, group=G_BAND)
+
+// ════════════════ ③ SEÑALES Y FUSIÓN ════════════════
+showSig  = input.bool(true, "Mostrar Entradas (BULL/BEAR)", group=G_SIG)
+reqRsi   = input.bool(true, "Validar con sesgo del RSI", group=G_SIG, tooltip="Sólo compra si el RSI confirma (>50 o girando al alza), y viceversa.")
+showCross = input.bool(true, "Nodo blanco en cruce %K×%D", group=G_SIG)
+
+// ════════════════ ④ NIVELES ════════════════
+obLvl   = input.int(80, "Sobrecompra fija", group=G_LVL)
+osLvl   = input.int(20, "Sobreventa fija", group=G_LVL)
+showFib = input.bool(true, "Mostrar Fibo 0.382 · 0.5 · 0.618", group=G_LVL)
+
+// ════════════════ ⑤ ESTÉTICA CYBERPUNK ════════════════
+upCol    = input.color(#00e5ff, "Alcista (celeste)", group=G_VIS, inline="c")
+dnCol    = input.color(#ff1e6e, "Bajista (fucsia)", group=G_VIS, inline="c")
+sigUpCol = input.color(#ffff00, "Señal Alcista (amarillo neón)", group=G_VIS, inline="sg")
+sigDnCol = input.color(#ff007f, "Señal Bajista (rosa neón)", group=G_VIS, inline="sg")
+rsiCol   = input.color(#b388ff, "RSI de contexto", group=G_VIS)
+glow     = input.bool(true, "Relleno Degradado (Glow)", group=G_VIS)
+shadeInt = input.int(55, "Opacidad onda superior/inferior", minval=20, maxval=90, group=G_VIS)
+showDash = input.bool(true, "Dashboard minimalista", group=G_VIS)
+dashPos  = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda","Inferior Derecha","Superior Izquierda","Superior Derecha"], group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  CÁLCULOS — STOCH RSI (RSI → estocástico → doble suavizado)
+// ════════════════════════════════════════════════════════════════════════════
+float rsi    = ta.rsi(src, rsiLen)
+float stochR = ta.stoch(rsi, rsi, rsi, stochLen)   // estocástico aplicado al RSI
+float osc    = ta.sma(stochR, smoothK)             // %K
+float trig   = ta.sma(osc, smoothD)                // %D
+
+bool isBull = osc >= trig
+
+// Bandas dinámicas adaptativas (media ± desviación del propio oscilador)
+float mean   = ta.sma(osc, bandLen)
+float sd     = ta.stdev(osc, bandLen)
+float obDyn  = useDyn ? math.min(mean + sd * bandMult, 98.0) : float(obLvl)
+float osDyn  = useDyn ? math.max(mean - sd * bandMult, 2.0)  : float(osLvl)
+
+// Sesgo del RSI (filtro de fusión)
+bool rsiBull = rsi >= 50 or rsi > rsi[1]
+bool rsiBear = rsi <  50 or rsi < rsi[1]
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NIVELES
+// ════════════════════════════════════════════════════════════════════════════
+hline(100, "Tope", color.new(color.gray, 92), hline.style_dotted)
+hline(showFib ? 61.8 : na, "Fibo 0.618", color.new(#c39bff, 80), hline.style_dotted)
+hline(50, "Central · Fibo 0.5", color.new(#b06aff, 72), hline.style_solid)
+hline(showFib ? 38.2 : na, "Fibo 0.382", color.new(#c39bff, 80), hline.style_dotted)
+hline(0, "Piso", color.new(color.gray, 92), hline.style_dotted)
+hline(obLvl, "Sobrecompra fija", color.new(dnCol, 80), hline.style_dashed)
+hline(osLvl, "Sobreventa fija", color.new(upCol, 80), hline.style_dashed)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PLOTS (Glow + Onda %K + Trigger %D + RSI contexto)
+// ════════════════════════════════════════════════════════════════════════════
+// Bandas dinámicas
+plot(useDyn ? obDyn : na, "OB Dinámica", color=color.new(dnCol, 55), linewidth=1)
+plot(useDyn ? osDyn : na, "OS Dinámica", color=color.new(upCol, 55), linewidth=1)
+
+// RSI de contexto (línea lenta tenue)
+plot(showRsi ? rsi : na, "RSI Contexto", color=color.new(rsiCol, 25), linewidth=1)
+
+// Onda %K principal y trigger %D
+color waveCol = isBull ? upCol : dnCol
+pTrig = plot(trig, "Trigger %D", color=color.new(color.white, 35), linewidth=1)
+pOsc  = plot(osc, "Stoch RSI %K", color=waveCol, linewidth=2)
+plot(osc, "Brillo Blanco", color=color.new(color.white, 0), linewidth=1)
+pMid  = plot(50, "Mid", color=color.new(color.white, 100), display=display.none)
+
+// Relleno degradado neón hacia el eje central 50
+fill(pOsc, pMid, top_value=100, bottom_value=50, top_color=glow ? color.new(upCol, shadeInt) : na, bottom_color=glow ? color.new(upCol, 100) : na, title="Glow Superior")
+fill(pOsc, pMid, top_value=50, bottom_value=0,  top_color=glow ? color.new(dnCol, 100) : na, bottom_color=glow ? color.new(dnCol, shadeInt) : na, title="Glow Inferior")
+
+// Cinta de cruce (cuerpo entre %K y %D)
+fill(pOsc, pTrig, color=isBull ? color.new(upCol, 82) : color.new(dnCol, 82), title="Ribbon Cruce")
+
+// Nodo blanco en el cruce %K × %D (alineado al valor de la onda)
+bool crossNode = ta.cross(osc, trig)
+plotchar(showCross and crossNode ? osc : na, "Cruce Glow", "•", location.absolute, color=color.new(color.white, 60), size=size.small)
+plotchar(showCross and crossNode ? osc : na, "Cruce Centro", "•", location.absolute, color=color.new(color.white, 0), size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  LÓGICA DE SEÑALES (fusión Stoch RSI + sesgo RSI)
+// ════════════════════════════════════════════════════════════════════════════
+bool biasUp = not reqRsi or rsiBull
+bool biasDn = not reqRsi or rsiBear
+
+bool entryBuy  = showSig and ta.crossover(osc, trig) and osc < osDyn and biasUp and barstate.isconfirmed
+bool entrySell = showSig and ta.crossunder(osc, trig) and osc > obDyn and biasDn and barstate.isconfirmed
+
+// Entradas neón con glow (ancladas al valor de la onda)
+plotchar(entryBuy ? osc : na, "BULL Entry Glow", "•", location.absolute, color=color.new(sigUpCol, 65), size=size.small)
+plotchar(entryBuy ? osc : na, "BULL Entry", "•", location.absolute, color=sigUpCol, size=size.tiny)
+plotchar(entrySell ? osc : na, "BEAR Entry Glow", "•", location.absolute, color=color.new(sigDnCol, 65), size=size.small)
+plotchar(entrySell ? osc : na, "BEAR Entry", "•", location.absolute, color=sigDnCol, size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD MINIMALISTA
+// ════════════════════════════════════════════════════════════════════════════
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+var table d = table.new(f_pos(dashPos), 2, 5, bgcolor=color.new(#0b0e16, 12), frame_color=color.new(upCol, 55), frame_width=1, border_width=1)
+f_cell(t, r, k, v, vc) =>
+    table.cell(t, 0, r, k, text_color=color.new(#90a4ae, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
+
+if showDash and barstate.islast
+    string estado  = osc >= obDyn ? "SOBRECOMPRA" : osc <= osDyn ? "SOBREVENTA" : isBull ? "Alcista" : "Bajista"
+    color  estCol  = osc >= obDyn ? dnCol : osc <= osDyn ? upCol : isBull ? upCol : dnCol
+    string rsiTxt  = str.tostring(rsi, "#") + (rsiBull ? " ▲" : " ▼")
+    color  rsiC    = rsi >= 50 ? upCol : dnCol
+    string senal   = entryBuy ? "▲ COMPRA" : entrySell ? "▼ VENTA" : "Ninguna"
+    color  senalC  = entryBuy ? sigUpCol : entrySell ? sigDnCol : color.new(color.white, 35)
+
+    table.cell(d, 0, 0, "Stoch RSI Pro", text_color=color.white, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, str.tostring(osc, "#") + "/100", text_color=waveCol, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(d, 1, "Estado", estado, estCol)
+    f_cell(d, 2, "RSI sesgo", rsiTxt, rsiC)
+    f_cell(d, 3, "Banda OB/OS", str.tostring(osDyn, "#") + "·" + str.tostring(obDyn, "#"), color.new(#90a4ae, 0))
+    f_cell(d, 4, "Señal Activa", senal, senalC)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+f_wmPos(s) => s == "Inferior Izquierda" ? position.bottom_left : s == "Inferior Derecha" ? position.bottom_right : s == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(entryBuy, "Señal de COMPRA Stoch RSI", "Stoch RSI Pro · COMPRA {{ticker}}")
+alertcondition(entrySell, "Señal de VENTA Stoch RSI", "Stoch RSI Pro · VENTA {{ticker}}")
+alertcondition(ta.cross(osc, 50), "Cruce de la línea media", "Stoch RSI Pro · Cruce 50 {{ticker}}")

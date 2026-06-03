@@ -1,0 +1,172 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - True Strength Index
+//  Índice de fuerza verdadera: doble suavizado del momentum para medir el impulso neto.
+//  Onda centrada en cero con trigger, zonas de fuerza y detección de divergencias.
+//  Diseño premium cyberpunk neón con desvanecimiento de onda hacia el centro.
+//  (c) BudAI Capital® — Pine v6
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - True Strength Index", shorttitle="BudAI Capital® - True Strength Index", overlay=false, precision=1, max_labels_count=300, max_lines_count=300)
+
+// ════════════════ GRUPOS ════════════════
+G_CORE = "① Núcleo TSI"
+G_SIG  = "② Señales y Divergencia"
+G_LVL  = "③ Zonas de Fuerza"
+G_VIS  = "④ Estética Cyberpunk"
+G_WM   = "✦ Marca de agua"
+
+// ════════════════ ① NÚCLEO ════════════════
+src      = input.source(close, "Fuente", group=G_CORE)
+longLen  = input.int(25, "Suavizado Largo", minval=1, group=G_CORE, tooltip="Primer EMA del doble suavizado.")
+shortLen = input.int(13, "Suavizado Corto", minval=1, group=G_CORE, tooltip="Segundo EMA del doble suavizado.")
+sigLen   = input.int(8, "Trigger (Señal)", minval=1, group=G_CORE)
+
+// ════════════════ ② SEÑALES Y DIVERGENCIA ════════════════
+showSig   = input.bool(true, "Mostrar Entradas (BULL/BEAR)", group=G_SIG)
+reqZone   = input.bool(true, "Exigir zona de fuerza para entradas", group=G_SIG, tooltip="Sólo compra desde sobreventa y vende desde sobrecompra.")
+showCross = input.bool(true, "Nodo blanco en cruce TSI×Trigger", group=G_SIG)
+showDiv   = input.bool(true, "Marcar Divergencias", group=G_SIG, tooltip="Precio hace nuevo extremo pero el TSI no lo confirma.")
+divLen    = input.int(14, "Ventana de Divergencia", minval=3, group=G_SIG)
+
+// ════════════════ ③ ZONAS DE FUERZA ════════════════
+obLvl   = input.int(25, "Sobrecompra (+)", minval=1, group=G_LVL)
+osLvl   = input.int(-25, "Sobreventa (−)", maxval=-1, group=G_LVL)
+showExt = input.bool(true, "Mostrar zonas extremas ±40", group=G_LVL)
+
+// ════════════════ ④ ESTÉTICA CYBERPUNK ════════════════
+upCol    = input.color(#00e5ff, "Alcista (celeste)", group=G_VIS, inline="c")
+dnCol    = input.color(#ff1e6e, "Bajista (fucsia)", group=G_VIS, inline="c")
+sigUpCol = input.color(#ffff00, "Señal Alcista (amarillo neón)", group=G_VIS, inline="sg")
+sigDnCol = input.color(#ff007f, "Señal Bajista (rosa neón)", group=G_VIS, inline="sg")
+divColr  = input.color(#ffea00, "Divergencia (flúor)", group=G_VIS)
+glow     = input.bool(true, "Relleno Degradado (Glow)", group=G_VIS)
+shadeInt = input.int(55, "Opacidad onda superior/inferior", minval=20, maxval=90, group=G_VIS)
+showDash = input.bool(true, "Dashboard minimalista", group=G_VIS)
+dashPos  = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda","Inferior Derecha","Superior Izquierda","Superior Derecha"], group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  CÁLCULOS — TSI (doble suavizado del momentum)
+// ════════════════════════════════════════════════════════════════════════════
+float mom    = src - src[1]
+float ds1    = ta.ema(ta.ema(mom, longLen), shortLen)          // doble EMA del momentum
+float ds2    = ta.ema(ta.ema(math.abs(mom), longLen), shortLen) // doble EMA del |momentum|
+float osc    = ds2 != 0 ? 100.0 * ds1 / ds2 : 0.0              // TSI en rango ±100
+float trig   = ta.ema(osc, sigLen)
+
+bool isBull = osc >= trig
+
+// Divergencias (precio rompe extremo, TSI no confirma)
+bool priceHi = high >= ta.highest(high, divLen)
+bool priceLo = low  <= ta.lowest(low, divLen)
+bool oscHi   = osc >= ta.highest(osc, divLen)
+bool oscLo   = osc <= ta.lowest(osc, divLen)
+bool bearDiv = showDiv and priceHi and not oscHi and barstate.isconfirmed
+bool bullDiv = showDiv and priceLo and not oscLo and barstate.isconfirmed
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ZONAS DE FUERZA
+// ════════════════════════════════════════════════════════════════════════════
+hline(showExt ? 40 : na, "Extremo +", color.new(#c39bff, 84), hline.style_dotted)
+hline(obLvl, "Sobrecompra", color.new(dnCol, 78), hline.style_dashed)
+hline(0, "Cero · Equilibrio", color.new(#b06aff, 70), hline.style_solid)
+hline(osLvl, "Sobreventa", color.new(upCol, 78), hline.style_dashed)
+hline(showExt ? -40 : na, "Extremo −", color.new(#c39bff, 84), hline.style_dotted)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PLOTS (Glow + Onda TSI + Trigger)
+// ════════════════════════════════════════════════════════════════════════════
+color waveCol = isBull ? upCol : dnCol
+pTrig = plot(trig, "Trigger", color=color.new(color.white, 35), linewidth=1)
+pOsc  = plot(osc, "TSI", color=waveCol, linewidth=2)
+plot(osc, "Brillo Blanco", color=color.new(color.white, 0), linewidth=1)
+pZero = plot(0, "Cero", color=color.new(color.white, 100), display=display.none)
+
+// Relleno degradado neón hacia el eje cero (fading al 100% de transparencia)
+fill(pOsc, pZero, top_value=100, bottom_value=0, top_color=glow ? color.new(upCol, shadeInt) : na, bottom_color=glow ? color.new(upCol, 100) : na, title="Glow Superior")
+fill(pOsc, pZero, top_value=0, bottom_value=-100, top_color=glow ? color.new(dnCol, 100) : na, bottom_color=glow ? color.new(dnCol, shadeInt) : na, title="Glow Inferior")
+
+// Cinta de cruce (cuerpo entre TSI y trigger)
+fill(pOsc, pTrig, color=isBull ? color.new(upCol, 82) : color.new(dnCol, 82), title="Ribbon Cruce")
+
+// Nodo blanco en el cruce TSI × Trigger (alineado al valor de la onda)
+bool crossNode = ta.cross(osc, trig)
+plotchar(showCross and crossNode ? osc : na, "Cruce Glow", "•", location.absolute, color=color.new(color.white, 60), size=size.small)
+plotchar(showCross and crossNode ? osc : na, "Cruce Centro", "•", location.absolute, color=color.new(color.white, 0), size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  LÓGICA DE SEÑALES
+// ════════════════════════════════════════════════════════════════════════════
+bool zoneUp = not reqZone or osc < osLvl
+bool zoneDn = not reqZone or osc > obLvl
+
+bool entryBuy  = showSig and ta.crossover(osc, trig) and zoneUp and barstate.isconfirmed
+bool entrySell = showSig and ta.crossunder(osc, trig) and zoneDn and barstate.isconfirmed
+
+// Entradas neón con glow (ancladas al valor de la onda)
+plotchar(entryBuy ? osc : na, "BULL Entry Glow", "•", location.absolute, color=color.new(sigUpCol, 65), size=size.small)
+plotchar(entryBuy ? osc : na, "BULL Entry", "•", location.absolute, color=sigUpCol, size=size.tiny)
+plotchar(entrySell ? osc : na, "BEAR Entry Glow", "•", location.absolute, color=color.new(sigDnCol, 65), size=size.small)
+plotchar(entrySell ? osc : na, "BEAR Entry", "•", location.absolute, color=sigDnCol, size=size.tiny)
+
+// Divergencias (× flúor en la zona extrema)
+plotchar(bullDiv ? osLvl : na, "Divergencia Alcista Glow", "×", location.absolute, color=color.new(divColr, 55), size=size.small)
+plotchar(bullDiv ? osLvl : na, "Divergencia Alcista", "×", location.absolute, color=divColr, size=size.tiny)
+plotchar(bearDiv ? obLvl : na, "Divergencia Bajista Glow", "×", location.absolute, color=color.new(divColr, 55), size=size.small)
+plotchar(bearDiv ? obLvl : na, "Divergencia Bajista", "×", location.absolute, color=divColr, size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD MINIMALISTA
+// ════════════════════════════════════════════════════════════════════════════
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+var table d = table.new(f_pos(dashPos), 2, 5, bgcolor=color.new(#0b0e16, 12), frame_color=color.new(upCol, 55), frame_width=1, border_width=1)
+f_cell(t, r, k, v, vc) =>
+    table.cell(t, 0, r, k, text_color=color.new(#90a4ae, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
+
+if showDash and barstate.islast
+    string estado  = osc >= obLvl ? "SOBRECOMPRA" : osc <= osLvl ? "SOBREVENTA" : osc >= 0 ? "Fuerza +" : "Fuerza −"
+    color  estCol  = osc >= obLvl ? dnCol : osc <= osLvl ? upCol : osc >= 0 ? upCol : dnCol
+    string momTxt  = isBull ? "▲ Subiendo" : "▼ Bajando"
+    color  momC    = isBull ? upCol : dnCol
+    string divTxt  = bullDiv ? "ALCISTA ↑" : bearDiv ? "BAJISTA ↓" : "—"
+    color  divC    = (bullDiv or bearDiv) ? divColr : color.new(#90a4ae, 0)
+    string senal   = entryBuy ? "▲ COMPRA" : entrySell ? "▼ VENTA" : "Ninguna"
+    color  senalC  = entryBuy ? sigUpCol : entrySell ? sigDnCol : color.new(color.white, 35)
+
+    table.cell(d, 0, 0, "True Strength", text_color=color.white, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, str.tostring(osc, "#.#"), text_color=waveCol, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(d, 1, "Fuerza", estado, estCol)
+    f_cell(d, 2, "Momentum", momTxt, momC)
+    f_cell(d, 3, "Divergencia", divTxt, divC)
+    f_cell(d, 4, "Señal Activa", senal, senalC)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+f_wmPos(s) => s == "Inferior Izquierda" ? position.bottom_left : s == "Inferior Derecha" ? position.bottom_right : s == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(entryBuy, "Señal de COMPRA TSI", "True Strength · COMPRA {{ticker}}")
+alertcondition(entrySell, "Señal de VENTA TSI", "True Strength · VENTA {{ticker}}")
+alertcondition(bullDiv or bearDiv, "Divergencia TSI", "True Strength · Divergencia detectada {{ticker}}")

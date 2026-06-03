@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Manual Institucional de Osciladores de Trading — BudAI Capital®</title>
+<style>
+  :root{
+    --ink:#13171f; --soft:#5b6470; --line:#e2e6ec; --bg:#ffffff;
+    --cyan:#0094b3; --orange:#d9590a; --amber:#b8860b; --violet:#6a4bbd;
+    --panel:#f6f8fa;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-print-color-adjust:exact; print-color-adjust:exact}
+  body{
+    font-family:"Segoe UI",Helvetica,Arial,sans-serif; color:var(--ink);
+    background:var(--bg); line-height:1.6; margin:0; font-size:15px;
+  }
+  .wrap{max-width:880px; margin:0 auto; padding:48px 40px}
+  h1{font-size:26px; letter-spacing:.5px; border-bottom:2px solid var(--cyan); padding-bottom:8px; margin-top:0}
+  h2{font-size:20px; color:var(--ink); margin-top:34px; border-left:4px solid var(--orange); padding-left:12px}
+  h3{font-size:16px; color:var(--cyan); margin-top:24px; text-transform:uppercase; letter-spacing:.4px}
+  h4{font-size:14px; color:var(--violet); margin:18px 0 6px; text-transform:uppercase; letter-spacing:.3px}
+  p,li{color:#222831}
+  small,.muted{color:var(--soft)}
+  code{background:var(--panel); padding:1px 6px; border-radius:4px; font-family:"Cascadia Code",Consolas,monospace; font-size:13px; color:var(--violet)}
+  table{border-collapse:collapse; width:100%; margin:14px 0; font-size:13.5px}
+  th,td{border:1px solid var(--line); padding:7px 10px; text-align:left; vertical-align:top}
+  th{background:var(--panel); color:var(--ink); font-weight:600}
+  tr:nth-child(even) td{background:#fbfcfd}
+  .tag{display:inline-block; font-size:11px; font-weight:700; padding:2px 8px; border-radius:20px; color:#fff; letter-spacing:.4px}
+  .t-cyan{background:var(--cyan)} .t-orange{background:var(--orange)} .t-amber{background:var(--amber)} .t-violet{background:var(--violet)} .t-gray{background:#8a93a0}
+  .note{background:var(--panel); border-left:3px solid var(--cyan); padding:12px 16px; margin:16px 0; border-radius:0 6px 6px 0}
+  .warn{background:#fff7ec; border-left:3px solid var(--orange); padding:12px 16px; margin:16px 0; border-radius:0 6px 6px 0}
+  .cover{text-align:center; padding:140px 0 80px}
+  .cover .brand{font-size:13px; letter-spacing:6px; color:var(--cyan); text-transform:uppercase}
+  .cover h1{font-size:40px; border:0; margin:18px 0 6px; letter-spacing:1px}
+  .cover .sub{font-size:17px; color:var(--soft); font-weight:300}
+  .cover .rule{width:80px; height:3px; background:var(--orange); margin:28px auto}
+  .toc ol{line-height:1.9}
+  .toc a{color:var(--ink); text-decoration:none}
+  .toc a:hover{color:var(--cyan)}
+  .check li{margin:4px 0}
+  ul.clean{list-style:none; padding-left:0}
+  ul.clean li::before{content:"▸ "; color:var(--cyan); font-weight:700}
+  hr{border:0; border-top:1px solid var(--line); margin:28px 0}
+  .foot{font-size:11px; color:var(--soft); text-align:center; margin-top:40px}
+  @media print{
+    .wrap{padding:0 14mm}
+    h1{page-break-before:always; padding-top:8mm}
+    .cover, #indice h1{page-break-before:avoid}
+    h2,h3{page-break-after:avoid}
+    table,.note,.warn{page-break-inside:avoid}
+  }
+  @page{margin:16mm 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<!-- PORTADA -->
+<div class="cover">
+  <div style="background:#000; border-radius:18px; padding:34px 20px 26px; max-width:520px; margin:0 auto 30px; box-shadow:0 0 40px rgba(155,227,19,.15)">
+    <svg width="150" height="150" viewBox="0 0 240 240" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="BudAI">
+      <defs>
+        <filter id="ng" x="-40%" y="-40%" width="180%" height="180%">
+          <feGaussianBlur stdDeviation="4" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+        <linearGradient id="gg" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#b6f400"/><stop offset="1" stop-color="#6fd60a"/>
+        </linearGradient>
+      </defs>
+      <g filter="url(#ng)" stroke="url(#gg)" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" fill="none">
+        <path d="M70 54 V186"/>
+        <path d="M70 54 H120 a36 34 0 0 1 0 68 H70"/>
+        <path d="M70 120 H128 a40 34 0 0 1 0 68 H70"/>
+        <path d="M90 34 V54 M110 34 V54"/>
+        <path d="M90 186 V206 M110 186 V206"/>
+      </g>
+      <g stroke="#ffffff" stroke-width="4.5" stroke-linecap="round" fill="none">
+        <path d="M118 86 q-20 6 -15 46"/>
+        <path d="M97 150 q14 7 28 0"/>
+        <path d="M99 162 q12 5 24 0"/>
+      </g>
+      <circle cx="104" cy="92" r="5.5" fill="#ffffff"/>
+    </svg>
+    <div style="font-size:40px; font-weight:800; letter-spacing:1px; line-height:1; margin-top:6px">
+      <span style="color:#ffffff">Bud</span><span style="color:#9be313">AI</span>
+    </div>
+    <div style="color:#cfd8dc; font-size:12px; letter-spacing:6px; margin-top:8px">
+      <span style="color:#9be313">●</span>&nbsp; TRADING CAPITAL &nbsp;<span style="color:#9be313">●</span>
+    </div>
+  </div>
+  <h1 style="page-break-before:avoid; border:0; font-size:32px">Manual Institucional de Osciladores</h1>
+  <div class="rule"></div>
+  <div class="sub">Anatomía, tipología y diseño profesional de indicadores de momentum, volumen, tendencia, volatilidad y reversión a la media — de lo básico a lo institucional.</div>
+  <p class="muted" style="margin-top:40px">Catálogo técnico de desarrollo y análisis · Pine Script v6 · Edición 2026</p>
+</div>
+
+<!-- INDICE -->
+<section id="indice">
+<h1 style="page-break-before:avoid">Índice General</h1>
+<div class="toc">
+<ol>
+  <li><a href="#c1">Introducción a los osciladores</a></li>
+  <li><a href="#c2">Anatomía de un oscilador</a></li>
+  <li><a href="#c3">Componentes principales</a></li>
+  <li><a href="#c4">Tipos de osciladores</a></li>
+  <li><a href="#c5">Niveles de complejidad (básico → institucional)</a></li>
+  <li><a href="#c6">Componentes modulares</a></li>
+  <li><a href="#c7">Señales, filtros, vetos y confirmaciones</a></li>
+  <li><a href="#c8">Perfiles de uso (Scalper / Day / Swing)</a></li>
+  <li><a href="#c9">Diseño visual del oscilador</a></li>
+  <li><a href="#c10">Gestión del ruido</a></li>
+  <li><a href="#c11">Catálogo de osciladores</a></li>
+  <li><a href="#c12">Diseño de un oscilador profesional desde cero</a></li>
+  <li><a href="#c13">Conceptos de trader rentable como criterios de diseño</a></li>
+  <li><a href="#c14">Errores comunes</a></li>
+  <li><a href="#c15">Conclusión</a></li>
+  <li><a href="#c16">Checklist de calidad</a></li>
+  <li><a href="#c17">Glosario técnico</a></li>
+  <li><a href="#apx">Apéndice — Cómo usar la suite BudAI paso a paso</a></li>
+</ol>
+</div>
+</section>
+
+<!-- 1 -->
+<h1 id="c1">1 · Introducción a los osciladores</h1>
+<p>Un <strong>oscilador</strong> es un indicador cuyo valor fluctúa dentro de un rango acotado (por ejemplo 0–100, o ±100) alrededor de un eje de equilibrio. A diferencia de un indicador de precio, no dice <em>cuánto</em> vale el activo, sino <em>en qué estado</em> se encuentra: acelerando, agotándose, comprado en exceso, vendido en exceso o en equilibrio.</p>
+
+<h3>Para qué sirve</h3>
+<p>Para leer la <strong>condición interna</strong> del movimiento: la velocidad del precio (momentum), la presión del volumen, la fase del ciclo o la distancia respecto a una media. Convierte una serie de precios ruidosa en una lectura normalizada y comparable entre activos y temporalidades.</p>
+
+<h3>Oscilador vs. otros indicadores</h3>
+<table>
+<tr><th>Familia</th><th>Qué responde</th><th>Eje</th><th>Limitación</th></tr>
+<tr><td>Oscilador (momentum)</td><td>¿Con qué fuerza/velocidad se mueve?</td><td>Acotado</td><td>Tarde o falla en tendencia fuerte</td></tr>
+<tr><td>Tendencia (medias)</td><td>¿Hacia dónde va el sesgo?</td><td>Sobre precio</td><td>Lag; tarde en giros</td></tr>
+<tr><td>Volumen / flujo</td><td>¿Hay participación real?</td><td>Variable</td><td>Inútil aislado</td></tr>
+<tr><td>Volatilidad</td><td>¿Se expande o contrae el rango?</td><td>Positivo</td><td>No da dirección</td></tr>
+</table>
+
+<div class="warn"><strong>Regla fundamental:</strong> un oscilador <strong>no debe usarse solo</strong>. Sobrecompra no es venta automática ni sobreventa es compra automática: en una tendencia fuerte el oscilador puede permanecer en extremo durante mucho tiempo. La señal solo es profesional cuando se <strong>filtra con contexto</strong> (tendencia, volumen, volatilidad, régimen).</p></div>
+
+<h3>Usar un oscilador de forma profesional</h3>
+<ul class="clean">
+<li>Definir qué mide y qué <em>no</em> mide.</li>
+<li>Acompañarlo de un filtro de contexto (régimen / tendencia).</li>
+<li>Exigir confluencia antes de actuar, no un cruce aislado.</li>
+<li>Aceptar <strong>NO TRADE</strong> como respuesta válida.</li>
+</ul>
+
+<!-- 2 -->
+<h1 id="c2">2 · Anatomía de un oscilador</h1>
+<p>Un oscilador profesional se descompone en partes. Cada una aporta valor en cierto contexto y ruido en otro.</p>
+
+<table>
+<tr><th>Parte</th><th>Qué es</th><th>Aporta valor</th><th>Genera ruido</th></tr>
+<tr><td><b>Fuente</b> (close, hlc3, ohlc4, volume)</td><td>Dato de entrada</td><td>hlc3/ohlc4 suavizan el tick</td><td>close puro en activos con mechas</td></tr>
+<tr><td><b>Fórmula base</b></td><td>El cálculo (RSI, WaveTrend…)</td><td>Define qué se mide</td><td>Fórmulas redundantes entre sí</td></tr>
+<tr><td><b>Normalización</b></td><td>Escala a 0–100 / ±100</td><td>Comparable entre activos/TF</td><td>Ventana corta → saltos bruscos</td></tr>
+<tr><td><b>Suavizado</b></td><td>EMA/SMA del resultado</td><td>Reduce sierras</td><td>Demasiado → lag y señal tardía</td></tr>
+<tr><td><b>Línea principal</b></td><td>El oscilador en sí</td><td>Lectura central</td><td>—</td></tr>
+<tr><td><b>Línea señal</b></td><td>Media de la principal</td><td>Cruces de timing</td><td>Cruces en zona neutra</td></tr>
+<tr><td><b>Histograma</b></td><td>Diferencia/medida secundaria</td><td>Aceleración visual</td><td>Satura si es grande</td></tr>
+<tr><td><b>Línea cero / media</b></td><td>Eje de equilibrio</td><td>Sesgo alcista/bajista</td><td>—</td></tr>
+<tr><td><b>Zonas extremas</b></td><td>OB/OS fijas</td><td>Detecta exceso</td><td>Falla en tendencia</td></tr>
+<tr><td><b>Bandas dinámicas</b></td><td>μ ± k·σ del oscilador</td><td>Se adaptan a volatilidad</td><td>Repaint si mal hechas</td></tr>
+<tr><td><b>Cruces / pendiente</b></td><td>Eventos de cambio</td><td>Timing y dirección</td><td>Cruce simple = falsas señales</td></tr>
+<tr><td><b>Divergencias</b></td><td>Precio vs oscilador discrepan</td><td>Anticipa agotamiento</td><td>Repintan; subjetivas</td></tr>
+<tr><td><b>Filtros / veto</b></td><td>Condiciones que bloquean</td><td>Calidad de señal</td><td>Exceso → nunca opera</td></tr>
+<tr><td><b>Dashboard</b></td><td>Resumen de estado</td><td>Lectura de un vistazo</td><td>Si tiene 20 filas, estorba</td></tr>
+<tr><td><b>Alertas / colores</b></td><td>Salida operativa/visual</td><td>Acción y claridad</td><td>Demasiadas = ruido</td></tr>
+</table>
+
+<!-- 3 -->
+<h1 id="c3">3 · Componentes principales</h1>
+<p>De toda la anatomía, cinco componentes determinan la <strong>calidad</strong> de un oscilador:</p>
+<ol>
+<li><b>Fuente + normalización:</b> garantizan que la lectura sea robusta y comparable.</li>
+<li><b>Suavizado equilibrado:</b> el compromiso entre reactividad y ruido. Demasiado poco = sierras; demasiado = llegar tarde.</li>
+<li><b>Eje y zonas:</b> dan significado (sesgo y exceso) al número.</li>
+<li><b>Lógica de evento:</b> cómo se traduce el estado en una señal (cruce, pendiente, salida de zona, confluencia).</li>
+<li><b>Filtro de contexto:</b> lo que separa a un oscilador amateur de uno profesional.</li>
+</ol>
+<div class="note"><b>Conclusión del capítulo:</b> el valor no está en la fórmula exótica, sino en la <em>combinación disciplinada</em> de fuente fiable, normalización, suavizado justo y filtro de contexto.</div>
+
+<!-- 4 -->
+<h1 id="c4">4 · Tipos de osciladores</h1>
+
+<h3>A · Momentum <span class="tag t-cyan">velocidad</span></h3>
+<p><b>Ejemplos:</b> RSI, Stochastic, StochRSI, ROC, WaveTrend, MACD (como momentum).</p>
+<p>Miden la <em>velocidad y aceleración</em> del precio. Funcionan mejor en rangos y giros; fallan cuando el precio tendencia con fuerza (se saturan en OB/OS). Generan señales de cruce y de salida de extremo.</p>
+
+<h3>B · Volumen / flujo <span class="tag t-violet">participación</span></h3>
+<p><b>Ejemplos:</b> MFI, CMF, OBV, Money Flow, CVD aproximado.</p>
+<p>Miden si el movimiento tiene <em>respaldo de participación</em>. Sirven para <strong>confirmar</strong>, no para iniciar: un impulso sin volumen es sospechoso. No conviene usarlos aislados porque el volumen sin dirección no es señal.</p>
+
+<h3>C · Tendencia <span class="tag t-orange">dirección</span></h3>
+<p><b>Ejemplos:</b> MACD, TRIX, pendiente de HMA/EMA, trend strength.</p>
+<p>Filtran <em>dirección</em> para no operar contra el sesgo dominante. Su debilidad es el <strong>lag</strong>: confirman tarde los giros. Útiles como veto ("no compres si la tendencia es bajista").</p>
+
+<h3>D · Volatilidad <span class="tag t-amber">energía</span></h3>
+<p><b>Ejemplos:</b> ATR normalizado, Bollinger Band Width, Volatility Oscillator.</p>
+<p>Detectan <em>expansión o contracción</em> del rango. No dan dirección, pero evitan operar en mercados muertos y anticipan rupturas tras una compresión (squeeze).</p>
+
+<h3>E · Reversión a la media <span class="tag t-gray">equilibrio</span></h3>
+<p><b>Ejemplos:</b> Center of Gravity (Ehlers), Z-score, Deviation oscillator, mean-reversion bands.</p>
+<p>Miden la <em>desviación</em> respecto a un valor de equilibrio. Detectan sobreextensión. Riesgo: anticipar demasiado — "barato" puede abaratarse más. Exigen confirmación (p. ej. agotamiento de delta).</p>
+
+<h3>F · Híbridos <span class="tag t-cyan">confluencia</span></h3>
+<p>Combinan varias de las familias anteriores en un score. Tienen sentido cuando los módulos son <strong>independientes</strong> (no correlacionados); se convierten en ruido cuando se apilan tres versiones del mismo momentum con nombres distintos.</p>
+
+<!-- 5 -->
+<h1 id="c5">5 · Niveles de complejidad</h1>
+<table>
+<tr><th>Nivel</th><th>Características</th><th>Ejemplo arquetípico</th></tr>
+<tr><td><span class="tag t-gray">1 · Básico</span></td><td>Una fórmula, una línea, señales simples por zona</td><td>RSI básico</td></tr>
+<tr><td><span class="tag t-gray">2 · Intermedio</span></td><td>Línea + señal, cruces, zonas extremas</td><td>StochRSI, MACD</td></tr>
+<tr><td><span class="tag t-cyan">3 · Avanzado</span></td><td>Normalización, suavizado adaptativo, filtro de volumen/tendencia</td><td>WaveTrend filtrado</td></tr>
+<tr><td><span class="tag t-orange">4 · Profesional</span></td><td>Score de confluencia, multi-módulo, anti-ruido, dashboard, señal única</td><td>Oscilador de confluencia</td></tr>
+<tr><td><span class="tag t-violet">5 · Institucional</span></td><td>Momentum+volumen+tendencia+volatilidad+régimen; NO TRADE válido; perfiles; parámetros robustos; diseño minimalista</td><td>Motor de confluencia con régimen</td></tr>
+</table>
+<div class="note">La progresión no es "más líneas", sino <strong>más criterio</strong>: cada nivel añade contexto y descarta señales de baja calidad. El Nivel 5 se distingue porque <em>sabe cuándo callar</em>.</div>
+
+<!-- 6 -->
+<h1 id="c6">6 · Componentes modulares</h1>
+<p>Un oscilador institucional se arma por módulos. Cada uno entrega un sesgo normalizado y se combina por pesos.</p>
+<table>
+<tr><th>Módulo</th><th>Función</th><th>Datos</th><th>Riesgo</th><th>Combina con</th></tr>
+<tr><td>Momentum</td><td>Velocidad/aceleración</td><td>close/hlc3</td><td>Saturación en tendencia</td><td>Tendencia (veto)</td></tr>
+<tr><td>Volumen</td><td>Confirma participación</td><td>volume, H/L/C</td><td>Datos de volumen pobres</td><td>Momentum</td></tr>
+<tr><td>Tendencia</td><td>Sesgo dominante</td><td>medias/pendiente</td><td>Lag</td><td>Todos (filtro)</td></tr>
+<tr><td>Volatilidad</td><td>Energía del mercado</td><td>ATR/BB</td><td>No da dirección</td><td>Anti-ruido</td></tr>
+<tr><td>Center of Gravity</td><td>Equilibrio/desviación</td><td>precio ponderado</td><td>Anticipa</td><td>Como veto</td></tr>
+<tr><td>Anti-ruido</td><td>Detecta lateralidad</td><td>Efficiency Ratio/ADX</td><td>Filtra de más</td><td>Confluencia</td></tr>
+<tr><td>Confluencia</td><td>Suma ponderada → score</td><td>los módulos</td><td>Pesos mal puestos</td><td>Señales</td></tr>
+<tr><td>Señales</td><td>Traduce score a acción</td><td>score, estado</td><td>Disparo prematuro</td><td>Visual/alertas</td></tr>
+<tr><td>Visual</td><td>Lectura clara</td><td>todo</td><td>Saturación</td><td>Dashboard</td></tr>
+<tr><td>Alertas</td><td>Salida automática</td><td>eventos</td><td>Exceso</td><td>—</td></tr>
+</table>
+
+<!-- 7 -->
+<h1 id="c7">7 · Señales, filtros, vetos y confirmaciones</h1>
+<table>
+<tr><th>Concepto</th><th>Definición</th><th>Ejemplo</th></tr>
+<tr><td><b>Señal débil</b></td><td>Cumple lo mínimo</td><td>Cruce en zona neutra</td></tr>
+<tr><td><b>Señal fuerte</b></td><td>Varios módulos alineados + contexto</td><td>Cruce en extremo + volumen + tendencia</td></tr>
+<tr><td><b>Confirmación</b></td><td>Segundo dato que valida</td><td>Volumen a favor del giro</td></tr>
+<tr><td><b>Filtro</b></td><td>Condición que debe cumplirse</td><td>Solo en sesión de liquidez</td></tr>
+<tr><td><b>Veto</b></td><td>Condición que <em>bloquea</em></td><td>No comprar si sobreextendido (COG)</td></tr>
+<tr><td><b>NO TRADE</b></td><td>Estado válido de "no operar"</td><td>Lateral, conflicto o baja volatilidad</td></tr>
+</table>
+<div class="warn">Una señal profesional <strong>no depende</strong> de un solo cruce, un color, una vela, un nodo ni una zona extrema. Depende de <strong>confluencia</strong>: varios elementos independientes apuntando a lo mismo, y ningún veto activo.</div>
+
+<!-- 8 -->
+<h1 id="c8">8 · Perfiles de uso</h1>
+<table>
+<tr><th>Parámetro</th><th><span class="tag t-cyan">Scalper</span></th><th><span class="tag t-orange">Day Trader</span></th><th><span class="tag t-violet">Swing</span></th></tr>
+<tr><td>Longitudes</td><td>Cortas</td><td>Medias</td><td>Largas</td></tr>
+<tr><td>Suavizado</td><td>Bajo</td><td>Medio</td><td>Alto</td></tr>
+<tr><td>Sensibilidad</td><td>Alta</td><td>Media</td><td>Baja</td></tr>
+<tr><td>Umbral de score</td><td>Menor (con anti-ruido fuerte)</td><td>Medio</td><td>Mayor</td></tr>
+<tr><td>Filtros</td><td>Imprescindibles</td><td>Balanceados</td><td>Estrictos</td></tr>
+<tr><td>Confirmaciones</td><td>Rápidas</td><td>Moderadas</td><td>Múltiples</td></tr>
+<tr><td>Timeframe</td><td>1–5 m</td><td>5 m–1 H</td><td>4 H–1 D–1 W</td></tr>
+</table>
+<p>El Scalper ve más oportunidades pero más ruido: necesita el anti-ruido más activo. El Swing ve menos señales pero más limpias: paga el lag a cambio de fiabilidad.</p>
+
+<!-- 9 -->
+<h1 id="c9">9 · Diseño visual</h1>
+<h4>Debe tener</h4>
+<ul class="clean">
+<li>Panel limpio con una línea principal clara.</li>
+<li>Colores coherentes (un color por estado, no por capricho).</li>
+<li>Pocas señales, bien alineadas y pequeñas.</li>
+<li>Histograma reducido, zonas simples, línea cero visible.</li>
+<li>Dashboard compacto con el veredicto final.</li>
+</ul>
+<h4>Debe evitar</h4>
+<ul class="clean">
+<li>Exceso de flechas, X, nodos y textos.</li>
+<li>Figuras gigantes y fondos saturados.</li>
+<li>Demasiados colores que compiten entre sí.</li>
+</ul>
+<div class="note">Principio rector: <strong>la decisión debe leerse en menos de un segundo.</strong> Si el gráfico obliga a interpretar, el diseño falló. Líneas finas, núcleo brillante, glow sutil y señales mínimas — claridad antes que espectáculo.</div>
+
+<!-- 10 -->
+<h1 id="c10">10 · Gestión del ruido</h1>
+<p>El ruido es la causa #1 de falsas señales. Se combate por capas:</p>
+<table>
+<tr><th>Fuente de ruido</th><th>Detección</th><th>Mitigación</th></tr>
+<tr><td>Lateralidad</td><td>Efficiency Ratio / ADX bajo</td><td>Banda neutral + NO TRADE</td></tr>
+<tr><td>Baja volatilidad</td><td>ATR normalizado bajo</td><td>Filtro de volatilidad</td></tr>
+<tr><td>Cruces en zona neutra</td><td>|osc − eje| pequeño</td><td>Exigir distancia del eje</td></tr>
+<tr><td>Módulos en conflicto</td><td>Acuerdo < umbral</td><td>Requerir N de M alineados</td></tr>
+<tr><td>Sobreextensión</td><td>Z-score / COG extremo</td><td>Veto de no perseguir</td></tr>
+<tr><td>Parpadeo de estado</td><td>Estado cambia cada barra</td><td>Histéresis de salida</td></tr>
+</table>
+
+<!-- 11 -->
+<h1 id="c11">11 · Catálogo de osciladores</h1>
+
+<h3>RSI <span class="tag t-cyan">Momentum · Básico</span></h3>
+<p><b>Mide:</b> velocidad relativa de subidas vs bajadas (0–100). <b>Componentes:</b> media de ganancias/pérdidas. <b>Señales:</b> OB&gt;70/OS&lt;30, cruce 50, divergencias. <b>Fortaleza:</b> simple, universal. <b>Debilidad:</b> se satura en tendencia. <b>Mejor uso:</b> rangos. <b>Peor uso:</b> tendencia fuerte como señal de venta. <b>Params:</b> 14. <b>Mejorar con:</b> filtro de tendencia + bandas dinámicas.</p>
+
+<h3>Stochastic <span class="tag t-cyan">Momentum · Básico</span></h3>
+<p><b>Mide:</b> posición del cierre dentro del rango reciente. <b>Señales:</b> cruce %K/%D en extremos. <b>Debilidad:</b> muy ruidoso. <b>Mejorar con:</b> suavizado + zona extrema obligatoria.</p>
+
+<h3>StochRSI <span class="tag t-cyan">Momentum · Intermedio</span></h3>
+<p><b>Mide:</b> estocástico aplicado al RSI (timing fino sobre sesgo). <b>Fortaleza:</b> entradas precisas. <b>Debilidad:</b> doble derivada = muy reactivo/ruidoso. <b>Mejorar con:</b> bandas dinámicas y validación del RSI de fondo.</p>
+
+<h3>MACD <span class="tag t-orange">Momentum/Tendencia · Intermedio</span></h3>
+<p><b>Mide:</b> diferencia de dos EMAs + señal + histograma. <b>Fortaleza:</b> dirección + momentum juntos. <b>Debilidad:</b> lag; no normalizado. <b>Mejorar con:</b> normalización y filtro de volumen.</p>
+
+<h3>WaveTrend <span class="tag t-cyan">Momentum · Avanzado</span></h3>
+<p><b>Mide:</b> desviación del precio respecto a su media, suavizada (ciclo). <b>Fortaleza:</b> giros limpios, base de muchos osciladores pro. <b>Debilidad:</b> repintable si mal confirmado. <b>Mejorar con:</b> money flow + zona extrema + cierre confirmado.</p>
+
+<h3>MFI <span class="tag t-violet">Volumen · Intermedio</span></h3>
+<p><b>Mide:</b> RSI ponderado por volumen. <b>Uso:</b> confirmar impulsos con participación. <b>Aislado:</b> insuficiente.</p>
+
+<h3>CMF <span class="tag t-violet">Volumen · Básico</span></h3>
+<p><b>Mide:</b> acumulación/distribución por posición del cierre × volumen. <b>Uso:</b> sesgo de flujo (±0). <b>Debilidad:</b> sensible a gaps.</p>
+
+<h3>OBV <span class="tag t-violet">Volumen · Básico</span></h3>
+<p><b>Mide:</b> volumen acumulado con signo del precio. <b>Uso:</b> divergencias de flujo. <b>Debilidad:</b> sin escala; mejor su pendiente.</p>
+
+<h3>ROC <span class="tag t-cyan">Momentum · Básico</span></h3>
+<p><b>Mide:</b> tasa de cambio porcentual. <b>Uso:</b> aceleración. <b>Debilidad:</b> muy ruidoso sin suavizar.</p>
+
+<h3>TRIX <span class="tag t-orange">Tendencia · Intermedio</span></h3>
+<p><b>Mide:</b> ROC de una triple EMA. <b>Fortaleza:</b> filtra micro-ruido. <b>Debilidad:</b> lag alto.</p>
+
+<h3>Center of Gravity <span class="tag t-gray">Reversión · Avanzado</span></h3>
+<p><b>Mide:</b> centro de masa del precio (Ehlers), casi sin lag. <b>Fortaleza:</b> giros en rango. <b>Debilidad:</b> falsas reversiones en tendencia. <b>Mejor uso:</b> como <em>filtro/veto</em> de sobreextensión, no como gatillo.</p>
+
+<h3>Z-score <span class="tag t-gray">Reversión · Intermedio</span></h3>
+<p><b>Mide:</b> desviaciones estándar respecto a la media. <b>Uso:</b> sobreextensión objetiva. <b>Debilidad:</b> anticipa; requiere confirmación.</p>
+
+<h3>ATR normalizado <span class="tag t-amber">Volatilidad · Intermedio</span></h3>
+<p><b>Mide:</b> rango medio relativo al precio. <b>Uso:</b> evitar mercados muertos; dimensionar stops. <b>No</b> da dirección.</p>
+
+<h3>Bollinger Band Width <span class="tag t-amber">Volatilidad · Intermedio</span></h3>
+<p><b>Mide:</b> ancho relativo de las bandas. <b>Uso:</b> detectar compresión (squeeze) y anticipar expansión.</p>
+
+<h3>Híbrido de confluencia <span class="tag t-violet">Institucional</span></h3>
+<p><b>Mide:</b> momentum + volumen + tendencia + COG + calidad → score 0–100 y veredicto único. <b>Fortaleza:</b> calidad de señal y NO TRADE. <b>Debilidad:</b> complejidad; pesos mal calibrados degradan todo. <b>Mejor uso:</b> con filtro de régimen.</p>
+
+<!-- 12 -->
+<h1 id="c12">12 · Diseñar un oscilador profesional desde cero</h1>
+<ol>
+<li><b>Definir el problema:</b> ¿qué pregunta responde? (timing, dirección, exceso, contexto).</li>
+<li><b>Elegir fuente:</b> hlc3/ohlc4 para suavizar; close para reactividad.</li>
+<li><b>Crear el módulo base:</b> la fórmula que mide el concepto central.</li>
+<li><b>Normalizar:</b> a 0–100 o ±100 para comparabilidad.</li>
+<li><b>Suavizar:</b> el mínimo que limpie sin introducir lag excesivo.</li>
+<li><b>Añadir línea señal:</b> para timing por cruce/pendiente.</li>
+<li><b>Añadir filtros:</b> tendencia y volumen como confirmación/veto.</li>
+<li><b>Módulo anti-ruido:</b> Efficiency Ratio o ADX para detectar lateralidad.</li>
+<li><b>Score de confluencia:</b> suma ponderada de módulos independientes.</li>
+<li><b>Definir LONG / SHORT / NO TRADE:</b> con umbrales y vetos.</li>
+<li><b>Visual limpio:</b> una línea, señales mínimas, dashboard compacto.</li>
+<li><b>Alertas:</b> útiles, no excesivas.</li>
+<li><b>Testear en varios activos y regímenes:</b> cripto, índices, FX.</li>
+<li><b>Evitar sobreoptimización:</b> parámetros robustos &gt; parámetros "perfectos" en el pasado.</li>
+</ol>
+
+<!-- 13 -->
+<h1 id="c13">13 · Conceptos de trader rentable (criterios de diseño)</h1>
+<p>Un oscilador profesional debe <em>respetar</em> los principios que rigen al trading serio. No prometen ganancias; orientan el diseño.</p>
+<ul class="clean">
+<li><b>Esperanza matemática:</b> el diseño debe favorecer señales con relación favorable, no muchas señales.</li>
+<li><b>Gestión de riesgo:</b> la volatilidad medida (ATR) sirve para dimensionar, no solo para filtrar.</li>
+<li><b>Riesgo/beneficio:</b> preferir entradas tras agotamiento/barrido (mejor precio) que perseguir velas extendidas.</li>
+<li><b>Evitar sobreoperar:</b> menos señales y de mayor calidad.</li>
+<li><b>Evitar señales tardías:</b> equilibrio suavizado/lag.</li>
+<li><b>Filtrar lateralidad y baja volatilidad:</b> el régimen manda.</li>
+<li><b>No operar por FOMO ni perseguir extensiones:</b> el veto de sobreextensión existe para esto.</li>
+<li><b>NO TRADE es una señal:</b> la mejor operación a veces es ninguna.</li>
+<li><b>Calidad &gt; cantidad:</b> el criterio central de toda la suite.</li>
+</ul>
+
+<!-- 14 -->
+<h1 id="c14">14 · Errores comunes</h1>
+<ul class="clean">
+<li>Apilar varios indicadores que miden lo mismo (tres momentum disfrazados).</li>
+<li>Operar cada cruce sin contexto.</li>
+<li>Confundir sobrecompra con venta automática (y sobreventa con compra).</li>
+<li>Ignorar tendencia, volumen o volatilidad.</li>
+<li>Sobreoptimizar parámetros al histórico.</li>
+<li>Paneles saturados de flechas y colores.</li>
+<li>Señales visualmente bonitas pero sin lógica de confluencia.</li>
+<li>Usar MTF con timeframes menores al del gráfico (repaint).</li>
+</ul>
+
+<!-- 15 -->
+<h1 id="c15">15 · Conclusión</h1>
+<p>Un oscilador no predice el mercado: <strong>describe su estado interno</strong>. Su utilidad nace de la disciplina con que se combina con contexto. La evolución de básico a institucional no agrega adornos, agrega <em>criterio</em>: normalización, filtros, régimen, confluencia y la humildad de decir NO TRADE. El mejor oscilador es el que convierte mucha información en una decisión clara — y sabe cuándo no hay decisión que tomar.</p>
+
+<!-- 16 -->
+<h1 id="c16">16 · Checklist de calidad</h1>
+<ul class="check">
+<li>☐ ¿Cada módulo mide algo <b>independiente</b>?</li>
+<li>☐ ¿La lectura está normalizada y es comparable entre activos?</li>
+<li>☐ ¿El suavizado equilibra ruido y lag?</li>
+<li>☐ ¿Hay un filtro de tendencia o régimen?</li>
+<li>☐ ¿Existe un veto de sobreextensión?</li>
+<li>☐ ¿El estado NO TRADE está implementado?</li>
+<li>☐ ¿La señal exige confluencia, no un cruce simple?</li>
+<li>☐ ¿El visual se lee en &lt;1 segundo?</li>
+<li>☐ ¿Las alertas son pocas y útiles?</li>
+<li>☐ ¿Se evita lookahead y repaint deliberado?</li>
+<li>☐ ¿Los parámetros son robustos (no sobreoptimizados)?</li>
+</ul>
+
+<!-- 17 -->
+<h1 id="c17">17 · Glosario técnico</h1>
+<table>
+<tr><th>Término</th><th>Definición</th></tr>
+<tr><td>Normalización</td><td>Escalar una serie a un rango fijo (0–100 / ±100).</td></tr>
+<tr><td>Efficiency Ratio</td><td>(Kaufman) cambio neto / suma de cambios; 0 ruido, 1 tendencia limpia.</td></tr>
+<tr><td>WaveTrend</td><td>Oscilador de ciclo basado en la desviación suavizada del precio.</td></tr>
+<tr><td>Center of Gravity</td><td>Centro de masa del precio (Ehlers); mide desviación del equilibrio.</td></tr>
+<tr><td>Z-score</td><td>Distancia a la media en desviaciones estándar.</td></tr>
+<tr><td>CMF / MFI</td><td>Flujo de dinero por posición del cierre y volumen.</td></tr>
+<tr><td>Squeeze</td><td>Compresión de volatilidad (BB dentro de KC) que precede a rupturas.</td></tr>
+<tr><td>Delta / CVD</td><td>Presión compradora menos vendedora (acumulada).</td></tr>
+<tr><td>Histéresis</td><td>Margen para cambiar de estado que evita parpadeo.</td></tr>
+<tr><td>Veto</td><td>Condición que bloquea una señal aunque el score sea alto.</td></tr>
+<tr><td>Repaint</td><td>Cambio retroactivo de una señal ya dibujada.</td></tr>
+<tr><td>Lookahead</td><td>Uso (indebido) de datos futuros en MTF.</td></tr>
+</table>
+
+<!-- APENDICE -->
+<h1 id="apx">Apéndice · Cómo usar la suite BudAI paso a paso</h1>
+<p>La suite se diseñó para trabajar en conjunto. Flujo recomendado:</p>
+
+<h3>Paso 1 — Contexto: <span class="tag t-amber">Atlas</span></h3>
+<p>Mira el régimen. <b>TENDENCIA</b> → confía en momentum (Siddharta/Eureka). <b>RANGO</b> → prioriza reversión (Nirvana). <b>VOLÁTIL</b> → reduce tamaño o no operes.</p>
+
+<h3>Paso 2 — Horario: <span class="tag t-violet">Dharma</span></h3>
+<p>¿Estás en London, NY o el solape? Fuera de sesión la onda es gris = liquidez pobre. Opera en las ventanas de liquidez real.</p>
+
+<h3>Paso 3 — Veredicto: <span class="tag t-cyan">Siddharta</span></h3>
+<p>El motor maestro: lee el dashboard → <b>LONG / SHORT / NO TRADE</b>, score vs umbral, módulos alineados (M/V/T/C) y motivo. Si dice NO TRADE, no operes aunque haya movimiento.</p>
+
+<h3>Paso 4 — Timing de entrada: <span class="tag t-cyan">Eureka</span> / <span class="tag t-orange">Nirvana</span></h3>
+<p><b>Eureka</b> para entrar tras un barrido de liquidez (la × ámbar marca la trampa; la flecha, la entrada). <b>Nirvana</b> para reversiones por sobreextensión + agotamiento de delta.</p>
+
+<h3>Paso 5 — Confirmación multi-temporal: <span class="tag t-gray">Aion</span></h3>
+<p>La tabla semáforo: opera con mayor convicción cuando las 3 temporalidades están alineadas. La temporalidad alta manda.</p>
+
+<div class="warn"><b>Regla de oro de la suite:</b> ningún indicador opera solo. Contexto (Atlas) + horario (Dharma) + veredicto (Siddharta) + timing (Eureka/Nirvana) + alineación (Aion). Si cualquiera contradice fuerte, la respuesta por defecto es <strong>NO TRADE</strong>.</div>
+
+<div class="foot">
+₿ BudAI Capital® — Manual Institucional de Osciladores · Edición 2026<br>
+Documento técnico de desarrollo y análisis. No constituye consejo financiero ni promesa de rentabilidad.<br>
+Para exportar a PDF: abrir en el navegador → Imprimir → "Guardar como PDF" (márgenes predeterminados).
+</div>
+
+</div>
+</body>
+</html>

@@ -95,12 +95,10 @@ fill(pFast, pSlow, color=isBull ? fillUp : fillDn, title="Fill flujo")
 // ════════════════════════════════════════════════════════════════════════════
 //  ② RIBBONS de presión
 // ════════════════════════════════════════════════════════════════════════════
-// micro-segmentos finos espaciados (cada 2 barras) — no franja sólida
-bool ribTick = bar_index % 2 == 0
-color ribTopCol = fast >= obLvl ? slowCol : color.new(#e040fb, 40)
-color ribBotCol = fast <= osLvl ? sigUp : color.new(slowCol, 50)
-plotchar(showRib and ribTick ? ribTop : na, "Ribbon superior", "▬", location.absolute, color=ribTopCol, size=size.tiny)
-plotchar(showRib and ribTick ? ribBot : na, "Ribbon inferior", "▬", location.absolute, color=ribBotCol, size=size.tiny)
+color ribTopCol = fast >= obLvl ? slowCol : color.new(#e040fb, 35)
+color ribBotCol = fast <= osLvl ? sigUp : color.new(slowCol, 45)
+plotchar(showRib ? ribTop : na, "Ribbon superior", "▰", location.absolute, color=ribTopCol, size=size.tiny)
+plotchar(showRib ? ribBot : na, "Ribbon inferior", "▰", location.absolute, color=ribBotCol, size=size.tiny)
 
 // ════════════════════════════════════════════════════════════════════════════
 //  ③ SEÑALES — círculos OB/OS (fuerte ○ glow / simple ×)
@@ -113,10 +111,6 @@ bool strongUp = crossUp and fast <= osLvl and flowUp and conf
 bool strongDn = crossDn and fast >= obLvl and flowDn and conf
 bool simpleUp = crossUp and fast > osLvl and fast < 0 and flowUp and conf
 bool simpleDn = crossDn and fast < obLvl and fast > 0 and flowDn and conf
-
-// nodo blanco con glow en todo cruce (fino, elegante)
-plotchar((crossUp or crossDn) ? fast : na, "Nodo Glow", "•", location.absolute, color=color.new(color.white, 70), size=size.small)
-plotchar((crossUp or crossDn) ? fast : na, "Nodo",      "•", location.absolute, color=color.new(color.white, 0), size=size.tiny)
 
 plotchar(showSig and strongUp ? fast : na, "OS Glow", "•", location.absolute, color=color.new(sigUp, 60), size=size.small)
 plotchar(showSig and strongUp ? fast : na, "OS",      "•", location.absolute, color=sigUp, size=size.tiny)

@@ -1,0 +1,184 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Momentum Wave 3D
+//  Momentum multi-capa con efecto de profundidad: tres ondas en eco superpuestas.
+//  El apilamiento de las capas mide la aceleración real del impulso (no es adorno).
+//  Diseño premium cyberpunk neón con sombras difuminadas que dan relieve.
+//  (c) BudAI Capital® — Pine v6
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Momentum Wave 3D", shorttitle="BudAI Capital® - Momentum Wave 3D", overlay=false, precision=1, max_labels_count=300, max_lines_count=300)
+
+// ════════════════ GRUPOS ════════════════
+G_CORE = "① Núcleo Momentum"
+G_DEPTH = "② Profundidad 3D"
+G_SIG  = "③ Señales y Aceleración"
+G_LVL  = "④ Niveles"
+G_VIS  = "⑤ Estética Cyberpunk"
+G_WM   = "✦ Marca de agua"
+
+// ════════════════ ① NÚCLEO ════════════════
+src      = input.source(hlc3, "Fuente", group=G_CORE)
+momLen   = input.int(12, "Momentum Período", minval=1, group=G_CORE, tooltip="Distancia del impulso de precio (precio − precio[n]).")
+smoothLen = input.int(6, "Suavizado del impulso", minval=1, group=G_CORE)
+normLen  = input.int(100, "Normalización (0..100)", minval=10, group=G_CORE)
+trigLen  = input.int(5, "Trigger (Señal)", minval=1, group=G_CORE)
+
+// ════════════════ ② PROFUNDIDAD 3D ════════════════
+depth2   = input.int(5, "Eco capa media", minval=1, group=G_DEPTH, tooltip="Suavizado de la 2ª capa (profundidad media).")
+depth3   = input.int(12, "Eco capa fondo", minval=1, group=G_DEPTH, tooltip="Suavizado de la 3ª capa (profundidad de fondo / sombra).")
+
+// ════════════════ ③ SEÑALES Y ACELERACIÓN ════════════════
+showSig   = input.bool(true, "Mostrar Entradas (BULL/BEAR)", group=G_SIG)
+reqStack  = input.bool(true, "Exigir apilamiento de capas", group=G_SIG, tooltip="Sólo señal si las 3 capas están alineadas (momentum acelerando a favor).")
+showCross = input.bool(true, "Nodo blanco en cruce con Trigger", group=G_SIG)
+
+// ════════════════ ④ NIVELES ════════════════
+obLvl   = input.int(80, "Sobrecompra", group=G_LVL)
+osLvl   = input.int(20, "Sobreventa", group=G_LVL)
+showFib = input.bool(true, "Mostrar Fibo 0.382 · 0.5 · 0.618", group=G_LVL)
+
+// ════════════════ ⑤ ESTÉTICA CYBERPUNK ════════════════
+upCol    = input.color(#00e5ff, "Alcista (celeste)", group=G_VIS, inline="c")
+dnCol    = input.color(#ff1e6e, "Bajista (fucsia)", group=G_VIS, inline="c")
+sigUpCol = input.color(#ffff00, "Señal Alcista (amarillo neón)", group=G_VIS, inline="sg")
+sigDnCol = input.color(#ff007f, "Señal Bajista (rosa neón)", group=G_VIS, inline="sg")
+depthInt = input.int(72, "Difuminado de las capas de fondo", minval=40, maxval=92, group=G_VIS)
+glow     = input.bool(true, "Relleno Degradado (Glow)", group=G_VIS)
+shadeInt = input.int(55, "Opacidad onda superior/inferior", minval=20, maxval=90, group=G_VIS)
+showDash = input.bool(true, "Dashboard minimalista", group=G_VIS)
+dashPos  = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda","Inferior Derecha","Superior Izquierda","Superior Derecha"], group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  CÁLCULOS — MOMENTUM + 3 CAPAS DE ECO (PROFUNDIDAD)
+// ════════════════════════════════════════════════════════════════════════════
+f_norm(float s, simple int len) =>
+    float lo = ta.lowest(s, len)
+    float hi = ta.highest(s, len)
+    hi - lo != 0 ? 100.0 * (s - lo) / (hi - lo) : 50.0
+
+// Momentum de precio normalizado (capa frontal)
+float momRaw    = src - src[momLen]
+float momSmooth = ta.ema(momRaw, smoothLen)
+float osc   = f_norm(momSmooth, normLen)   // capa 1 — frente
+float wave2 = ta.ema(osc, depth2)          // capa 2 — media
+float wave3 = ta.ema(osc, depth3)          // capa 3 — fondo (sombra)
+float trig  = ta.ema(osc, trigLen)
+
+bool isBull = osc >= 50
+
+// Aceleración real = apilamiento de las capas
+bool bullStack = osc > wave2 and wave2 > wave3
+bool bearStack = osc < wave2 and wave2 < wave3
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NIVELES
+// ════════════════════════════════════════════════════════════════════════════
+hline(100, "Tope", color.new(color.gray, 92), hline.style_dotted)
+hline(showFib ? 61.8 : na, "Fibo 0.618", color.new(#c39bff, 80), hline.style_dotted)
+hline(50, "Central · Fibo 0.5", color.new(#b06aff, 72), hline.style_solid)
+hline(showFib ? 38.2 : na, "Fibo 0.382", color.new(#c39bff, 80), hline.style_dotted)
+hline(0, "Piso", color.new(color.gray, 92), hline.style_dotted)
+hline(obLvl, "Sobrecompra", color.new(dnCol, 80), hline.style_dashed)
+hline(osLvl, "Sobreventa", color.new(upCol, 80), hline.style_dashed)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PLOTS — TRES CAPAS DE FONDO A FRENTE (efecto 3D)
+// ════════════════════════════════════════════════════════════════════════════
+color upC = upCol
+color dnC = dnCol
+color c3  = wave3 >= 50 ? upC : dnC
+color c2  = wave2 >= 50 ? upC : dnC
+color cF  = isBull ? upC : dnC
+
+// Capa 3 (fondo): gruesa y difuminada = sombra de profundidad
+plot(wave3, "Capa Fondo", color=color.new(c3, depthInt), linewidth=4)
+// Capa 2 (media): difuminado intermedio
+plot(wave2, "Capa Media", color=color.new(c2, math.max(depthInt - 25, 30)), linewidth=3)
+
+// Capa 1 (frente): onda principal nítida + brillo blanco
+pTrig = plot(trig, "Trigger", color=color.new(color.white, 35), linewidth=1)
+pOsc  = plot(osc, "Momentum Frente", color=cF, linewidth=2)
+plot(osc, "Brillo Blanco", color=color.new(color.white, 0), linewidth=1)
+pMid  = plot(50, "Mid", color=color.new(color.white, 100), display=display.none)
+
+// Relleno degradado neón hacia el eje central 50
+fill(pOsc, pMid, top_value=100, bottom_value=50, top_color=glow ? color.new(upCol, shadeInt) : na, bottom_color=glow ? color.new(upCol, 100) : na, title="Glow Superior")
+fill(pOsc, pMid, top_value=50, bottom_value=0,  top_color=glow ? color.new(dnCol, 100) : na, bottom_color=glow ? color.new(dnCol, shadeInt) : na, title="Glow Inferior")
+
+// Cinta de cruce (cuerpo entre frente y trigger)
+fill(pOsc, pTrig, color=isBull ? color.new(upCol, 84) : color.new(dnCol, 84), title="Ribbon Cruce")
+
+// Nodo blanco en el cruce Frente × Trigger
+bool crossNode = ta.cross(osc, trig)
+plotchar(showCross and crossNode ? osc : na, "Cruce Glow", "•", location.absolute, color=color.new(color.white, 60), size=size.small)
+plotchar(showCross and crossNode ? osc : na, "Cruce Centro", "•", location.absolute, color=color.new(color.white, 0), size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  LÓGICA DE SEÑALES (cruce + aceleración por apilamiento)
+// ════════════════════════════════════════════════════════════════════════════
+bool stackUp = not reqStack or bullStack
+bool stackDn = not reqStack or bearStack
+
+bool entryBuy  = showSig and ta.crossover(osc, trig) and osc < obLvl and stackUp and barstate.isconfirmed
+bool entrySell = showSig and ta.crossunder(osc, trig) and osc > osLvl and stackDn and barstate.isconfirmed
+
+// Entradas neón con glow (ancladas al valor de la onda)
+plotchar(entryBuy ? osc : na, "BULL Entry Glow", "•", location.absolute, color=color.new(sigUpCol, 65), size=size.small)
+plotchar(entryBuy ? osc : na, "BULL Entry", "•", location.absolute, color=sigUpCol, size=size.tiny)
+plotchar(entrySell ? osc : na, "BEAR Entry Glow", "•", location.absolute, color=color.new(sigDnCol, 65), size=size.small)
+plotchar(entrySell ? osc : na, "BEAR Entry", "•", location.absolute, color=sigDnCol, size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD MINIMALISTA
+// ════════════════════════════════════════════════════════════════════════════
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+var table d = table.new(f_pos(dashPos), 2, 5, bgcolor=color.new(#0b0e16, 12), frame_color=color.new(upCol, 55), frame_width=1, border_width=1)
+f_cell(t, r, k, v, vc) =>
+    table.cell(t, 0, r, k, text_color=color.new(#90a4ae, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
+
+if showDash and barstate.islast
+    string estado  = osc >= obLvl ? "SOBRECOMPRA" : osc <= osLvl ? "SOBREVENTA" : isBull ? "Alcista" : "Bajista"
+    color  estCol  = osc >= obLvl ? dnCol : osc <= osLvl ? upCol : isBull ? upCol : dnCol
+    string accel   = bullStack ? "ACELERANDO ▲" : bearStack ? "ACELERANDO ▼" : "Mixto"
+    color  accelC  = bullStack ? upCol : bearStack ? dnCol : color.new(#90a4ae, 0)
+    string senal   = entryBuy ? "▲ COMPRA" : entrySell ? "▼ VENTA" : "Ninguna"
+    color  senalC  = entryBuy ? sigUpCol : entrySell ? sigDnCol : color.new(color.white, 35)
+
+    table.cell(d, 0, 0, "Momentum 3D", text_color=color.white, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, str.tostring(osc, "#") + "/100", text_color=cF, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(d, 1, "Sesgo", estado, estCol)
+    f_cell(d, 2, "Aceleración", accel, accelC)
+    f_cell(d, 3, "Capas", str.tostring(wave2, "#") + "·" + str.tostring(wave3, "#"), color.new(#90a4ae, 0))
+    f_cell(d, 4, "Señal Activa", senal, senalC)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+f_wmPos(s) => s == "Inferior Izquierda" ? position.bottom_left : s == "Inferior Derecha" ? position.bottom_right : s == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(entryBuy, "Señal de COMPRA Momentum 3D", "Momentum 3D · COMPRA {{ticker}}")
+alertcondition(entrySell, "Señal de VENTA Momentum 3D", "Momentum 3D · VENTA {{ticker}}")
+alertcondition(bullStack and not bullStack[1], "Aceleración alcista", "Momentum 3D · Impulso acelerando ▲ {{ticker}}")

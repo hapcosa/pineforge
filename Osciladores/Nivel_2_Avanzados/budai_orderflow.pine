@@ -1,0 +1,236 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Order Flow Delta
+//  Presión real de compra vs venta medida en velas internas (timeframe inferior).
+//  Onda de Delta Acumulado (CVD) con detección de absorción y agotamiento.
+//  Diseño premium cyberpunk neón con desvanecimiento de onda hacia el centro.
+//  (c) BudAI Capital® — Pine v6
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Order Flow Delta", shorttitle="BudAI Capital® - Order Flow Delta", overlay=false, precision=1, max_labels_count=300, max_lines_count=300)
+
+// ════════════════ GRUPOS ════════════════
+G_CORE = "① Núcleo Order Flow"
+G_CVD  = "② Delta Acumulado (CVD)"
+G_SIG  = "③ Señales y Absorción"
+G_LVL  = "④ Niveles Fibonacci"
+G_VIS  = "⑤ Estética Cyberpunk"
+G_WM   = "✦ Marca de agua"
+
+// ════════════════ ① NÚCLEO ORDER FLOW ════════════════
+ltfRes   = input.timeframe("1", "Timeframe interno (LTF)", group=G_CORE, tooltip="Velas inferiores usadas para clasificar agresión compradora/vendedora. '1' = 1 minuto. Cuanto menor, más fino el delta (más cómputo).")
+showDelta = input.bool(true, "Histograma Delta por vela", group=G_CORE)
+deltaUp  = input.color(#00e676, "Delta Comprador", group=G_CORE, inline="d")
+deltaDn  = input.color(#ff1744, "Delta Vendedor", group=G_CORE, inline="d")
+
+// ════════════════ ② DELTA ACUMULADO (CVD) ════════════════
+normLen  = input.int(100, "Normalización CVD (0..100)", minval=10, group=G_CVD, tooltip="Ventana para escalar el Delta Acumulado al rango del oscilador.")
+smoothLen = input.int(1, "Suavizado del CVD", minval=1, maxval=50, group=G_CVD, tooltip="1 = sin suavizado. Sube para una onda más limpia.")
+trigLen  = input.int(5, "Trigger (Señal)", minval=1, group=G_CVD)
+obLvl    = input.int(80, "Sobrecompra", group=G_CVD)
+osLvl    = input.int(20, "Sobreventa", group=G_CVD)
+
+// ════════════════ ③ SEÑALES Y ABSORCIÓN ════════════════
+showSig   = input.bool(true, "Mostrar Entradas (BULL/BEAR)", group=G_SIG)
+reqFlow   = input.bool(true, "Validar con Delta a favor", group=G_SIG)
+showCross = input.bool(true, "Nodo blanco en cruce CVD×Trigger", group=G_SIG)
+showAbsorb = input.bool(true, "Marcar Absorción / Agotamiento", group=G_SIG, tooltip="Precio hace nuevo extremo pero el delta NO lo confirma → trampa de liquidez / agotamiento.")
+divLen    = input.int(14, "Ventana de Absorción", minval=3, group=G_SIG)
+
+// ════════════════ ④ NIVELES FIBONACCI (Sutiles) ════════════════
+showFib  = input.bool(true, "Mostrar Niveles Fibonacci Sutiles", group=G_LVL)
+showFib5 = input.bool(true, "Mostrar Fibo 0.382 · 0.5 · 0.618", group=G_LVL)
+
+// ════════════════ ⑤ ESTÉTICA CYBERPUNK ════════════════
+upCol    = input.color(#00e5ff, "Alcista (celeste)", group=G_VIS, inline="c")
+dnCol    = input.color(#ff1e6e, "Bajista (fucsia)", group=G_VIS, inline="c")
+sigUpCol = input.color(#ffff00, "Señal Alcista (amarillo neón)", group=G_VIS, inline="sg")
+sigDnCol = input.color(#ff007f, "Señal Bajista (rosa neón)", group=G_VIS, inline="sg")
+absCol   = input.color(#ffea00, "Absorción (flúor)", group=G_VIS)
+glow     = input.bool(true, "Relleno Degradado (Glow)", group=G_VIS)
+shadeInt = input.int(55, "Opacidad onda superior/inferior", minval=20, maxval=90, group=G_VIS)
+showDash = input.bool(true, "Dashboard minimalista", group=G_VIS)
+dashPos  = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda","Inferior Derecha","Superior Izquierda","Superior Derecha"], group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  CÁLCULOS Y NÚCLEO MATEMÁTICO
+// ════════════════════════════════════════════════════════════════════════════
+
+// Función normalizadora a rango 0..100
+f_norm(float s, simple int len) =>
+    float lo = ta.lowest(s, len)
+    float hi = ta.highest(s, len)
+    hi - lo != 0 ? 100.0 * (s - lo) / (hi - lo) : 50.0
+
+// 1. Order Flow: clasificación de agresión en velas internas (LTF)
+array<float> aVol   = request.security_lower_tf(syminfo.tickerid, ltfRes, volume)
+array<float> aClose = request.security_lower_tf(syminfo.tickerid, ltfRes, close)
+array<float> aOpen  = request.security_lower_tf(syminfo.tickerid, ltfRes, open)
+
+float buyVol  = 0.0
+float sellVol = 0.0
+int   nLtf    = array.size(aVol)
+
+if nLtf > 0 and array.size(aClose) == nLtf and array.size(aOpen) == nLtf
+    for ob = 0 to nLtf - 1
+        float v = nz(array.get(aVol, ob))
+        float c = nz(array.get(aClose, ob))
+        float o = nz(array.get(aOpen, ob))
+        if c > o
+            buyVol  += v
+        else if c < o
+            sellVol += v
+        else
+            buyVol  += v * 0.5
+            sellVol += v * 0.5
+
+// Respaldo si no hay datos LTF (símbolo sin volumen intrabar): proxy por cierre
+if nLtf == 0
+    float rng = high - low
+    float prox = nz(volume) == 0 ? 1.0 : volume
+    float ratioC = rng != 0 ? ((close - low) - (high - close)) / rng : 0.0
+    buyVol  := prox * (0.5 + ratioC * 0.5)
+    sellVol := prox * (0.5 - ratioC * 0.5)
+
+float delta    = buyVol - sellVol
+float totalVol = buyVol + sellVol
+float deltaRatio = totalVol > 0 ? delta / totalVol : 0.0
+
+// 2. Delta Acumulado (CVD) y normalización a la onda
+var float cvd = 0.0
+cvd := nz(cvd[1]) + delta
+float cvdSm = smoothLen > 1 ? ta.ema(cvd, smoothLen) : cvd
+
+float osc  = f_norm(cvdSm, normLen)
+float trig = ta.sma(osc, trigLen)
+
+bool isBull = osc >= trig
+
+// 3. Delta por vela centrado en 50 (histograma de fondo)
+float deltaBar = 50.0 + deltaRatio * 50.0
+
+// 4. Absorción / Agotamiento (precio rompe extremo, delta no confirma)
+bool priceHi = high >= ta.highest(high, divLen)
+bool priceLo = low  <= ta.lowest(low, divLen)
+bool cvdHi   = cvdSm >= ta.highest(cvdSm, divLen)
+bool cvdLo   = cvdSm <= ta.lowest(cvdSm, divLen)
+bool bearAbsorb = showAbsorb and priceHi and not cvdHi and barstate.isconfirmed
+bool bullAbsorb = showAbsorb and priceLo and not cvdLo and barstate.isconfirmed
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NIVELES FIBONACCI SUTILES (Estilo atenuado que no satura)
+// ════════════════════════════════════════════════════════════════════════════
+hline(100, "Tope", color.new(color.gray, 92), hline.style_dotted)
+hline(showFib ? 78.6 : na, "Fibo 0.786", color.new(#9d6cff, 88), hline.style_dotted)
+hline(showFib or showFib5 ? 61.8 : na, "Fibo 0.618", color.new(showFib5 ? #c39bff : #9d6cff, showFib5 ? 78 : 84), hline.style_dotted)
+hline(50, "Central · Fibo 0.5", color.new(#b06aff, 72), hline.style_solid)
+hline(showFib or showFib5 ? 38.2 : na, "Fibo 0.382", color.new(showFib5 ? #c39bff : #9d6cff, showFib5 ? 78 : 84), hline.style_dotted)
+hline(showFib ? 23.6 : na, "Fibo 0.236", color.new(#9d6cff, 88), hline.style_dotted)
+hline(0, "Piso", color.new(color.gray, 92), hline.style_dotted)
+
+hline(obLvl, "Sobrecompra", color.new(dnCol, 65), hline.style_dashed)
+hline(osLvl, "Sobreventa", color.new(upCol, 65), hline.style_dashed)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PLOTS (Glow + Onda CVD + Delta de fondo)
+// ════════════════════════════════════════════════════════════════════════════
+
+// Histograma Delta por vela en el fondo (centrado en 50)
+plot(showDelta ? deltaBar : na, "Delta por vela", color=delta >= 0 ? color.new(deltaUp, 72) : color.new(deltaDn, 72), style=plot.style_columns, histbase=50)
+
+// Onda CVD principal y trigger
+color waveCol = isBull ? upCol : dnCol
+pTrig = plot(trig, "Trigger", color=color.new(color.white, 35), linewidth=1)
+pOsc  = plot(osc, "CVD Onda", color=waveCol, linewidth=2)
+// Línea blanca núcleo — resalta la cresta con máximo brillo
+plot(osc, "Brillo Blanco", color=color.new(color.white, 0), linewidth=1)
+pMid  = plot(50, "Mid", color=color.new(color.white, 100), display=display.none)
+
+// Relleno degradado neón hacia el eje central 50 (fading al 100% de transparencia)
+fill(pOsc, pMid, top_value=100, bottom_value=50, top_color=glow ? color.new(upCol, shadeInt) : na, bottom_color=glow ? color.new(upCol, 100) : na, title="Glow Superior")
+fill(pOsc, pMid, top_value=50, bottom_value=0,  top_color=glow ? color.new(dnCol, 100) : na, bottom_color=glow ? color.new(dnCol, shadeInt) : na, title="Glow Inferior")
+
+// Cinta/Ribbon de cruce dinámico (cuerpo entre onda y trigger)
+fill(pOsc, pTrig, color=isBull ? color.new(upCol, 82) : color.new(dnCol, 82), title="Ribbon Cruce")
+
+// Nodo Blanco Neón en el cruce CVD × Trigger (cae exacto en el valor de la onda)
+bool crossNode = ta.cross(osc, trig)
+plotchar(showCross and crossNode ? osc : na, "Cruce Glow", "•", location.absolute, color=color.new(color.white, 60), size=size.small)
+plotchar(showCross and crossNode ? osc : na, "Cruce Centro", "•", location.absolute, color=color.new(color.white, 0), size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  LÓGICA DE SEÑALES Y ENTRADAS
+// ════════════════════════════════════════════════════════════════════════════
+bool flowUp = not reqFlow or delta > 0
+bool flowDn = not reqFlow or delta < 0
+
+bool entryBuy  = showSig and ta.crossover(osc, trig) and osc < osLvl and flowUp and barstate.isconfirmed
+bool entrySell = showSig and ta.crossunder(osc, trig) and osc > obLvl and flowDn and barstate.isconfirmed
+
+// Entradas neón con efecto GLOW brillante — ancladas al valor de la onda (glow alineado)
+plotchar(entryBuy ? osc : na, "BULL Entry Glow", "•", location.absolute, color=color.new(sigUpCol, 65), size=size.small)
+plotchar(entryBuy ? osc : na, "BULL Entry", "•", location.absolute, color=sigUpCol, size=size.tiny)
+plotchar(entrySell ? osc : na, "BEAR Entry Glow", "•", location.absolute, color=color.new(sigDnCol, 65), size=size.small)
+plotchar(entrySell ? osc : na, "BEAR Entry", "•", location.absolute, color=sigDnCol, size=size.tiny)
+
+// Absorción / Agotamiento (× flúor en bandas fijas: precio rompe pero el delta no acompaña)
+plotchar(bullAbsorb ? 5 : na, "Absorción Alcista Glow", "×", location.absolute, color=color.new(absCol, 60), size=size.small)
+plotchar(bullAbsorb ? 5 : na, "Absorción Alcista", "×", location.absolute, color=absCol, size=size.tiny)
+plotchar(bearAbsorb ? 95 : na, "Absorción Bajista Glow", "×", location.absolute, color=color.new(absCol, 60), size=size.small)
+plotchar(bearAbsorb ? 95 : na, "Absorción Bajista", "×", location.absolute, color=absCol, size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD MINIMALISTA (Tiny Table)
+// ════════════════════════════════════════════════════════════════════════════
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+var table d = table.new(f_pos(dashPos), 2, 5, bgcolor=color.new(#0b0e16, 12), frame_color=color.new(upCol, 55), frame_width=1, border_width=1)
+f_cell(t, r, k, v, vc) =>
+    table.cell(t, 0, r, k, text_color=color.new(#90a4ae, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
+
+if showDash and barstate.islast
+    string estado  = osc >= obLvl ? "SOBRECOMPRA" : osc <= osLvl ? "SOBREVENTA" : isBull ? "Comprador" : "Vendedor"
+    color  estCol  = osc >= obLvl ? dnCol : osc <= osLvl ? upCol : isBull ? upCol : dnCol
+    string deltaTxt = delta > 0 ? "▲ " + str.tostring(delta, format.volume) : "▼ " + str.tostring(math.abs(delta), format.volume)
+    color  deltaCol = delta > 0 ? deltaUp : deltaDn
+    string absTxt   = bullAbsorb ? "AGOTAMIENTO ↓" : bearAbsorb ? "AGOTAMIENTO ↑" : "—"
+    color  absC     = (bullAbsorb or bearAbsorb) ? absCol : color.new(#90a4ae, 0)
+    string senal    = entryBuy ? "▲ COMPRA" : entrySell ? "▼ VENTA" : "Ninguna"
+    color  senalCol = entryBuy ? sigUpCol : entrySell ? sigDnCol : color.new(color.white, 35)
+
+    table.cell(d, 0, 0, "Order Flow", text_color=color.white, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, str.tostring(osc, "#") + "/100", text_color=waveCol, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(d, 1, "Sesgo CVD", estado, estCol)
+    f_cell(d, 2, "Delta vela", deltaTxt, deltaCol)
+    f_cell(d, 3, "Absorción", absTxt, absC)
+    f_cell(d, 4, "Señal Activa", senal, senalCol)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+f_wmPos(s) => s == "Inferior Izquierda" ? position.bottom_left : s == "Inferior Derecha" ? position.bottom_right : s == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(entryBuy, "Señal de COMPRA Order Flow", "Order Flow · COMPRA neón {{ticker}}")
+alertcondition(entrySell, "Señal de VENTA Order Flow", "Order Flow · VENTA neón {{ticker}}")
+alertcondition(bullAbsorb or bearAbsorb, "Absorción / Agotamiento", "Order Flow · Absorción detectada {{ticker}}")

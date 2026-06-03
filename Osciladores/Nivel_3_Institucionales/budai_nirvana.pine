@@ -1,0 +1,224 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Nirvana · Gravity Reversal Engine
+//  Caza reversiones por sobreextensión: mide cuánto se aleja el precio de su
+//  centro de gravedad (z-score) y solo dispara cuando el delta se agota — el
+//  precio hace un nuevo extremo pero la presión NO lo confirma. Anticipa giros,
+//  por eso exige confirmación de agotamiento antes de marcar.
+//  (c) BudAI Capital® — Pine v6 · panel inferior
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Nirvana", shorttitle="BudAI · Nirvana", overlay=false, precision=1, max_labels_count=200, max_lines_count=100)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  GRUPOS
+// ════════════════════════════════════════════════════════════════════════════
+G_PROF = "① Perfil"
+G_GRAV = "② Gravedad / Desviación"
+G_DLT  = "③ Agotamiento de Delta"
+G_SIG  = "④ Señales"
+G_VIS  = "⑤ Visual"
+G_COL  = "⑥ Colores"
+G_WM   = "✦ Marca de agua"
+
+// ════════════════ ① PERFIL ════════════════
+profile = input.string("Day Trader", "Perfil", options=["Scalper","Day Trader","Swing Trader"], group=G_PROF, tooltip="Ajusta gravedad, ventana de desviación y umbral de sobreextensión.")
+src     = input.source(hlc3, "Fuente", group=G_PROF)
+
+bool isScalp = profile == "Scalper"
+bool isDay   = profile == "Day Trader"
+
+int cogLen = isScalp ? 9  : isDay ? 14 : 21
+int devLen = isScalp ? 20 : isDay ? 34 : 55
+int exhWin = isScalp ? 10 : isDay ? 14 : 20
+float zThr = isScalp ? 1.8 : isDay ? 2.2 : 2.6     // z-score de sobreextensión
+
+// ════════════════ ② GRAVEDAD ════════════════
+smoothDev = input.int(2, "Suavizado de la desviación", minval=1, maxval=10, group=G_GRAV)
+reqCogTurn = input.bool(true, "Exigir giro del Center of Gravity", group=G_GRAV, tooltip="El COG debe empezar a girar a favor de la reversión, no solo estar extendido.")
+
+// ════════════════ ③ AGOTAMIENTO DE DELTA ════════════════
+reqExh = input.bool(true, "Exigir agotamiento de delta (divergencia)", group=G_DLT, tooltip="Nuevo extremo de precio que el delta NO confirma = trampa / agotamiento.")
+showDelta = input.bool(true, "Histograma de delta (base)", group=G_DLT)
+
+// ════════════════ ④ SEÑALES ════════════════
+showSig = input.bool(true, "Señales de reversión", group=G_SIG)
+showZones = input.bool(true, "Marcar zonas de sobreextensión", group=G_SIG)
+
+// ════════════════ ⑤ VISUAL ════════════════
+glow     = input.bool(true, "Glow / efecto rayo", group=G_VIS)
+shadeInt = input.int(72, "Opacidad relleno (difuminado)", minval=45, maxval=92, group=G_VIS)
+showDash = input.bool(true, "Dashboard", group=G_VIS)
+dashPos  = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════ ⑥ COLORES ════════════════
+upCol  = input.color(#00e5ff, "Reversión alcista (cian)", group=G_COL, inline="c")
+dnCol  = input.color(#ff6a00, "Reversión bajista (naranjo)", group=G_COL, inline="c")
+neutCol= input.color(#90a4ae, "Equilibrio (gris)", group=G_COL)
+exhCol = input.color(#ffb300, "Agotamiento (ámbar)", group=G_COL)
+strongCol = input.color(#ffffff, "Confirmación (blanco)", group=G_COL)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda","Inferior Derecha","Superior Izquierda","Superior Derecha"], group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  FUNCIONES
+// ════════════════════════════════════════════════════════════════════════════
+f_clamp(float v, float lo, float hi) => math.max(lo, math.min(hi, v))
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+f_wmPos(s) => s == "Inferior Izquierda" ? position.bottom_left : s == "Inferior Derecha" ? position.bottom_right : s == "Superior Izquierda" ? position.top_left : position.top_right
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MÓDULO A — CENTER OF GRAVITY (Ehlers) + DESVIACIÓN (z-score)
+// ════════════════════════════════════════════════════════════════════════════
+// Center of Gravity (gravedad del precio)
+float cgNum = 0.0
+float cgDen = 0.0
+for i = 0 to cogLen - 1
+    float p = src[i]
+    cgNum := cgNum + (1 + i) * p
+    cgDen := cgDen + p
+float cg = cgDen != 0 ? -cgNum / cgDen + (cogLen + 1) / 2.0 : 0.0
+float cgSm = ta.sma(cg, 3)
+bool cogTurnUp = cgSm > cgSm[1]
+bool cogTurnDn = cgSm < cgSm[1]
+
+// Desviación del precio respecto a su media (z-score) → oscilador ±100
+float basis = ta.sma(src, devLen)
+float sd    = ta.stdev(src, devLen)
+float z     = sd != 0 ? (src - basis) / sd : 0.0
+float zOsc  = ta.ema(f_clamp(z / 4.0 * 100.0, -100, 100), smoothDev)
+
+bool stretchUp = z >= zThr        // sobreextendido al alza (riesgo de reversión bajista)
+bool stretchDn = z <= -zThr       // sobreextendido a la baja (riesgo de reversión alcista)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MÓDULO B — AGOTAMIENTO DE DELTA (presión vs precio)
+// ════════════════════════════════════════════════════════════════════════════
+float rng    = high - low
+float volB   = nz(volume) == 0 ? 1.0 : volume
+float ratioC = rng != 0 ? ((close - low) - (high - close)) / rng : 0.0
+float delta  = ratioC * volB                       // delta aproximado por vela
+float deltaN = f_clamp(ratioC * 100, -100, 100)    // -100..100 para histograma
+
+// Divergencia / agotamiento: nuevo extremo de precio que el delta no confirma
+bool priceHi = high >= ta.highest(high, exhWin)
+bool priceLo = low  <= ta.lowest(low, exhWin)
+bool deltaHi = delta >= ta.highest(delta, exhWin)
+bool deltaLo = delta <= ta.lowest(delta, exhWin)
+bool bearExh = priceHi and not deltaHi             // techo: precio sube, delta no acompaña
+bool bullExh = priceLo and not deltaLo             // suelo: precio baja, delta no acompaña
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  SEÑALES DE REVERSIÓN (sobreextensión + agotamiento + giro de COG, en cierre)
+// ════════════════════════════════════════════════════════════════════════════
+bool conf = barstate.isconfirmed
+bool exhOkS = not reqExh or bearExh
+bool exhOkL = not reqExh or bullExh
+bool cogOkS = not reqCogTurn or cogTurnDn
+bool cogOkL = not reqCogTurn or cogTurnUp
+
+bool revShort = showSig and stretchUp and exhOkS and cogOkS and conf
+bool revLong  = showSig and stretchDn and exhOkL and cogOkL and conf
+// Fuerte: sobreextensión más allá de 1.3× el umbral
+bool strongShort = revShort and z >= zThr * 1.3
+bool strongLong  = revLong  and z <= -zThr * 1.3
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NIVELES
+// ════════════════════════════════════════════════════════════════════════════
+hline(100, "Tope", color.new(color.gray, 92), hline.style_dotted)
+hline(60, "Sobreextensión ↑", color.new(dnCol, 80), hline.style_dashed)
+hline(0, "Gravedad (equilibrio)", color.new(neutCol, 65), hline.style_solid)
+hline(-60, "Sobreextensión ↓", color.new(upCol, 80), hline.style_dashed)
+hline(-100, "Piso", color.new(color.gray, 92), hline.style_dotted)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  VISUAL — histograma delta + onda de desviación (rayo) + señales
+// ════════════════════════════════════════════════════════════════════════════
+// Histograma de delta en la base (centrado en -100, difuminado)
+plot(showDelta ? deltaN / 2 - 50 : na, "Delta", color=color.new(delta >= 0 ? upCol : dnCol, 86), style=plot.style_area, histbase=-50)
+
+// Color de onda: cian si sube hacia/desde abajo, naranjo si baja (dinámica)
+color waveCol = zOsc >= zOsc[1] ? upCol : dnCol
+
+// ── Efecto RAYO: doble halo difuso + línea finísima + núcleo blanco-eléctrico ──
+plot(glow ? zOsc : na, "Desviación resplandor", color=color.new(waveCol, 88), linewidth=6)
+plot(glow ? zOsc : na, "Desviación halo", color=color.new(waveCol, 70), linewidth=3)
+pZ = plot(zOsc, "Desviación", color=color.new(waveCol, 0), linewidth=1)
+plot(zOsc, "Núcleo rayo", color=color.new(strongCol, 18), linewidth=1)
+pMid = plot(0, "centro", color=color.new(color.white, 100), display=display.none)
+// Relleno degradado difuminado hacia la gravedad (0)
+fill(pZ, pMid, top_value=100, bottom_value=0, top_color=glow ? color.new(dnCol, shadeInt) : na, bottom_color=glow ? color.new(dnCol, 100) : na, title="Difuminado arriba")
+fill(pZ, pMid, top_value=0, bottom_value=-100, top_color=glow ? color.new(upCol, 100) : na, bottom_color=glow ? color.new(upCol, shadeInt) : na, title="Difuminado abajo")
+
+// Nodo de retorno a la gravedad (cruce de 0 = reversión consumada): círculo diminuto con glow
+bool midCross = ta.cross(zOsc, 0)
+plotchar(midCross ? 0 : na, "Retorno glow", "•", location.absolute, color=color.new(strongCol, 55), size=size.small)
+plotchar(midCross ? 0 : na, "Retorno gravedad", "•", location.absolute, color=color.new(waveCol, 0), size=size.tiny)
+
+// Zonas de agotamiento: círculo ámbar diminuto con glow
+plotchar(showZones and bearExh and stretchUp ? 96 : na, "Agotamiento techo glow", "•", location.absolute, color=color.new(exhCol, 60), size=size.small)
+plotchar(showZones and bearExh and stretchUp ? 96 : na, "Agotamiento techo", "•", location.absolute, color=exhCol, size=size.tiny)
+plotchar(showZones and bullExh and stretchDn ? -96 : na, "Agotamiento suelo glow", "•", location.absolute, color=color.new(exhCol, 60), size=size.small)
+plotchar(showZones and bullExh and stretchDn ? -96 : na, "Agotamiento suelo", "•", location.absolute, color=exhCol, size=size.tiny)
+
+// Señales de reversión: círculo con glow, alineado al valor de la onda
+plotchar(revLong ? zOsc : na, "Reversión LONG glow", "•", location.absolute, color=color.new(upCol, 55), size=size.small)
+plotchar(revLong ? zOsc : na, "Reversión LONG", "•", location.absolute, color=upCol, size=size.tiny)
+plotchar(revShort ? zOsc : na, "Reversión SHORT glow", "•", location.absolute, color=color.new(dnCol, 55), size=size.small)
+plotchar(revShort ? zOsc : na, "Reversión SHORT", "•", location.absolute, color=dnCol, size=size.tiny)
+plotchar((strongLong or strongShort) ? zOsc : na, "Reversión fuerte", "•", location.absolute, color=color.new(strongCol, 30), size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD COMPACTO
+// ════════════════════════════════════════════════════════════════════════════
+var table d = table.new(f_pos(dashPos), 2, 5, bgcolor=color.new(#0b0e16, 10), frame_color=color.new(upCol, 55), frame_width=1, border_width=1)
+f_cell(t, r, k, v, vc) =>
+    table.cell(t, 0, r, k, text_color=color.new(#90a4ae, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
+
+if showDash and barstate.islast
+    string zonaTxt = stretchUp ? "SOBREEXT. ↑" : stretchDn ? "SOBREEXT. ↓" : "Equilibrio"
+    color  zonaC = stretchUp ? dnCol : stretchDn ? upCol : neutCol
+    string exhTxt = bearExh ? "Techo (sin presión)" : bullExh ? "Suelo (sin presión)" : "—"
+    color  exhC = (bearExh or bullExh) ? exhCol : color.new(#90a4ae, 0)
+    string stTxt = strongLong ? "REV. LONG FUERTE" : strongShort ? "REV. SHORT FUERTE" : revLong ? "Reversión LONG" : revShort ? "Reversión SHORT" : "Observar"
+    color  stCol = (strongLong or revLong) ? upCol : (strongShort or revShort) ? dnCol : color.new(color.white, 35)
+
+    table.cell(d, 0, 0, "NIRVANA · " + profile, text_color=color.white, bgcolor=color.new(#1b2030, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, str.tostring(z, "#.#") + "σ", text_color=waveCol, bgcolor=color.new(#1b2030, 0), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(d, 1, "Zona", zonaTxt, zonaC)
+    f_cell(d, 2, "Gravedad", cogTurnUp ? "Girando ↑" : "Girando ↓", cogTurnUp ? upCol : dnCol)
+    f_cell(d, 3, "Agotamiento", exhTxt, exhC)
+    f_cell(d, 4, "Señal", stTxt, stCol)
+
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+var table wm = table.new(f_wmPos(wmPos), 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(revLong,  "Nirvana Reversión LONG",  "Nirvana · Reversión alcista por sobreextensión + agotamiento {{ticker}}")
+alertcondition(revShort, "Nirvana Reversión SHORT", "Nirvana · Reversión bajista por sobreextensión + agotamiento {{ticker}}")
+alertcondition(strongLong,  "Nirvana LONG fuerte",  "Nirvana · Reversión alcista fuerte {{ticker}}")
+alertcondition(strongShort, "Nirvana SHORT fuerte", "Nirvana · Reversión bajista fuerte {{ticker}}")
+alertcondition(bearExh or bullExh, "Nirvana Agotamiento", "Nirvana · Agotamiento de delta detectado {{ticker}}")
