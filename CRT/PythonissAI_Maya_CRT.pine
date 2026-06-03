@@ -1,0 +1,376 @@
+//@version=6
+// ██████╗ ██╗   ██╗████████╗██╗  ██╗ ██████╗ ███╗   ██╗██╗███████╗███████╗ █████╗ ██╗
+// ██╔══██╗╚██╗ ██╔╝╚══██╔══╝██║  ██║██╔═══██╗████╗  ██║██║██╔════╝██╔════╝██╔══██╗██║
+// ██████╔╝ ╚████╔╝    ██║   ███████║██║   ██║██╔██╗ ██║██║███████╗███████╗███████║██║
+// ██╔═══╝   ╚██╔╝     ██║   ██╔══██║██║   ██║██║╚██╗██║██║╚════██║╚════██║██╔══██║██║
+// ██║        ██║      ██║   ██║  ██║╚██████╔╝██║ ╚████║██║███████║███████║██║  ██║██║
+// ╚═╝        ╚═╝      ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝╚══════╝╚══════╝╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  PythonissAI® - Maya · CRT
+//  Candle Range Theory simple y claro. Marca el rango de la vela superior
+//  (CRT HIGH / CRT LOW = liquidez), y da la entrada cuando el precio BARRE un
+//  extremo y CIERRA de vuelta dentro del rango (la trampa). Entrada visible,
+//  SL detrás del barrido, TP al extremo opuesto. Confluencia (EMA, FVG,
+//  Oscilador) 100% OPCIONAL: por defecto se ven las señales puras de CRT.
+//  (c) PythonissAI® — Pine v6 · overlay
+// ────────────────────────────────────────────────────────────────────────────
+indicator("PythonissAI® - Maya · CRT", shorttitle="Maya CRT", overlay=true, max_boxes_count=60, max_labels_count=200, max_lines_count=200)
+
+// ════════════════ GRUPOS ════════════════
+G_RNG  = "① Rango / Modo"
+G_SIG  = "② Señal CRT"
+G_EMA  = "③ Cruce de EMAs (opcional)"
+G_CONF = "④ Confluencia avanzada (opcional)"
+G_RISK = "⑤ Riesgo / Objetivos"
+G_VIS  = "⑥ Estética"
+G_DASH = "⑦ Dashboard"
+G_COL  = "⑧ Paleta"
+G_WM   = "✦ Marca de agua"
+
+// ════════════════ ① RANGO ════════════════
+preset    = input.string("Swing (Diario)", "Modo", options=["Swing (Diario)","Position (Semanal)","Intradía (4H)","Manual"], group=G_RNG, tooltip="Vela superior cuyo máximo/mínimo son la liquidez (CRT HIGH/LOW). En gráfico de 4H usa Swing (Diario); en 1H también. La vela del rango debe ser MAYOR que la del gráfico.")
+manualTf  = input.timeframe("D", "TF manual del rango", group=G_RNG)
+sigMode   = input.string("Confirmado", "Modo de señal", options=["Confirmado","Tiempo Real"], group=G_RNG, tooltip="Confirmado = sin repaint (espera cierre de vela).")
+
+// ════════════════ ② SEÑAL CRT ════════════════
+confMode  = input.string("Cierre dentro", "Confirmación de entrada", options=["Cierre dentro","Reclaim 50%","Displacement"], group=G_SIG, tooltip="Cierre dentro = entra en la misma vela del barrido (la más simple y la que se ve siempre). Reclaim 50% y Displacement filtran más (menos señales, más sólidas).")
+sweepPen  = input.float(0.0, "Penetración mínima ×ATR", minval=0.0, maxval=1.0, step=0.01, group=G_SIG, tooltip="0 = cualquier mecha que cruce el nivel cuenta como barrido. Súbelo para exigir barridos más profundos.")
+dispMult  = input.float(1.0, "Desplazamiento ×ATR (modo Displacement)", minval=0.1, step=0.1, group=G_SIG)
+confWin   = input.int(4, "Ventana de confirmación (velas)", minval=1, maxval=30, group=G_SIG)
+oneTrade  = input.bool(true, "Una señal por vela de rango", group=G_SIG)
+
+// ════════════════ ③ CRUCE DE EMAs ════════════════
+useEmaX   = input.bool(false, "Filtrar por cruce de EMAs", group=G_EMA, tooltip="Si está activo: LONG sólo con EMA rápida > lenta, SHORT al revés. Súbele la solidez en swing.")
+emaFastLn = input.int(9,  "EMA rápida", minval=2, group=G_EMA, inline="ema")
+emaSlowLn = input.int(21, "EMA lenta",  minval=3, group=G_EMA, inline="ema")
+showEmas  = input.bool(false, "Dibujar EMAs (rayo)", group=G_EMA)
+
+// ════════════════ ④ CONFLUENCIA AVANZADA ════════════════
+useFvg    = input.bool(false, "Filtro FVG (no operar contra un gap opuesto)", group=G_CONF)
+fvgMinAtr = input.float(0.25, "Tamaño mínimo del FVG ×ATR", minval=0.0, step=0.05, group=G_CONF)
+showFvg   = input.bool(false, "Dibujar FVG / IFVG (mínimos)", group=G_CONF)
+fvgLen    = input.int(6, "Ancho del FVG (velas)", minval=2, maxval=30, group=G_CONF)
+maxFvg    = input.int(8, "FVG activos máximos", minval=2, maxval=30, group=G_CONF)
+useOsc    = input.bool(false, "Validar con Maya Oscillator", group=G_CONF, tooltip="Conecta la onda 0-100 del Maya Oscillator: LONG en discount, SHORT en premium.")
+oscWave   = input.source(close, "Onda 0-100 del Maya Oscillator", group=G_CONF)
+
+// ════════════════ ⑤ RIESGO ════════════════
+atrLen    = input.int(14, "Longitud ATR", minval=1, group=G_RISK)
+slBuf     = input.float(0.2, "Colchón del SL ×ATR", minval=0.0, step=0.05, group=G_RISK)
+tpMode    = input.string("Rango Opuesto", "Objetivo (TP)", options=["Rango Opuesto","R Fijo"], group=G_RISK)
+rFixed    = input.float(3.0, "R objetivo (R Fijo)", minval=1.0, step=0.5, group=G_RISK)
+minR      = input.float(0.0, "R mínimo para validar", minval=0.0, step=0.5, group=G_RISK, tooltip="0 = muestra todas las señales. Súbelo (ej. 2) para descartar entradas con poco recorrido al objetivo.")
+
+// ════════════════ ⑥ ESTÉTICA ════════════════
+showRange = input.bool(true, "Líneas CRT HIGH / CRT LOW", group=G_VIS)
+showMid   = input.bool(false, "Línea de equilibrio (50%)", group=G_VIS)
+markStyle = input.string("Nodo", "Marca de entrada", options=["Nodo","Flecha"], group=G_VIS, tooltip="Nodo = círculo neón con glow. Flecha = triángulo clásico (como un CRT tradicional).")
+showLevels= input.bool(true, "Líneas Entrada / SL / TP", group=G_VIS)
+lvlBars   = input.int(30, "Largo de líneas (velas)", minval=5, maxval=200, group=G_VIS)
+
+// ════════════════ ⑦ DASHBOARD ════════════════
+showDash  = input.bool(true, "Dashboard", group=G_DASH)
+dashLoc   = input.string("Arriba Derecha", "Ubicación", options=["Arriba Derecha","Abajo Derecha","Arriba Izquierda","Abajo Izquierda"], group=G_DASH)
+dashBg    = input.color(color.new(#0b0e16, 10), "Fondo", group=G_DASH)
+
+// ════════════════ ⑧ PALETA ════════════════
+palette = input.string("Verde Lima vs Naranja", "Paleta Bull/Bear", options=["Cyan vs Magenta","Oro vs Violeta","Verde Lima vs Naranja","Blanco vs Carbón","Menta vs Coral","Eléctrico BudAI","Aqua vs Rubí"], group=G_COL)
+cLiq  = input.color(#ffb300, "Rango / liquidez (ámbar)", group=G_COL)
+cIfvg = input.color(#b388ff, "IFVG (violeta)", group=G_COL)
+cNeu  = input.color(#90a4ae, "Neutral (gris)", group=G_COL)
+cWhite= input.color(#ffffff, "Núcleo (blanco)", group=G_COL)
+
+color cBull = palette == "Oro vs Violeta" ? #ffe600 : palette == "Verde Lima vs Naranja" ? #39ff14 : palette == "Blanco vs Carbón" ? #ffffff : palette == "Menta vs Coral" ? #00ffc4 : palette == "Eléctrico BudAI" ? #00e5ff : palette == "Aqua vs Rubí" ? #18ffff : palette == "Cyan vs Magenta" ? #00f0ff : #39ff14
+color cBear = palette == "Oro vs Violeta" ? #9d00ff : palette == "Verde Lima vs Naranja" ? #ff4500 : palette == "Blanco vs Carbón" ? #4a4a4a : palette == "Menta vs Coral" ? #ff5757 : palette == "Eléctrico BudAI" ? #ff1e6e : palette == "Aqua vs Rubí" ? #ff1744 : palette == "Cyan vs Magenta" ? #ff007a : #ff4500
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Firma PythonissAI", group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 30), "Color firma", group=G_WM)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NÚCLEO
+// ════════════════════════════════════════════════════════════════════════════
+bool  act = sigMode == "Tiempo Real" or barstate.isconfirmed
+float atr = ta.atr(atrLen)
+float emaFast = ta.ema(close, emaFastLn)
+float emaSlow = ta.ema(close, emaSlowLn)
+bool  emaBull = emaFast > emaSlow
+
+string rangeTf = preset == "Swing (Diario)" ? "D" : preset == "Position (Semanal)" ? "W" : preset == "Intradía (4H)" ? "240" : manualTf
+[crtHigh, crtLow] = request.security(syminfo.tickerid, rangeTf, [high[1], low[1]], lookahead=barmerge.lookahead_off)
+bool  newRange = timeframe.change(rangeTf)
+bool  validR   = not na(crtHigh) and not na(crtLow) and crtHigh > crtLow
+float crtMid   = (crtHigh + crtLow) / 2.0
+
+var int rangeStart = bar_index
+if newRange
+    rangeStart := bar_index
+
+// ════════════════════════════════════════════════════════════════════════════
+//  SMC — FVG / IFVG (opcional, cajas mínimas)
+// ════════════════════════════════════════════════════════════════════════════
+type FVG
+    box   bx
+    float top
+    float bot
+    int   dir
+    bool  inv
+    bool  dead
+
+var array<FVG> fvgs = array.new<FVG>()
+
+f_addFvg(int dir, float top, float bot) =>
+    color c = dir == 1 ? cBull : cBear
+    box bx = na
+    if showFvg
+        bx := box.new(bar_index - 1, top, bar_index + fvgLen, bot, border_color=color.new(c, 72), border_width=1, bgcolor=color.new(c, 90))
+    FVG nf = FVG.new(bx, top, bot, dir, false, false)
+    array.push(fvgs, nf)
+    if array.size(fvgs) > maxFvg
+        FVG old = array.shift(fvgs)
+        box.delete(old.bx)
+
+bool bullFvg = low > high[2] and (low - high[2]) >= fvgMinAtr * atr
+bool bearFvg = high < low[2] and (low[2] - high) >= fvgMinAtr * atr
+
+if (useFvg or showFvg) and barstate.isconfirmed
+    if bullFvg
+        f_addFvg(1, low, high[2])
+    if bearFvg
+        f_addFvg(-1, low[2], high)
+
+int fvgBias = 0
+if array.size(fvgs) > 0
+    for i = array.size(fvgs) - 1 to 0
+        FVG f = array.get(fvgs, i)
+        if f.dead
+            continue
+        if not f.inv
+            bool flip = (f.dir == 1 and close < f.bot) or (f.dir == -1 and close > f.top)
+            if flip
+                f.inv := true
+                if not na(f.bx)
+                    box.set_bgcolor(f.bx, color.new(cIfvg, 88))
+                    box.set_border_color(f.bx, color.new(cIfvg, 58))
+        else
+            bool kill = (f.dir == 1 and close > f.top) or (f.dir == -1 and close < f.bot)
+            if kill
+                f.dead := true
+                box.delete(f.bx)
+        if not f.dead and close <= f.top and close >= f.bot
+            fvgBias := f.inv ? -f.dir : f.dir
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ESTADO DEL MODELO CRT
+// ════════════════════════════════════════════════════════════════════════════
+var int   st         = 0
+var float swExt      = na
+var float armConf    = na
+var int   armBar     = na
+var bool  tradedThis = false
+var int   tDir   = 0
+var float tEntry = na
+var float tSL    = na
+var float tTP    = na
+var float tR     = na
+
+if newRange and act
+    st := 0
+    swExt := na
+    armConf := na
+    tradedThis := false
+
+// Barrido + cierre de vuelta dentro
+bool penUp   = (crtLow - low)  >= sweepPen * atr
+bool penDn   = (high - crtHigh) >= sweepPen * atr
+bool bullSwp = validR and not tradedThis and low  < crtLow  and penUp and close > crtLow
+bool bearSwp = validR and not tradedThis and high > crtHigh and penDn and close < crtHigh
+
+// Filtros opcionales
+bool emaLongOk  = not useEmaX or emaBull
+bool emaShortOk = not useEmaX or not emaBull
+bool fvgLongOk  = not useFvg or fvgBias >= 0
+bool fvgShortOk = not useFvg or fvgBias <= 0
+bool oscLongOk  = not useOsc or oscWave <= 55
+bool oscShortOk = not useOsc or oscWave >= 45
+
+bool bullEntry = false
+bool bearEntry = false
+
+f_fireLong(float entry) =>
+    float sl   = swExt - slBuf * atr
+    float risk = entry - sl
+    float tp   = tpMode == "Rango Opuesto" ? crtHigh : entry + rFixed * risk
+    float rr   = risk > 0 ? (tp - entry) / risk : 0.0
+    [sl, tp, rr, risk]
+
+f_fireShort(float entry) =>
+    float sl   = swExt + slBuf * atr
+    float risk = sl - entry
+    float tp   = tpMode == "Rango Opuesto" ? crtLow : entry - rFixed * risk
+    float rr   = risk > 0 ? (entry - tp) / risk : 0.0
+    [sl, tp, rr, risk]
+
+if act
+    if st != 0 and not na(armBar) and (bar_index - armBar) > confWin
+        st := 0
+        armConf := na
+    // Arme
+    if bullSwp and st <= 0
+        st := 1
+        swExt := low
+        armBar := bar_index
+        armConf := confMode == "Displacement" ? high + dispMult * atr : confMode == "Reclaim 50%" ? crtMid : crtLow
+    if bearSwp and st >= 0
+        st := -1
+        swExt := high
+        armBar := bar_index
+        armConf := confMode == "Displacement" ? low - dispMult * atr : confMode == "Reclaim 50%" ? crtMid : crtHigh
+    // Gatillo LONG
+    if st == 1 and validR
+        bool trig = confMode == "Cierre dentro" ? close > crtLow : (bar_index > armBar and close >= armConf)
+        if trig and emaLongOk and fvgLongOk and oscLongOk
+            [sl, tp, rr, risk] = f_fireLong(close)
+            if risk > 0 and rr >= minR
+                bullEntry := true
+                tDir := 1
+                tEntry := close
+                tSL := sl
+                tTP := tp
+                tR := rr
+                tradedThis := oneTrade
+                st := 0
+        else if trig
+            st := 0
+    // Gatillo SHORT
+    if st == -1 and validR
+        bool trig = confMode == "Cierre dentro" ? close < crtHigh : (bar_index > armBar and close <= armConf)
+        if trig and emaShortOk and fvgShortOk and oscShortOk
+            [sl, tp, rr, risk] = f_fireShort(close)
+            if risk > 0 and rr >= minR
+                bearEntry := true
+                tDir := -1
+                tEntry := close
+                tSL := sl
+                tTP := tp
+                tR := rr
+                tradedThis := oneTrade
+                st := 0
+        else if trig
+            st := 0
+
+// ════════════════════════════════════════════════════════════════════════════
+//  CRT HIGH / CRT LOW (líneas finas + etiqueta, estilo del CRT clásico)
+// ════════════════════════════════════════════════════════════════════════════
+var line lnH = na
+var line lnL = na
+var line lnM = na
+var label lbH = na
+var label lbL = na
+
+if showRange and validR
+    if na(lnH)
+        lnH := line.new(rangeStart, crtHigh, bar_index + 3, crtHigh, color=color.new(cLiq, 30), width=1)
+        lnL := line.new(rangeStart, crtLow,  bar_index + 3, crtLow,  color=color.new(cLiq, 30), width=1)
+        lnM := line.new(rangeStart, crtMid,  bar_index + 3, crtMid,  color=color.new(cLiq, 70), width=1, style=line.style_dotted)
+    line.set_xy1(lnH, rangeStart, crtHigh)
+    line.set_xy2(lnH, bar_index + 3, crtHigh)
+    line.set_xy1(lnL, rangeStart, crtLow)
+    line.set_xy2(lnL, bar_index + 3, crtLow)
+    line.set_xy1(lnM, rangeStart, crtMid)
+    line.set_xy2(lnM, bar_index + 3, crtMid)
+    line.set_color(lnM, showMid ? color.new(cLiq, 70) : color.new(cLiq, 100))
+    if barstate.islast
+        label.delete(lbH)
+        label.delete(lbL)
+        lbH := label.new(bar_index + 3, crtHigh, "CRT HIGH", style=label.style_label_left, color=color.new(cLiq, 90), textcolor=cLiq, size=size.small)
+        lbL := label.new(bar_index + 3, crtLow,  "CRT LOW",  style=label.style_label_left, color=color.new(cLiq, 90), textcolor=cLiq, size=size.small)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  EMAs estilo rayo (opcional)
+// ════════════════════════════════════════════════════════════════════════════
+color emaCol = emaBull ? cBull : cBear
+plot(showEmas ? emaFast : na, "EMA rápida halo", color=color.new(emaCol, 82), linewidth=3)
+plot(showEmas ? emaFast : na, "EMA rápida", color=color.new(emaCol, 0), linewidth=1)
+plot(showEmas ? emaSlow : na, "EMA lenta", color=color.new(cNeu, 30), linewidth=1)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MARCAS DE ENTRADA (visibles: nodo glow o flecha) — alineadas
+// ════════════════════════════════════════════════════════════════════════════
+bool arrow = markStyle == "Flecha"
+float bullY = bullEntry ? low  - 0.7 * atr : na
+float bearY = bearEntry ? high + 0.7 * atr : na
+
+// Nodo (círculo con glow)
+plotshape(not arrow and bullEntry ? bullY : na, "LONG glow", shape.circle, location.absolute, color.new(cBull, 55), size=size.large)
+plotshape(not arrow and bullEntry ? bullY : na, "LONG core", shape.circle, location.absolute, color.new(cBull, 0),  size=size.small)
+plotshape(not arrow and bearEntry ? bearY : na, "SHORT glow",shape.circle, location.absolute, color.new(cBear, 55), size=size.large)
+plotshape(not arrow and bearEntry ? bearY : na, "SHORT core",shape.circle, location.absolute, color.new(cBear, 0),  size=size.small)
+// Flecha (triángulo clásico) con glow
+plotshape(arrow and bullEntry ? bullY : na, "LONG flecha glow", shape.triangleup, location.absolute, color.new(cBull, 55), size=size.normal)
+plotshape(arrow and bullEntry ? bullY : na, "LONG flecha", shape.triangleup, location.absolute, color.new(cBull, 0), size=size.tiny)
+plotshape(arrow and bearEntry ? bearY : na, "SHORT flecha glow", shape.triangledown, location.absolute, color.new(cBear, 55), size=size.normal)
+plotshape(arrow and bearEntry ? bearY : na, "SHORT flecha", shape.triangledown, location.absolute, color.new(cBear, 0), size=size.tiny)
+
+if bullEntry or bearEntry
+    color sc = bullEntry ? cBull : cBear
+    float ly = bullEntry ? bullY : bearY
+    label.new(bar_index, ly, (bullEntry ? "LONG " : "SHORT ") + str.tostring(tR, "#.#") + "R", style=bullEntry ? label.style_label_up : label.style_label_down, color=color.new(sc, 10), textcolor=cWhite, size=size.small)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  LÍNEAS ENTRADA / SL / TP
+// ════════════════════════════════════════════════════════════════════════════
+var line lnEh = na
+var line lnE  = na
+var line lnS  = na
+var line lnT  = na
+var label lbS = na
+var label lbT = na
+
+if showLevels and (bullEntry or bearEntry)
+    line.delete(lnEh)
+    line.delete(lnE)
+    line.delete(lnS)
+    line.delete(lnT)
+    label.delete(lbS)
+    label.delete(lbT)
+    color dc = tDir == 1 ? cBull : cBear
+    int x2 = bar_index + lvlBars
+    lnEh := line.new(bar_index, tEntry, x2, tEntry, color=color.new(dc, 72), width=2)
+    lnE  := line.new(bar_index, tEntry, x2, tEntry, color=color.new(cWhite, 20), width=1)
+    lnS  := line.new(bar_index, tSL, x2, tSL, color=color.new(cBear, 40), width=1, style=line.style_dashed)
+    lnT  := line.new(bar_index, tTP, x2, tTP, color=color.new(cBull, 40), width=1, style=line.style_dashed)
+    lbS  := label.new(x2, tSL, "SL", style=label.style_label_left, color=color.new(cBear, 90), textcolor=cBear, size=size.tiny)
+    lbT  := label.new(x2, tTP, "TP " + str.tostring(tR, "#.#") + "R", style=label.style_label_left, color=color.new(cBull, 90), textcolor=cBull, size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD
+// ════════════════════════════════════════════════════════════════════════════
+string verdict = not validR ? "NO TRADE" : tDir == 1 and tradedThis ? "LONG" : tDir == -1 and tradedThis ? "SHORT" : st == 1 ? "Esperando LONG" : st == -1 ? "Esperando SHORT" : "Esperando barrido"
+color  vCol    = st == 1 or (tDir == 1 and tradedThis) ? cBull : st == -1 or (tDir == -1 and tradedThis) ? cBear : cNeu
+
+if showDash and barstate.islast
+    string pos = dashLoc == "Arriba Derecha" ? position.top_right : dashLoc == "Abajo Derecha" ? position.bottom_right : dashLoc == "Arriba Izquierda" ? position.top_left : position.bottom_left
+    var table tb = table.new(pos, 2, 5, bgcolor=dashBg, frame_color=color.new(cNeu, 62), frame_width=1, border_color=color.new(cNeu, 82), border_width=1)
+    table.cell(tb, 0, 0, "Maya CRT · " + rangeTf, text_color=cLiq, text_size=size.small, text_halign=text.align_left)
+    table.cell(tb, 1, 0, verdict, text_color=vCol, text_size=size.small, text_halign=text.align_right)
+    table.cell(tb, 0, 1, "CRT HIGH", text_color=cNeu, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(tb, 1, 1, validR ? str.tostring(crtHigh, format.mintick) : "—", text_color=cLiq, text_size=size.tiny, text_halign=text.align_right)
+    table.cell(tb, 0, 2, "CRT LOW", text_color=cNeu, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(tb, 1, 2, validR ? str.tostring(crtLow, format.mintick) : "—", text_color=cLiq, text_size=size.tiny, text_halign=text.align_right)
+    table.cell(tb, 0, 3, "EMA", text_color=cNeu, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(tb, 1, 3, not useEmaX ? "off" : emaBull ? "Alcista" : "Bajista", text_color=not useEmaX ? cNeu : emaBull ? cBull : cBear, text_size=size.tiny, text_halign=text.align_right)
+    table.cell(tb, 0, 4, "Último R", text_color=cNeu, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(tb, 1, 4, na(tR) ? "—" : str.tostring(tR, "#.#") + "R", text_color=cWhite, text_size=size.tiny, text_halign=text.align_right)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+var table wm = table.new(position.bottom_right, 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ PythonissAI", text_color=wmCol, text_size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(bullEntry, title="Maya CRT LONG",  message="Maya CRT LONG · {{ticker}} — barrido CRT LOW + retorno")
+alertcondition(bearEntry, title="Maya CRT SHORT", message="Maya CRT SHORT · {{ticker}} — barrido CRT HIGH + retorno")
