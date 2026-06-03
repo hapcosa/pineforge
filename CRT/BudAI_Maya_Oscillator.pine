@@ -1,0 +1,158 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Maya · Oscillator
+//  Oscilador de contexto de liquidez. Mide la posición del precio dentro del
+//  rango de la vela superior (0 = SSL/discount · 100 = BSL/premium), con onda
+//  difuminada estilo rayo, nodo blanco en el cruce de equilibrio, nodos de
+//  entrada bull/bear y marcas de barrido. Exporta su onda 0-100 para el híbrido.
+//  (c) BudAI Capital® — Pine v6 · panel
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Maya · Oscillator", shorttitle="Maya Osc", overlay=false, precision=1, max_labels_count=100)
+
+// ════════════════ GRUPOS ════════════════
+G_RNG = "① Rango"
+G_OSC = "② Oscilador"
+G_VIS = "③ Estética"
+G_COL = "④ Paleta"
+
+// ════════════════ ① RANGO ════════════════
+preset   = input.string("Swing (Diario)", "Modo", options=["Swing (Diario)","Position (Semanal)","Intradía (4H)","Manual"], group=G_RNG, tooltip="Vela superior que define la liquidez. Debe coincidir con el modo del híbrido Maya.")
+manualTf = input.timeframe("D", "TF manual del rango", group=G_RNG)
+
+// ════════════════ ② OSCILADOR ════════════════
+smoothLen = input.int(5, "Suavizado de la onda", minval=1, maxval=50, group=G_OSC)
+sigLen    = input.int(8, "Línea de señal", minval=1, maxval=50, group=G_OSC)
+momLen    = input.int(14, "Momentum (velas)", minval=1, group=G_OSC)
+
+// ════════════════ ③ ESTÉTICA ════════════════
+fillOp    = input.int(74, "Opacidad del relleno (transp.)", minval=55, maxval=92, group=G_VIS, tooltip="Mayor = onda más difuminada. Relleno degradado que se desvanece al 100% hacia el centro.")
+showMom   = input.bool(true, "Histograma de momentum", group=G_VIS)
+showSweep = input.bool(true, "Marcas de barrido (sutiles)", group=G_VIS)
+showNode50= input.bool(true, "Nodo blanco en cruce de equilibrio", group=G_VIS)
+showDash  = input.bool(true, "Dashboard", group=G_VIS)
+
+// ════════════════ ④ PALETA ════════════════
+palette = input.string("Cyan vs Magenta", "Paleta Bull/Bear", options=["Cyan vs Magenta","Oro vs Violeta","Verde Lima vs Naranja","Blanco vs Carbón","Menta vs Coral","Eléctrico BudAI","Aqua vs Rubí"], group=G_COL)
+cLiq    = input.color(#ffb300, "Liquidez (ámbar)", group=G_COL)
+cMid    = input.color(#90a4ae, "Equilibrio (gris)", group=G_COL)
+cWhite  = input.color(#ffffff, "Núcleo (blanco)", group=G_COL)
+
+// Ternario (no función) para que los colores queden input-qualified y sirvan en hline
+color cBull = palette == "Oro vs Violeta" ? #ffe600 : palette == "Verde Lima vs Naranja" ? #39ff14 : palette == "Blanco vs Carbón" ? #ffffff : palette == "Menta vs Coral" ? #00ffc4 : palette == "Eléctrico BudAI" ? #00e5ff : palette == "Aqua vs Rubí" ? #18ffff : #00f0ff
+color cBear = palette == "Oro vs Violeta" ? #9d00ff : palette == "Verde Lima vs Naranja" ? #ff4500 : palette == "Blanco vs Carbón" ? #4a4a4a : palette == "Menta vs Coral" ? #ff5757 : palette == "Eléctrico BudAI" ? #ff1e6e : palette == "Aqua vs Rubí" ? #ff1744 : #ff007a
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NÚCLEO
+// ════════════════════════════════════════════════════════════════════════════
+float atr = ta.atr(14)
+string rangeTf = preset == "Swing (Diario)" ? "D" : preset == "Position (Semanal)" ? "W" : preset == "Intradía (4H)" ? "240" : manualTf
+
+[rangeHigh, rangeLow] = request.security(syminfo.tickerid, rangeTf, [high[1], low[1]], lookahead=barmerge.lookahead_off)
+float rng    = rangeHigh - rangeLow
+bool  validR = not na(rng) and rng > 0
+
+float rawPos = validR ? (close - rangeLow) / rng * 100.0 : 50.0
+float wave   = ta.ema(math.max(-25.0, math.min(125.0, rawPos)), smoothLen)
+float signal = ta.ema(wave, sigLen)
+float bridge = math.max(0.0, math.min(100.0, wave))
+
+float mom = atr > 0 ? (close - close[momLen]) / atr : 0.0
+float momScaled = 50.0 + mom * 12.0
+
+bool  up      = wave >= signal
+color waveCol = up ? cBull : cBear
+
+bool bslSweep = ta.crossover(rawPos, 100.0)
+bool sslSweep = ta.crossunder(rawPos, 0.0)
+
+// Nodos de entrada (barrido + reconquista del equilibrio)
+bool xUp50 = ta.crossover(wave, 50.0)
+bool xDn50 = ta.crossunder(wave, 50.0)
+var int oarm = 0
+if sslSweep
+    oarm := 1
+if bslSweep
+    oarm := -1
+bool longNode  = oarm == 1  and xUp50
+bool shortNode = oarm == -1 and xDn50
+if longNode or shortNode
+    oarm := 0
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ZONAS
+// ════════════════════════════════════════════════════════════════════════════
+hline(100, "BSL / Premium",   color.new(cLiq, 60), hline.style_dotted)
+h80 = hline(80, "", color.new(cBear, 86), hline.style_dotted)
+h50 = hline(50, "Equilibrio",  color.new(cMid, 60), hline.style_solid)
+h20 = hline(20, "", color.new(cBull, 86), hline.style_dotted)
+hline(0,   "SSL / Discount",   color.new(cLiq, 60), hline.style_dotted)
+fill(h80, h50, color.new(cBear, 95))
+fill(h50, h20, color.new(cBull, 95))
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ONDA estilo rayo (difuminada) + momentum
+// ════════════════════════════════════════════════════════════════════════════
+plot(showMom ? momScaled : na, "Momentum", color=color.new(up ? cBull : cBear, 80), style=plot.style_columns, histbase=50)
+
+pTrig = plot(signal, "Señal", color=color.new(cWhite, 60), linewidth=1)
+plot(wave, "Halo", color=color.new(waveCol, 80), linewidth=4)
+pWave = plot(wave, "Onda Maya", color=waveCol, linewidth=2)
+plot(wave, "Núcleo", color=color.new(cWhite, 35), linewidth=1)
+pMid  = plot(50, "mid", color=color.new(cWhite, 100), display=display.none)
+
+// Relleno degradado que se desvanece al 100% hacia el equilibrio (bull arriba / bear abajo)
+fill(pWave, pMid, top_value=100, bottom_value=50, top_color=color.new(cBull, fillOp), bottom_color=color.new(cBull, 100), title="Glow Bull")
+fill(pWave, pMid, top_value=50,  bottom_value=0,  top_color=color.new(cBear, 100), bottom_color=color.new(cBear, fillOp), title="Glow Bear")
+// Ribbon entre onda y señal
+fill(pWave, pTrig, color=color.new(waveCol, 86), title="Ribbon")
+
+// Conector para el híbrido (no se dibuja)
+plot(bridge, "Maya Wave 0-100", color=color.new(waveCol, 100), display=display.none)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NODOS (estilo Athenea: glow + núcleo) — alineados por location.absolute
+// ════════════════════════════════════════════════════════════════════════════
+// Nodo blanco: cruce de equilibrio (cambio de sesgo)
+bool cross50 = ta.cross(wave, 50.0)
+plotchar(showNode50 and cross50 ? 50.0 : na, "Cruce 50 glow", "•", location.absolute, color.new(cWhite, 62), size=size.normal)
+plotchar(showNode50 and cross50 ? 50.0 : na, "Cruce 50",      "•", location.absolute, color.new(cWhite, 0),  size=size.tiny)
+
+// Nodos de entrada (los que importan)
+plotchar(longNode  ? wave : na, "LONG glow",  "•", location.absolute, color.new(cBull, 55), size=size.large)
+plotchar(longNode  ? wave : na, "LONG",       "•", location.absolute, color.new(cBull, 0),  size=size.small)
+plotchar(shortNode ? wave : na, "SHORT glow", "•", location.absolute, color.new(cBear, 55), size=size.large)
+plotchar(shortNode ? wave : na, "SHORT",      "•", location.absolute, color.new(cBear, 0),  size=size.small)
+
+// Barridos de liquidez (sutiles, en los extremos)
+plotchar(showSweep and bslSweep ? 100.0 : na, "Sweep BSL", "•", location.absolute, color.new(cLiq, 35), size=size.tiny)
+plotchar(showSweep and sslSweep ? 0.0   : na, "Sweep SSL", "•", location.absolute, color.new(cLiq, 35), size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD
+// ════════════════════════════════════════════════════════════════════════════
+string zoneTxt = not validR ? "—" : wave >= 50 ? "Premium" : "Discount"
+color  zoneCol = not validR ? cMid : wave >= 50 ? cBear : cBull
+
+if showDash and barstate.islast
+    var table tb = table.new(position.top_right, 2, 3, bgcolor=color.new(#0b0e16, 12), frame_color=color.new(cMid, 60), frame_width=1, border_color=color.new(cMid, 82), border_width=1)
+    table.cell(tb, 0, 0, "Maya Osc · " + rangeTf, text_color=cLiq, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(tb, 1, 0, str.tostring(wave, "#"), text_color=cWhite, text_size=size.tiny, text_halign=text.align_right)
+    table.cell(tb, 0, 1, "Zona", text_color=cMid, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(tb, 1, 1, zoneTxt, text_color=zoneCol, text_size=size.tiny, text_halign=text.align_right)
+    table.cell(tb, 0, 2, "Momentum", text_color=cMid, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(tb, 1, 2, str.tostring(mom, "#.##") + "×ATR", text_color=mom >= 0 ? cBull : cBear, text_size=size.tiny, text_halign=text.align_right)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(longNode,  title="Maya Osc LONG",  message="Maya Osc: nodo LONG en {{ticker}}")
+alertcondition(shortNode, title="Maya Osc SHORT", message="Maya Osc: nodo SHORT en {{ticker}}")
+alertcondition(bslSweep,  title="Barrido BSL", message="Maya Osc: barrido BSL en {{ticker}}")
+alertcondition(sslSweep,  title="Barrido SSL", message="Maya Osc: barrido SSL en {{ticker}}")

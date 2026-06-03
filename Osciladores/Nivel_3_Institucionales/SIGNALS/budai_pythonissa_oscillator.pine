@@ -1,0 +1,337 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Pythonissa Oscillator
+//  Cerebro del pack Pythonissa (panel inferior). Onda cíclica híbrida
+//  (WaveTrend + Slope + COG) fusionada con flujo de capital (MFI + CMF + Delta),
+//  medias LSMA, detección de compresión, divergencias regulares/ocultas y tabla
+//  de presión de volumen. Responde: ¿LONG, SHORT o NO TRADE? — con criterio.
+//  (c) BudAI Capital® — Pine v6 · panel inferior
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Pythonissa Oscillator", shorttitle="BudAI · Pythonissa Osc", overlay=false, precision=1, max_labels_count=300, max_lines_count=300)
+
+// ════════════════ GRUPOS ════════════════
+G_PROF = "① Perfil"
+G_CORE = "② Onda Híbrida"
+G_MF   = "③ Flujo de Capital"
+G_LSMA = "④ Medias LSMA"
+G_SQZ  = "⑤ Compresión (Squeeze)"
+G_DIV  = "⑥ Divergencias"
+G_SIG  = "⑦ Señales"
+G_VP   = "⑧ Presión de Volumen"
+G_VIS  = "⑨ Estética"
+G_WM   = "✦ Marca de agua"
+
+// ════════════════ ① PERFIL ════════════════
+profile = input.string("Day Trader", "Perfil", options=["Scalper","Day Trader","Swing Trader"], group=G_PROF)
+src     = input.source(hlc3, "Fuente", group=G_PROF)
+
+bool isScalp = profile == "Scalper"
+bool isDay   = profile == "Day Trader"
+
+int   chanLen  = isScalp ? 7  : isDay ? 9  : 13
+int   avgLen   = isScalp ? 9  : isDay ? 12 : 21
+int   trigLen  = isScalp ? 3  : isDay ? 4  : 6
+int   slopeLen = isScalp ? 14 : isDay ? 20 : 30
+int   cogLen   = isScalp ? 9  : isDay ? 14 : 21
+int   obLvl    = isScalp ? 78 : isDay ? 80 : 82
+int   osLvl    = isScalp ? 22 : isDay ? 20 : 18
+
+// ════════════════ ② ONDA HÍBRIDA ════════════════
+useCOG = input.bool(true, "Mezclar COG (reduce retraso de giros)", group=G_CORE)
+
+// ════════════════ ③ FLUJO DE CAPITAL ════════════════
+showMF = input.bool(true, "Histograma Money Flow", group=G_MF)
+mfiLen = input.int(14, "MFI longitud", minval=2, group=G_MF, inline="mf")
+cmfLen = input.int(20, "CMF longitud", minval=2, group=G_MF, inline="mf")
+delLen = input.int(14, "Delta volumen longitud", minval=2, group=G_MF)
+mfWAvg = input.int(3,  "Suavizado de flujo", minval=1, maxval=10, group=G_MF)
+
+// ════════════════ ④ MEDIAS LSMA ════════════════
+showLsma = input.bool(true, "Mostrar LSMA 6 / 21 sobre la onda", group=G_LSMA)
+lsmaFast = input.int(6,  "LSMA rápida", minval=2, group=G_LSMA, inline="ls")
+lsmaSlow = input.int(21, "LSMA lenta", minval=3, group=G_LSMA, inline="ls")
+
+// ════════════════ ⑤ COMPRESIÓN (SQUEEZE) ════════════════
+showSqz = input.bool(true, "Detectar compresión (BB/KC)", group=G_SQZ)
+bbLen   = input.int(20, "Bollinger longitud", minval=5, group=G_SQZ, inline="bb")
+bbMult  = input.float(2.0, "Mult", step=0.1, group=G_SQZ, inline="bb")
+kcLen   = input.int(20, "Keltner longitud", minval=5, group=G_SQZ, inline="kc")
+kcMult  = input.float(1.5, "Mult", step=0.1, group=G_SQZ, inline="kc")
+
+// ════════════════ ⑥ DIVERGENCIAS (apagadas por defecto) ════════════════
+showDiv    = input.bool(false, "Mostrar divergencias regulares", group=G_DIV)
+showHidDiv = input.bool(false, "Mostrar divergencias ocultas", group=G_DIV)
+divPiv     = input.int(5, "Fuerza del pivote", minval=2, maxval=15, group=G_DIV)
+
+// ════════════════ ⑦ SEÑALES ════════════════
+showSig   = input.bool(true, "Círculos de entrada (giro en extremos)", group=G_SIG)
+reqFlow   = input.bool(true, "Validar con Money Flow a favor", group=G_SIG)
+showSqzS  = input.bool(true, "Disparo por liberación de compresión", group=G_SIG)
+showCross = input.bool(true, "Nodo blanco al cruzar 50", group=G_SIG)
+
+// ════════════════ ⑧ PRESIÓN DE VOLUMEN (dentro del dashboard) ════════════════
+showVP   = input.bool(true, "Incluir RVOL + presión compra/venta en dashboard", group=G_VP)
+rvolLen  = input.int(20, "RVOL longitud", minval=2, group=G_VP)
+
+// ════════════════ ⑨ ESTÉTICA ════════════════
+upCol    = input.color(#00ff88, "Alcista (verde neón)", group=G_VIS, inline="c")
+dnCol    = input.color(#ff1744, "Bajista (rojo neón)", group=G_VIS, inline="c")
+sigUpCol = input.color(#00ff88, "Señal compra", group=G_VIS, inline="sg")
+sigDnCol = input.color(#ff1744, "Señal venta", group=G_VIS, inline="sg")
+amberCol = input.color(#ffb300, "Acento (ámbar)", group=G_VIS, inline="a")
+violCol  = input.color(#b388ff, "Estructura (violeta)", group=G_VIS, inline="a")
+glow     = input.bool(true, "Relleno degradado (rayo)", group=G_VIS)
+shadeInt = input.int(72, "Opacidad del relleno", minval=50, maxval=95, group=G_VIS)
+showDash = input.bool(false, "Dashboard minimalista", group=G_VIS)
+dashPos  = input.string("Abajo Derecha", "Posición dashboard", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Mostrar firma BudAI", group=G_WM)
+wmCol  = input.color(color.new(#90a4ae, 45), "Color firma", group=G_WM)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NÚCLEO MATEMÁTICO
+// ════════════════════════════════════════════════════════════════════════════
+bool conf = barstate.isconfirmed
+
+// Normalizador a rango 0..100
+f_norm(float s, simple int len) =>
+    float lo = ta.lowest(s, len)
+    float hi = ta.highest(s, len)
+    hi - lo != 0 ? 100.0 * (s - lo) / (hi - lo) : 50.0
+
+// 1. WaveTrend
+float esaWT = ta.ema(src, chanLen)
+float deWT  = ta.ema(math.abs(src - esaWT), chanLen)
+float ciWT  = deWT == 0 ? 0.0 : (src - esaWT) / (0.015 * deWT)
+float wt1   = ta.ema(ciWT, avgLen)
+float wt2   = ta.sma(wt1, trigLen)
+
+// 2. Linear Regression Slope
+float lr0      = ta.linreg(src, slopeLen, 0)
+float lr1      = ta.linreg(src, slopeLen, 1)
+float slopeRaw = lr0 - lr1
+
+// 3. Center of Gravity
+float cogNum = 0.0
+float cogDen = 0.0
+for i = 0 to cogLen - 1
+    float p = nz(src[i])
+    cogNum := cogNum + (1 + i) * p
+    cogDen := cogDen + p
+float cogRaw = cogDen != 0 ? -cogNum / cogDen + (cogLen + 1) / 2.0 : 0.0
+
+// Fusión híbrida normalizada (0..100)
+float wtN    = f_norm(wt1, 100)
+float slopeN = f_norm(slopeRaw, 100)
+float cogN   = f_norm(cogRaw, 100)
+float osc    = useCOG ? (wtN * 0.5 + slopeN * 0.3 + cogN * 0.2) : (wtN * 0.6 + slopeN * 0.4)
+float trig   = f_norm(wt2, 100)
+
+bool isBull = osc >= trig
+
+// 4. Flujo de capital — MFI + CMF + Delta de volumen (0..100)
+float vol = nz(volume) == 0 ? 1.0 : volume
+float mfi = ta.mfi(hlc3, mfiLen)
+float mfm = (high - low) != 0 ? ((close - low) - (high - close)) / (high - low) : 0.0
+float cmf = math.sum(mfm * vol, cmfLen) / math.sum(vol, cmfLen)
+float cmfN = (cmf + 1.0) / 2.0 * 100.0
+float buyVol  = vol * (close - low)  / math.max(high - low, syminfo.mintick)
+float sellVol = vol * (high - close) / math.max(high - low, syminfo.mintick)
+float delRaw  = math.sum(buyVol - sellVol, delLen)
+float delTot  = math.sum(buyVol + sellVol, delLen)
+float delN    = delTot != 0 ? (delRaw / delTot + 1.0) / 2.0 * 100.0 : 50.0
+float mFlow   = ta.ema((mfi * 0.4 + cmfN * 0.3 + delN * 0.3), mfWAvg)
+
+bool flowUp = not reqFlow or mFlow >= 50
+bool flowDn = not reqFlow or mFlow <= 50
+
+// 5. LSMA sobre la onda
+float lsF = showLsma ? ta.linreg(osc, lsmaFast, 0) : na
+float lsS = showLsma ? ta.linreg(osc, lsmaSlow, 0) : na
+
+// 6. Compresión BB/KC
+float basisBB = ta.sma(src, bbLen)
+float devBB   = bbMult * ta.stdev(src, bbLen)
+float kcMa    = ta.sma(src, kcLen)
+float kcRng   = ta.sma(ta.tr(true), kcLen)
+bool  sqzOn   = (basisBB - devBB) > (kcMa - kcRng * kcMult) and (basisBB + devBB) < (kcMa + kcRng * kcMult)
+bool  released = sqzOn[1] and not sqzOn
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NIVELES FIBO — 0.382 / 0.5 / 0.618 (líneas continuas finas, RECORTADAS a la derecha)
+// ════════════════════════════════════════════════════════════════════════════
+showFib = input.bool(true, "Niveles Fibo 0.382 / 0.5 / 0.618", group=G_CORE)
+fibLen  = input.int(8, "Largo de las marcas Fibo (barras)", minval=2, maxval=40, group=G_CORE)
+
+// Helper: marca corta sólida anclada a la derecha
+f_fibMark(float lvl, color col) =>
+    var line ln = na
+    if showFib and barstate.islast
+        line.delete(ln)
+        ln := line.new(bar_index - fibLen, lvl, bar_index + 1, lvl, color=col, width=1, style=line.style_solid)
+
+f_fibMark(61.8, color.new(violCol, 45))
+f_fibMark(50.0, color.new(violCol, 30))
+f_fibMark(38.2, color.new(violCol, 45))
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PLOTS — onda rayo (línea fina + núcleo blanco + relleno fading)
+// ════════════════════════════════════════════════════════════════════════════
+// Histograma Money Flow de fondo (centrado en 50)
+plot(showMF ? mFlow : na, "Pythonissa Money Flow", color=mFlow >= 50 ? color.new(upCol, 78) : color.new(dnCol, 78), style=plot.style_columns, histbase=50)
+
+color waveCol = isBull ? upCol : dnCol
+pTrig = plot(trig, "Pythonissa Trigger", color=color.new(color.white, 55), linewidth=1)
+plot(osc, "Pythonissa Halo", color=color.new(waveCol, 86), linewidth=2)
+pOsc  = plot(osc, "Pythonissa Onda", color=waveCol, linewidth=1)
+pMid  = plot(50, "Pythonissa Centro", color=color.new(color.white, 100), display=display.none)
+
+// LSMA sobre la onda (finas)
+plot(showLsma ? lsF : na, "Pythonissa LSMA Rápida", color=color.new(amberCol, 35), linewidth=1)
+plot(showLsma ? lsS : na, "Pythonissa LSMA Lenta",  color=color.new(violCol, 35), linewidth=1)
+
+// Relleno degradado difuminado hacia el eje 50 (rayo)
+fill(pOsc, pMid, top_value=100, bottom_value=50, top_color=glow ? color.new(upCol, shadeInt) : na, bottom_color=glow ? color.new(upCol, 100) : na, title="Pythonissa Glow Superior")
+fill(pOsc, pMid, top_value=50, bottom_value=0,  top_color=glow ? color.new(dnCol, 100) : na, bottom_color=glow ? color.new(dnCol, shadeInt) : na, title="Pythonissa Glow Inferior")
+
+// Cinta entre onda y trigger
+fill(pOsc, pTrig, color=isBull ? color.new(upCol, 84) : color.new(dnCol, 84), title="Pythonissa Cinta")
+
+// Squeeze ON (ámbar sobre la línea 50)
+plotchar(showSqz and sqzOn ? 50 : na, "Pythonissa Squeeze", "•", location.absolute, color=amberCol, size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  SEÑALES — giro en extremos / liberación de compresión
+// ════════════════════════════════════════════════════════════════════════════
+bool entryBuy  = showSig and ta.crossover(osc, trig)  and osc < osLvl and flowUp and conf
+bool entrySell = showSig and ta.crossunder(osc, trig) and osc > obLvl and flowDn and conf
+bool sqzBuy    = showSqzS and released and osc > 50 and flowUp and conf
+bool sqzSell   = showSqzS and released and osc < 50 and flowDn and conf
+
+bool buySig  = entryBuy or sqzBuy
+bool sellSig = entrySell or sqzSell
+
+// Círculos diminutos con glow, alineados al valor de la onda (location.absolute)
+plotchar(buySig  ? osc : na, "Pythonissa Compra Glow", "•", location.absolute, color=color.new(sigUpCol, 60), size=size.small)
+plotchar(buySig  ? osc : na, "Pythonissa Compra",      "•", location.absolute, color=sigUpCol, size=size.tiny)
+plotchar(sellSig ? osc : na, "Pythonissa Venta Glow",  "•", location.absolute, color=color.new(sigDnCol, 60), size=size.small)
+plotchar(sellSig ? osc : na, "Pythonissa Venta",       "•", location.absolute, color=sigDnCol, size=size.tiny)
+
+// Nodo blanco al cruzar 50 (cambio de sesgo)
+bool cross50 = ta.cross(osc, 50)
+plotchar(showCross and cross50 ? 50 : na, "Pythonissa Cruce 50 Glow", "•", location.absolute, color=color.new(color.white, 60), size=size.small)
+plotchar(showCross and cross50 ? 50 : na, "Pythonissa Cruce 50",      "•", location.absolute, color=color.new(color.white, 0),  size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DIVERGENCIAS (regulares + ocultas) sobre la onda
+// ════════════════════════════════════════════════════════════════════════════
+float phOsc = ta.pivothigh(osc, divPiv, divPiv)
+float plOsc = ta.pivotlow(osc, divPiv, divPiv)
+
+var float prevPLosc   = na
+var float prevPLprice = na
+var float prevPHosc   = na
+var float prevPHprice = na
+
+bool regBull = false
+bool hidBull = false
+bool regBear = false
+bool hidBear = false
+
+if not na(plOsc)
+    float oAtP = osc[divPiv]
+    float pAtP = low[divPiv]
+    if not na(prevPLosc)
+        // Regular alcista: precio LL, oscilador HL
+        regBull := showDiv and pAtP < prevPLprice and oAtP > prevPLosc
+        // Oculta alcista: precio HL, oscilador LL
+        hidBull := showHidDiv and pAtP > prevPLprice and oAtP < prevPLosc
+    prevPLosc   := oAtP
+    prevPLprice := pAtP
+
+if not na(phOsc)
+    float oAtP = osc[divPiv]
+    float pAtP = high[divPiv]
+    if not na(prevPHosc)
+        // Regular bajista: precio HH, oscilador LH
+        regBear := showDiv and pAtP > prevPHprice and oAtP < prevPHosc
+        // Oculta bajista: precio LH, oscilador HH
+        hidBear := showHidDiv and pAtP < prevPHprice and oAtP > prevPHosc
+    prevPHosc   := oAtP
+    prevPHprice := pAtP
+
+// Marca la divergencia en el pivote (offset) con etiqueta sutil
+if regBull
+    label.new(bar_index - divPiv, osc[divPiv], "D", style=label.style_label_up, color=color.new(sigUpCol, 20), textcolor=color.black, size=size.tiny)
+if hidBull
+    label.new(bar_index - divPiv, osc[divPiv], "d", style=label.style_label_up, color=color.new(violCol, 25), textcolor=color.white, size=size.tiny)
+if regBear
+    label.new(bar_index - divPiv, osc[divPiv], "D", style=label.style_label_down, color=color.new(sigDnCol, 20), textcolor=color.white, size=size.tiny)
+if hidBear
+    label.new(bar_index - divPiv, osc[divPiv], "d", style=label.style_label_down, color=color.new(violCol, 25), textcolor=color.white, size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PRESIÓN DE VOLUMEN (cálculos para el dashboard)
+// ════════════════════════════════════════════════════════════════════════════
+float rvol    = ta.sma(volume, rvolLen) != 0 ? volume / ta.sma(volume, rvolLen) : 1.0
+float buyP    = math.sum(buyVol, delLen)
+float sellP   = math.sum(sellVol, delLen)
+float totP    = buyP + sellP
+float buyPct  = totP != 0 ? buyP / totP * 100.0 : 50.0
+float sellPct = 100.0 - buyPct
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD ÚNICO (lado derecho) — veredicto + presión de volumen
+// ════════════════════════════════════════════════════════════════════════════
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+
+var table d = table.new(f_pos(dashPos), 2, 7, bgcolor=color.new(#0b0e16, 12), frame_color=color.new(upCol, 55), frame_width=1, border_width=1)
+f_cell(r, k, v, vc) =>
+    table.cell(d, 0, r, k, text_color=color.new(#90a4ae, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
+
+if showDash and barstate.islast
+    string estado = osc >= obLvl ? "SOBRECOMPRA" : osc <= osLvl ? "SOBREVENTA" : isBull ? "Alcista" : "Bajista"
+    color  estCol = osc >= obLvl ? dnCol : osc <= osLvl ? upCol : isBull ? upCol : dnCol
+    string flowTxt = mFlow > 50 ? "ACUMULACIÓN" : "DISTRIBUCIÓN"
+    color  flowCol = mFlow > 50 ? upCol : dnCol
+    string sqzTxt  = sqzOn ? "COMPRIMIENDO" : released ? "LIBERADO" : "Normal"
+    color  sqzCol  = sqzOn ? amberCol : released ? color.white : color.new(#90a4ae, 0)
+    string verd = buySig ? "▲ LONG" : sellSig ? "▼ SHORT" : "NO TRADE"
+    color  verdCol = buySig ? sigUpCol : sellSig ? sigDnCol : color.new(#90a4ae, 0)
+
+    table.cell(d, 0, 0, "Pythonissa", text_color=color.white, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, str.tostring(osc, "#") + "/100", text_color=waveCol, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(1, "Estado", estado, estCol)
+    f_cell(2, "Flujo", flowTxt, flowCol)
+    f_cell(3, "Volatilidad", sqzTxt, sqzCol)
+    f_cell(4, "Veredicto", verd, verdCol)
+    if showVP
+        f_cell(5, "Presión", str.tostring(buyPct, "#") + "/" + str.tostring(sellPct, "#") + "%", buyPct >= 50 ? upCol : dnCol)
+        f_cell(6, "RVOL", str.tostring(rvol, "#.#") + "×", rvol >= 1.5 ? amberCol : color.new(#90a4ae, 0))
+    else
+        table.cell(d, 0, 5, "", text_size=size.tiny)
+        table.cell(d, 1, 5, "", text_size=size.tiny)
+        table.cell(d, 0, 6, "", text_size=size.tiny)
+        table.cell(d, 1, 6, "", text_size=size.tiny)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+var table wm = table.new(position.bottom_left, 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(buySig,  "Pythonissa COMPRA", "Pythonissa · LONG {{ticker}}")
+alertcondition(sellSig, "Pythonissa VENTA",  "Pythonissa · SHORT {{ticker}}")
+alertcondition(regBull or regBear, "Pythonissa Divergencia", "Pythonissa · Divergencia {{ticker}}")
+alertcondition(released, "Pythonissa Squeeze liberado", "Pythonissa · Compresión liberada {{ticker}}")

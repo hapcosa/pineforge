@@ -1,0 +1,346 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Pythonissa Signals
+//  Pieza overlay del pack Pythonissa. Trail multinube adaptativo, capas de
+//  premium/discount que abrazan el precio, Kumo, rastreador/cazador de tendencia,
+//  línea base, línea MTF, zonas de reversión, señales de entrada/salida, TP/SL
+//  automático y dashboard configurable. Lee la onda del Pythonissa Oscillator
+//  vía input.source para confluencia. Veredicto: LONG / SHORT / NO TRADE.
+//  (c) BudAI Capital® — Pine v6 · overlay
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Pythonissa Signals", shorttitle="BudAI · Pythonissa Sig", overlay=true, max_labels_count=300, max_lines_count=300)
+
+// ════════════════ GRUPOS ════════════════
+G_SIG  = "① Señales del Indicador"
+G_OVR  = "② Superposiciones"
+G_TP   = "③ Niveles TP / SL"
+G_ADV  = "④ Ajustes Avanzados"
+G_DASH = "⑤ Dashboard e IA"
+G_BRDG = "⑥ Confluencia (Oscilador)"
+G_COL  = "⑦ Colores"
+G_WM   = "✦ Marca de agua"
+
+// ════════════════ ① SEÑALES DEL INDICADOR ════════════════
+preset    = input.string("Ninguno", "Presets / Filtros", options=["Ninguno","Alto Volumen","Señales Fuertes","Filtro de Rango","Swing","Scalping"], group=G_SIG, tooltip="Filtros y perfiles que recalibran la sensibilidad y exigen condiciones extra para validar la señal.")
+sigMode   = input.string("Confirmado", "Modo de Señal", options=["Confirmado","Tiempo Real"], group=G_SIG, tooltip="Confirmado = sin repaint (espera cierre). Tiempo Real = reacciona en vivo.")
+showExit  = input.bool(true, "Señales de Salida del Oscilador", group=G_SIG)
+sens      = input.float(2.1, "Sensibilidad", minval=0.5, maxval=10.0, step=0.1, group=G_SIG, tooltip="Ancho del trail en ATR. Menor = más señales y más ruido.")
+tuner     = input.int(10, "Afinador de Señales", minval=1, maxval=50, group=G_SIG, tooltip="Suavizado de las nubes y el trail. Mayor = más fluido y limpio.")
+cndlMode  = input.string("Ninguno", "Coloreado de Velas", options=["Ninguno","Tendencia","Momentum"], group=G_SIG)
+
+// ════════════════ ② SUPERPOSICIONES ════════════════
+ovTrail   = input.bool(true,  "Trail Multinube (premium/discount)", group=G_OVR)
+ovRev     = input.bool(true,  "Zonas de Reversión (agotamiento)", group=G_OVR)
+ovKumo    = input.bool(false, "Nube Kumo (Ichimoku)", group=G_OVR)
+ovTracer  = input.bool(false, "Rastreador de Tendencia (EMA rápida)", group=G_OVR)
+ovCatcher = input.bool(true,  "Cazador de Tendencia (trail)", group=G_OVR)
+ovLine    = input.bool(true,  "Línea Pythonissa (base)", group=G_OVR)
+ovMTF     = input.bool(false, "Línea MTF", group=G_OVR)
+mtfTf     = input.timeframe("60", "Temporalidad MTF", group=G_OVR)
+
+// ════════════════ ③ NIVELES TP / SL ════════════════
+tpMode  = input.string("Ninguno", "Anclaje TP / SL", options=["Ninguno","Trail","Bandas","Línea"], group=G_TP)
+tpDist  = input.float(2.5, "Distancia TP ×ATR", minval=0.5, step=0.1, group=G_TP)
+tpBars  = input.int(25, "Largo de líneas (barras)", minval=5, maxval=120, group=G_TP)
+
+// ════════════════ ④ AJUSTES AVANZADOS ════════════════
+basisLen = input.int(34, "Longitud de la base", minval=2, group=G_ADV)
+atrLen   = input.int(14, "Longitud ATR", minval=1, group=G_ADV)
+rgLen    = input.int(50, "Rango premium/discount", minval=10, group=G_ADV)
+erLen    = input.int(14, "Longitud del régimen (ER)", minval=2, group=G_ADV)
+pilotSens= input.string("Auto", "Sensibilidad del Piloto", options=["Auto","Manual"], group=G_ADV, tooltip="Auto adapta la sensibilidad a la volatilidad reciente.")
+
+// ════════════════ ⑤ DASHBOARD E IA ════════════════
+showDash = input.bool(true, "Dashboard Inteligente", group=G_DASH)
+dashLoc  = input.string("Abajo Derecha", "Ubicación", options=["Arriba Derecha","Abajo Derecha","Arriba Izquierda","Abajo Izquierda"], group=G_DASH)
+dashSize = input.string("Pequeño", "Tamaño", options=["Pequeño","Normal","Grande"], group=G_DASH)
+dashBg   = input.color(color.new(#0b0e16, 12), "Fondo del dashboard", group=G_DASH)
+rTrend   = input.bool(true,  "Dirección de Tendencia", group=G_DASH, inline="r1")
+rReg     = input.bool(true,  "Régimen de Mercado", group=G_DASH, inline="r1")
+rVolat   = input.bool(false, "Volatilidad", group=G_DASH, inline="r2")
+rSqz     = input.bool(false, "Compresión (Squeeze)", group=G_DASH, inline="r2")
+rVolSent = input.bool(false, "Sentimiento de Volumen", group=G_DASH, inline="r3")
+rZone    = input.bool(true,  "Zona (Premium/Discount)", group=G_DASH, inline="r3")
+rSession = input.bool(false, "Sesión activa", group=G_DASH)
+
+// ════════════════ ⑥ CONFLUENCIA ════════════════
+useExt  = input.bool(false, "Validar con el Pythonissa Oscillator", group=G_BRDG, tooltip="Conecta abajo la onda 0-100 del oscilador. Long sólo con onda ≥ 50, short ≤ 50.")
+extOsc  = input.source(close, "Conectar onda 0-100 del Oscilador", group=G_BRDG)
+
+// ════════════════ ⑦ COLORES ════════════════
+upCol    = input.color(#00ff88, "Alcista (verde neón)", group=G_COL, inline="c")
+dnCol    = input.color(#ff1744, "Bajista (rojo neón)", group=G_COL, inline="c")
+exitUpC  = input.color(#2962ff, "Salida alcista", group=G_COL, inline="x")
+exitDnC  = input.color(#ff9800, "Salida bajista", group=G_COL, inline="x")
+amberCol = input.color(#ffb300, "Acento (ámbar)", group=G_COL, inline="a")
+violCol  = input.color(#b388ff, "MTF / estructura (violeta)", group=G_COL, inline="a")
+cloudInt = input.int(86, "Opacidad base de nubes", minval=70, maxval=97, group=G_COL)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Mostrar firma BudAI", group=G_WM)
+wmCol  = input.color(color.new(#90a4ae, 45), "Color firma", group=G_WM)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NÚCLEO — SENSIBILIDAD ADAPTATIVA + TRAIL + NUBES QUE ABRAZAN EL PRECIO
+// ════════════════════════════════════════════════════════════════════════════
+bool conf = sigMode == "Confirmado" ? barstate.isconfirmed : true
+float a   = ta.atr(atrLen)
+float src = hl2
+
+// Factor de preset sobre la sensibilidad
+float pf = preset == "Scalping" ? 0.7 : preset == "Swing" ? 1.5 : 1.0
+// Piloto automático: ensancha el trail cuando la volatilidad relativa sube
+float volRatio = ta.atr(atrLen) / math.max(ta.atr(atrLen * 3), syminfo.mintick)
+float autoAdj  = pilotSens == "Auto" ? math.min(math.max(volRatio, 0.7), 1.6) : 1.0
+float effSens  = sens * pf * autoAdj
+
+// Trail tipo trailing-stop adaptativo (Cazador de Tendencia)
+float upRaw = src - effSens * a
+float dnRaw = src + effSens * a
+var float upLine = upRaw
+var float dnLine = dnRaw
+upLine := close[1] > upLine[1] ? math.max(upRaw, nz(upLine[1])) : upRaw
+dnLine := close[1] < dnLine[1] ? math.min(dnRaw, nz(dnLine[1])) : dnRaw
+
+var int dir = 1
+dir := close > nz(dnLine[1]) ? 1 : close < nz(upLine[1]) ? -1 : nz(dir[1], 1)
+
+int   smoothLen = math.max(1, math.round(tuner / 3.0))
+float trail  = ta.ema(dir == 1 ? upLine : dnLine, smoothLen)
+bool  isBull = dir == 1
+bool  flipUp = dir == 1 and dir[1] == -1
+bool  flipDn = dir == -1 and dir[1] == 1
+
+// Base suave (Línea Pythonissa) y ancho de banda suavizado (abraza el precio)
+float baseLine = ta.ema(src, basisLen)
+float bw = ta.ema(a, math.max(2, tuner)) * 0.7
+float u1 = baseLine + bw
+float u2 = baseLine + bw * 1.8
+float u3 = baseLine + bw * 2.6
+float l1 = baseLine - bw
+float l2 = baseLine - bw * 1.8
+float l3 = baseLine - bw * 2.6
+
+// Régimen (Efficiency Ratio) + rango premium/discount
+float change   = math.abs(close - close[erLen])
+float vola     = math.sum(math.abs(close - close[1]), erLen)
+float er       = vola != 0 ? change / vola : 0.0
+float erMin    = 0.25
+bool  trending = er >= erMin
+
+float rgHi = ta.highest(high, rgLen)
+float rgLo = ta.lowest(low, rgLen)
+float eq   = (rgHi + rgLo) / 2.0
+bool  premium  = close > eq
+bool  discount = close < eq
+
+// Squeeze + sentimiento de volumen (para el dashboard)
+float basisBB = ta.sma(close, 20)
+float devBB   = 2.0 * ta.stdev(close, 20)
+float kcRng   = ta.sma(ta.tr(true), 20)
+bool  sqzOn   = (basisBB - devBB) > (basisBB - kcRng * 1.5) and (basisBB + devBB) < (basisBB + kcRng * 1.5)
+float volM    = (high - low) != 0 ? ((close - low) - (high - close)) / (high - low) : 0.0
+float volSent = math.sum(volM * nz(volume), 14) / math.max(math.sum(nz(volume), 14), 1)
+float rvol    = ta.sma(volume, 20) != 0 ? volume / ta.sma(volume, 20) : 1.0
+
+// Confluencia con el oscilador
+bool oscBull = not useExt or extOsc >= 50
+bool oscBear = not useExt or extOsc <= 50
+
+// ════════════════════════════════════════════════════════════════════════════
+//  FILTROS / PRESETS — condiciones extra para validar la señal
+// ════════════════════════════════════════════════════════════════════════════
+bool fVol    = preset != "Alto Volumen"    or rvol >= 1.2
+bool fStrong = preset != "Señales Fuertes" or trending
+bool fRange  = preset != "Filtro de Rango" or trending
+bool passF   = fVol and fStrong and fRange
+
+// ════════════════════════════════════════════════════════════════════════════
+//  KUMO (Ichimoku) — desplazado
+// ════════════════════════════════════════════════════════════════════════════
+float conv  = (ta.highest(high, 9)  + ta.lowest(low, 9))  / 2.0
+float baseI = (ta.highest(high, 26) + ta.lowest(low, 26)) / 2.0
+float spanA = (conv + baseI) / 2.0
+float spanB = (ta.highest(high, 52) + ta.lowest(low, 52)) / 2.0
+
+pSpanA = plot(ovKumo ? spanA : na, "Pythonissa Kumo A", color=color.new(upCol, 75), offset=26, linewidth=1)
+pSpanB = plot(ovKumo ? spanB : na, "Pythonissa Kumo B", color=color.new(dnCol, 75), offset=26, linewidth=1)
+fill(pSpanA, pSpanB, color=ovKumo ? color.new(spanA >= spanB ? upCol : dnCol, 92) : na, title="Pythonissa Kumo")
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NUBES EN CAPAS — rojo arriba (resistencia), verde abajo (soporte)
+// ════════════════════════════════════════════════════════════════════════════
+pBasis = plot(baseLine, "Pythonissa Ancla", color=na, display=display.none)
+pu1 = plot(ovTrail ? u1 : na, "Pythonissa Banda Sup 1", color=color.new(dnCol, 88), linewidth=1)
+pu2 = plot(ovTrail ? u2 : na, "Pythonissa Banda Sup 2", color=color.new(dnCol, 93), linewidth=1)
+pu3 = plot(ovTrail ? u3 : na, "Pythonissa Banda Sup 3", color=color.new(dnCol, 96), linewidth=1)
+pl1 = plot(ovTrail ? l1 : na, "Pythonissa Banda Inf 1", color=color.new(upCol, 88), linewidth=1)
+pl2 = plot(ovTrail ? l2 : na, "Pythonissa Banda Inf 2", color=color.new(upCol, 93), linewidth=1)
+pl3 = plot(ovTrail ? l3 : na, "Pythonissa Banda Inf 3", color=color.new(upCol, 96), linewidth=1)
+
+fill(pBasis, pu1, color=ovTrail ? color.new(dnCol, cloudInt) : na, title="Pythonissa Nube Sup 1")
+fill(pu1, pu2, color=ovTrail ? color.new(dnCol, math.min(cloudInt + 5, 98)) : na, title="Pythonissa Nube Sup 2")
+fill(pu2, pu3, color=ovTrail ? color.new(dnCol, math.min(cloudInt + 9, 99)) : na, title="Pythonissa Nube Sup 3")
+fill(pBasis, pl1, color=ovTrail ? color.new(upCol, cloudInt) : na, title="Pythonissa Nube Inf 1")
+fill(pl1, pl2, color=ovTrail ? color.new(upCol, math.min(cloudInt + 5, 98)) : na, title="Pythonissa Nube Inf 2")
+fill(pl2, pl3, color=ovTrail ? color.new(upCol, math.min(cloudInt + 9, 99)) : na, title="Pythonissa Nube Inf 3")
+
+// Línea Pythonissa (base) coloreada por sesgo
+color baseCol = isBull ? upCol : dnCol
+plot(ovLine ? baseLine : na, "Pythonissa Línea", color=color.new(baseCol, 35), linewidth=1)
+
+// Cazador de Tendencia (trail) — fino + halo suave
+color trailCol = isBull ? upCol : dnCol
+plot(ovCatcher ? trail : na, "Pythonissa Cazador Halo", color=color.new(trailCol, 82), linewidth=2)
+plot(ovCatcher ? trail : na, "Pythonissa Cazador", color=trailCol, linewidth=1)
+
+// Rastreador de Tendencia (EMA rápida)
+float tracer = ta.ema(close, math.max(2, math.round(basisLen / 3.0)))
+plot(ovTracer ? tracer : na, "Pythonissa Rastreador", color=color.new(amberCol, 25), linewidth=1)
+
+// Línea MTF
+float mtfBase = request.security(syminfo.tickerid, mtfTf, baseLine, lookahead=barmerge.lookahead_off)
+plot(ovMTF ? mtfBase : na, "Pythonissa MTF", color=color.new(violCol, 20), linewidth=1)
+
+// Coloreado de velas
+color cndlCol = cndlMode == "Tendencia" ? (isBull ? upCol : dnCol) : cndlMode == "Momentum" ? (close > tracer ? upCol : dnCol) : na
+barcolor(cndlCol, title="Pythonissa Velas")
+
+// ════════════════════════════════════════════════════════════════════════════
+//  SEÑALES — entrada (giro del trail) + salida + zonas de reversión
+// ════════════════════════════════════════════════════════════════════════════
+bool buySig  = flipUp and oscBull and passF and conf
+bool sellSig = flipDn and oscBear and passF and conf
+
+// Salidas (ML Oscillator Exit): cruce del trail o giro de la onda externa
+bool oscExitL = useExt and ta.crossunder(extOsc, 50)
+bool oscExitS = useExt and ta.crossover(extOsc, 50)
+bool exitLong  = showExit and isBull[1] and (ta.crossunder(close, trail) or oscExitL) and conf
+bool exitShort = showExit and not isBull[1] and (ta.crossover(close, trail) or oscExitS) and conf
+
+// Zonas de reversión = precio pincha la capa externa (agotamiento)
+bool revTop = ovRev and high >= u3 and high[1] < u3[1] and conf
+bool revBot = ovRev and low  <= l3 and low[1]  > l3[1] and conf
+
+// Entradas — círculos diminutos con glow, anclados al precio
+plotchar(buySig  ? low : na,  "Pythonissa Compra Glow", "•", location.absolute, color=color.new(upCol, 60), size=size.small)
+plotchar(buySig  ? low : na,  "Pythonissa Compra",      "•", location.absolute, color=upCol, size=size.tiny)
+plotchar(sellSig ? high : na, "Pythonissa Venta Glow",  "•", location.absolute, color=color.new(dnCol, 60), size=size.small)
+plotchar(sellSig ? high : na, "Pythonissa Venta",       "•", location.absolute, color=dnCol, size=size.tiny)
+
+// Salidas — punto pequeño con color de salida
+plotchar(exitLong  ? high : na, "Pythonissa Salida Long",  "•", location.absolute, color=color.new(exitDnC, 30), size=size.tiny)
+plotchar(exitShort ? low : na,  "Pythonissa Salida Short", "•", location.absolute, color=color.new(exitUpC, 30), size=size.tiny)
+
+// Zonas de reversión — acento ámbar
+plotchar(revTop ? high : na, "Pythonissa Reversión Techo", "•", location.absolute, color=color.new(amberCol, 25), size=size.tiny)
+plotchar(revBot ? low : na,  "Pythonissa Reversión Piso",  "•", location.absolute, color=color.new(amberCol, 25), size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  TP / SL AUTOMÁTICO — anclado según el modo elegido
+// ════════════════════════════════════════════════════════════════════════════
+var line eLine   = na
+var line slLine  = na
+var line tp1Line = na
+var line tp2Line = na
+
+if tpMode != "Ninguno" and (buySig or sellSig)
+    line.delete(eLine)
+    line.delete(slLine)
+    line.delete(tp1Line)
+    line.delete(tp2Line)
+    bool  lng    = buySig
+    float entry  = close
+    float slBand = lng ? l1 : u1
+    float slRef  = tpMode == "Trail" ? trail : tpMode == "Línea" ? baseLine : slBand
+    float tp1    = lng ? entry + a * tpDist     : entry - a * tpDist
+    float tp2    = lng ? entry + a * tpDist * 2 : entry - a * tpDist * 2
+    int   x2     = bar_index + tpBars
+    eLine   := line.new(bar_index, entry, x2, entry, color=color.new(color.white, 30), style=line.style_dotted)
+    slLine  := line.new(bar_index, slRef, x2, slRef, color=color.new(dnCol, 20), width=1)
+    tp1Line := line.new(bar_index, tp1, x2, tp1, color=color.new(upCol, 20), width=1)
+    tp2Line := line.new(bar_index, tp2, x2, tp2, color=color.new(upCol, 45), width=1)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD INTELIGENTE — único, configurable (filas dinámicas)
+// ════════════════════════════════════════════════════════════════════════════
+f_pos(s) => s == "Arriba Derecha" ? position.top_right : s == "Abajo Derecha" ? position.bottom_right : s == "Arriba Izquierda" ? position.top_left : position.bottom_left
+f_sz(s) => s == "Grande" ? size.normal : s == "Normal" ? size.small : size.tiny
+
+bool inSession = not na(time(timeframe.period, "0000-2359"))
+
+var table d = na
+var int prevRows = -1
+if showDash and barstate.islast
+    int n = 2
+    n += rTrend ? 1 : 0
+    n += rReg ? 1 : 0
+    n += rZone ? 1 : 0
+    n += rVolat ? 1 : 0
+    n += rSqz ? 1 : 0
+    n += rVolSent ? 1 : 0
+    n += rSession ? 1 : 0
+    if na(d) or n != prevRows
+        if not na(d)
+            table.delete(d)
+        d := table.new(f_pos(dashLoc), 2, n, bgcolor=dashBg, frame_color=color.new(upCol, 55), frame_width=1, border_width=1)
+        prevRows := n
+    table.clear(d, 0, 0, 1, n - 1)
+
+    string verd    = buySig ? "▲ LONG" : sellSig ? "▼ SHORT" : "NO TRADE"
+    color  verdCol = buySig ? upCol : sellSig ? dnCol : color.new(#90a4ae, 0)
+    table.cell(d, 0, 0, "Pythonissa", text_color=color.white, text_size=f_sz(dashSize), text_halign=text.align_left)
+    table.cell(d, 1, 0, isBull ? "ALCISTA" : "BAJISTA", text_color=isBull ? upCol : dnCol, text_size=f_sz(dashSize), text_halign=text.align_right)
+
+    int r = 1
+    if rTrend
+        table.cell(d, 0, r, "Tendencia", text_color=color.new(#90a4ae, 0), text_size=f_sz(dashSize), text_halign=text.align_left)
+        table.cell(d, 1, r, isBull ? "Alcista" : "Bajista", text_color=isBull ? upCol : dnCol, text_size=f_sz(dashSize), text_halign=text.align_right)
+        r += 1
+    if rReg
+        table.cell(d, 0, r, "Régimen", text_color=color.new(#90a4ae, 0), text_size=f_sz(dashSize), text_halign=text.align_left)
+        table.cell(d, 1, r, trending ? "TENDENCIA" : "RANGO", text_color=trending ? amberCol : color.new(#90a4ae, 0), text_size=f_sz(dashSize), text_halign=text.align_right)
+        r += 1
+    if rZone
+        table.cell(d, 0, r, "Zona", text_color=color.new(#90a4ae, 0), text_size=f_sz(dashSize), text_halign=text.align_left)
+        table.cell(d, 1, r, premium ? "PREMIUM" : discount ? "DISCOUNT" : "EQUILIBRIO", text_color=premium ? dnCol : discount ? upCol : color.new(#90a4ae, 0), text_size=f_sz(dashSize), text_halign=text.align_right)
+        r += 1
+    if rVolat
+        table.cell(d, 0, r, "Volatilidad", text_color=color.new(#90a4ae, 0), text_size=f_sz(dashSize), text_halign=text.align_left)
+        table.cell(d, 1, r, str.tostring(a, format.mintick), text_color=color.new(color.white, 0), text_size=f_sz(dashSize), text_halign=text.align_right)
+        r += 1
+    if rSqz
+        table.cell(d, 0, r, "Compresión", text_color=color.new(#90a4ae, 0), text_size=f_sz(dashSize), text_halign=text.align_left)
+        table.cell(d, 1, r, sqzOn ? "ON" : "OFF", text_color=sqzOn ? amberCol : color.new(#90a4ae, 0), text_size=f_sz(dashSize), text_halign=text.align_right)
+        r += 1
+    if rVolSent
+        table.cell(d, 0, r, "Vol. Sentimiento", text_color=color.new(#90a4ae, 0), text_size=f_sz(dashSize), text_halign=text.align_left)
+        table.cell(d, 1, r, volSent >= 0 ? "COMPRA" : "VENTA", text_color=volSent >= 0 ? upCol : dnCol, text_size=f_sz(dashSize), text_halign=text.align_right)
+        r += 1
+    if rSession
+        table.cell(d, 0, r, "Sesión", text_color=color.new(#90a4ae, 0), text_size=f_sz(dashSize), text_halign=text.align_left)
+        table.cell(d, 1, r, inSession ? "ACTIVA" : "—", text_color=inSession ? upCol : color.new(#90a4ae, 0), text_size=f_sz(dashSize), text_halign=text.align_right)
+        r += 1
+
+    table.cell(d, 0, n - 1, "Veredicto", text_color=color.white, bgcolor=color.new(#1b2030, 0), text_size=f_sz(dashSize), text_halign=text.align_left)
+    table.cell(d, 1, n - 1, verd, text_color=verdCol, bgcolor=color.new(#1b2030, 0), text_size=f_sz(dashSize), text_halign=text.align_right)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+var table wm = table.new(position.bottom_left, 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(buySig,  "Pythonissa COMPRA", "Pythonissa Signals · LONG {{ticker}}")
+alertcondition(sellSig, "Pythonissa VENTA",  "Pythonissa Signals · SHORT {{ticker}}")
+alertcondition(exitLong or exitShort, "Pythonissa SALIDA", "Pythonissa Signals · Cierre {{ticker}}")
+alertcondition(revTop or revBot, "Pythonissa REVERSIÓN", "Pythonissa Signals · Agotamiento {{ticker}}")
