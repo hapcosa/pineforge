@@ -1,0 +1,220 @@
+//@version=6
+// ██████╗ ██╗   ██╗████████╗██╗  ██╗ ██████╗ ███╗   ██╗██╗███████╗███████╗ █████╗ ██╗
+// ██╔══██╗╚██╗ ██╔╝╚══██╔══╝██║  ██║██╔═══██╗████╗  ██║██║██╔════╝██╔════╝██╔══██╗██║
+// ██████╔╝ ╚████╔╝    ██║   ███████║██║   ██║██╔██╗ ██║██║███████╗███████╗███████║██║
+// ██╔═══╝   ╚██╔╝     ██║   ██╔══██║██║   ██║██║╚██╗██║██║╚════██║╚════██║██╔══██║██║
+// ██║        ██║      ██║   ██║  ██║╚██████╔╝██║ ╚████║██║███████║███████║██║  ██║██║
+// ╚═╝        ╚═╝      ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝╚══════╝╚══════╝╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  PythonissAI® - Ancla · VWAP
+//  El imán institucional. VWAP anclado (sesión/semana/mes) con bandas de
+//  desviación + Perfil de Volumen (POC / Área de Valor VAH-VAL) que revela
+//  dónde se acumuló la liquidez real. Bandas en gradiente neón, líneas finísimas,
+//  perfil difuso. Exporta posición vs VWAP y POC (display.none) para la confluencia.
+//  (c) PythonissAI® — Pine v6 · overlay
+// ────────────────────────────────────────────────────────────────────────────
+indicator("PythonissAI® - Ancla · VWAP", shorttitle="Ancla", overlay=true, max_boxes_count=100, max_lines_count=100, max_labels_count=100)
+
+// ════════════════ GRUPOS ════════════════
+G_VW  = "① VWAP anclado"
+G_VP  = "② Perfil de Volumen"
+G_VIS = "③ Estética"
+G_DASH= "④ Dashboard"
+G_COL = "⑤ Paleta"
+G_WM  = "✦ Marca de agua"
+
+// ════════════════ ① VWAP ════════════════
+anchorSel = input.string("Sesión", "Anclaje", options=["Sesión","Semana","Mes"], group=G_VW, tooltip="Desde dónde reinicia el VWAP. La sesión/semana/mes son los anclajes que vigila la mesa institucional.")
+showBands = input.bool(true, "Bandas de desviación", group=G_VW)
+mult1     = input.float(1.0, "Desviación 1 ×σ", minval=0.5, step=0.1, group=G_VW, inline="sd")
+mult2     = input.float(2.0, "Desviación 2 ×σ", minval=0.5, step=0.1, group=G_VW, inline="sd")
+
+// ════════════════ ② PERFIL DE VOLUMEN ════════════════
+vpOn    = input.bool(true, "Perfil de Volumen", group=G_VP)
+vpLook  = input.int(200, "Velas del perfil", minval=20, group=G_VP)
+vpBins  = input.int(24, "Resolución (bins)", minval=6, maxval=50, group=G_VP)
+vpWidth = input.int(55, "Ancho del perfil (velas)", minval=10, maxval=150, group=G_VP)
+showVA  = input.bool(true, "POC + Área de Valor (VAH/VAL)", group=G_VP)
+
+// ════════════════ ③ ESTÉTICA ════════════════
+showDash = input.bool(true, "Dashboard", group=G_VIS)
+dashLoc  = input.string("Arriba Izquierda", "Ubicación dashboard", options=["Arriba Derecha","Abajo Derecha","Arriba Izquierda","Abajo Izquierda"], group=G_VIS)
+dashBg   = input.color(color.new(#0b0e16, 10), "Fondo dashboard", group=G_VIS)
+
+// ════════════════ ⑤ PALETA ════════════════
+palette = input.string("Menta vs Coral", "Paleta Bull/Bear", options=["Cyan vs Magenta","Oro vs Violeta","Verde Lima vs Naranja","Blanco vs Carbón","Menta vs Coral","Eléctrico BudAI","Aqua vs Rubí"], group=G_COL)
+cVwap  = input.color(#ffb300, "VWAP (ámbar)", group=G_COL)
+cPoc   = input.color(#ffea00, "POC (amarillo)", group=G_COL)
+cNeu   = input.color(#90a4ae, "Neutral (gris)", group=G_COL)
+cWhite = input.color(#ffffff, "Núcleo (blanco)", group=G_COL)
+
+color cBull = palette == "Oro vs Violeta" ? #ffe600 : palette == "Verde Lima vs Naranja" ? #39ff14 : palette == "Blanco vs Carbón" ? #ffffff : palette == "Menta vs Coral" ? #00ffc4 : palette == "Eléctrico BudAI" ? #00e5ff : palette == "Aqua vs Rubí" ? #18ffff : palette == "Cyan vs Magenta" ? #00f0ff : #00ffc4
+color cBear = palette == "Oro vs Violeta" ? #9d00ff : palette == "Verde Lima vs Naranja" ? #ff4500 : palette == "Blanco vs Carbón" ? #4a4a4a : palette == "Menta vs Coral" ? #ff5757 : palette == "Eléctrico BudAI" ? #ff1e6e : palette == "Aqua vs Rubí" ? #ff1744 : palette == "Cyan vs Magenta" ? #ff007a : #ff5757
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Firma PythonissAI", group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 30), "Color firma", group=G_WM)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NÚCLEO — VWAP ANCLADO + BANDAS
+// ════════════════════════════════════════════════════════════════════════════
+string anchorTf = anchorSel == "Semana" ? "W" : anchorSel == "Mes" ? "M" : "D"
+bool   newP = timeframe.change(anchorTf)
+
+var float sPV  = 0.0
+var float sV   = 0.0
+var float sP2V = 0.0
+if newP
+    sPV  := 0.0
+    sV   := 0.0
+    sP2V := 0.0
+float tp = hlc3
+float vv = nz(volume)
+sPV  := sPV + tp * vv
+sV   := sV + vv
+sP2V := sP2V + tp * tp * vv
+
+float vwap = sV > 0 ? sPV / sV : tp
+float varc = sV > 0 ? math.max(sP2V / sV - vwap * vwap, 0.0) : 0.0
+float sd   = math.sqrt(varc)
+float up1 = vwap + mult1 * sd
+float dn1 = vwap - mult1 * sd
+float up2 = vwap + mult2 * sd
+float dn2 = vwap - mult2 * sd
+
+bool  above = close >= vwap
+color vwCol = above ? cBull : cBear
+
+// ════════════════════════════════════════════════════════════════════════════
+//  VWAP estilo rayo + bandas en GRADIENTE (se desvanecen)
+// ════════════════════════════════════════════════════════════════════════════
+plot(vwap, "VWAP halo", color=color.new(cVwap, 80), linewidth=3)
+pVw = plot(vwap, "VWAP", color=color.new(cVwap, 0), linewidth=1)
+plot(vwap, "VWAP núcleo", color=color.new(cWhite, 45), linewidth=1)
+
+pU1 = plot(showBands ? up1 : na, "σ1 sup", color=color.new(cBear, 100))
+pL1 = plot(showBands ? dn1 : na, "σ1 inf", color=color.new(cBull, 100))
+pU2 = plot(showBands ? up2 : na, "σ2 sup", color=color.new(cBear, 100))
+pL2 = plot(showBands ? dn2 : na, "σ2 inf", color=color.new(cBull, 100))
+// Premium (sobre VWAP) se desvanece hacia arriba · Discount (bajo VWAP) hacia abajo
+fill(pVw, pU2, top_value=up2, bottom_value=vwap, top_color=color.new(cBear, 100), bottom_color=color.new(cBear, 84), title="Premium")
+fill(pVw, pL2, top_value=vwap, bottom_value=dn2, top_color=color.new(cBull, 84), bottom_color=color.new(cBull, 100), title="Discount")
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PERFIL DE VOLUMEN (POC / VAH / VAL) — recalcado en la última barra
+// ════════════════════════════════════════════════════════════════════════════
+var array<box> vpBoxes = array.new_box()
+var line  pocLn = na
+var line  vahLn = na
+var line  valLn = na
+var label pocLb = na
+var float pocPrice = na
+var float vahPrice = na
+var float valPrice = na
+
+if vpOn and barstate.islast
+    if array.size(vpBoxes) > 0
+        for i = 0 to array.size(vpBoxes) - 1
+            box.delete(array.get(vpBoxes, i))
+        array.clear(vpBoxes)
+    float hi = ta.highest(high, vpLook)
+    float lo = ta.lowest(low, vpLook)
+    float bs = (hi - lo) / vpBins
+    if bs > 0
+        array<float> bv = array.new_float(vpBins, 0.0)
+        for i = 0 to vpLook - 1
+            float p = hlc3[i]
+            float v = nz(volume[i])
+            int idx = int(math.floor((p - lo) / bs))
+            idx := math.max(0, math.min(vpBins - 1, idx))
+            array.set(bv, idx, array.get(bv, idx) + v)
+        float maxv = 0.0
+        int   pocIdx = 0
+        float totv = 0.0
+        for i = 0 to vpBins - 1
+            float v = array.get(bv, i)
+            totv := totv + v
+            if v > maxv
+                maxv := v
+                pocIdx := i
+        int rightX = bar_index + 2
+        for i = 0 to vpBins - 1
+            float v = array.get(bv, i)
+            float ratio = maxv > 0 ? v / maxv : 0.0
+            int   leftX = rightX - int(math.round(ratio * vpWidth))
+            float top = lo + (i + 1) * bs
+            float bot = lo + i * bs
+            color c = i == pocIdx ? color.new(cPoc, 55) : color.new(cVwap, 88)
+            box b = box.new(leftX, top, rightX, bot, border_color=color.new(cVwap, 100), border_width=0, bgcolor=c)
+            array.push(vpBoxes, b)
+        // POC + Área de Valor (70%)
+        pocPrice := lo + (pocIdx + 0.5) * bs
+        float target = totv * 0.7
+        float acc = array.get(bv, pocIdx)
+        int up = pocIdx
+        int dn = pocIdx
+        for _i = 0 to vpBins - 1
+            if acc >= target
+                break
+            float vUp = up < vpBins - 1 ? array.get(bv, up + 1) : -1.0
+            float vDn = dn > 0 ? array.get(bv, dn - 1) : -1.0
+            if vUp < 0 and vDn < 0
+                break
+            if vUp >= vDn
+                up := up + 1
+                acc := acc + vUp
+            else
+                dn := dn - 1
+                acc := acc + vDn
+        vahPrice := lo + (up + 1) * bs
+        valPrice := lo + dn * bs
+        if showVA
+            line.delete(pocLn)
+            line.delete(vahLn)
+            line.delete(valLn)
+            label.delete(pocLb)
+            pocLn := line.new(bar_index - vpLook, pocPrice, bar_index + 2, pocPrice, color=color.new(cPoc, 20), width=1)
+            vahLn := line.new(bar_index - vpLook, vahPrice, bar_index + 2, vahPrice, color=color.new(cVwap, 55), width=1, style=line.style_dotted)
+            valLn := line.new(bar_index - vpLook, valPrice, bar_index + 2, valPrice, color=color.new(cVwap, 55), width=1, style=line.style_dotted)
+            pocLb := label.new(bar_index + 2, pocPrice, "POC", style=label.style_label_left, color=color.new(cPoc, 85), textcolor=cPoc, size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  CONECTOR (display.none) — para la meta-confluencia
+// ════════════════════════════════════════════════════════════════════════════
+plot(above ? 1 : -1, "conn_vwap", display=display.none)                 // +1 sobre VWAP · -1 bajo
+plot(na(pocPrice) ? na : pocPrice, "conn_poc", display=display.none)    // precio POC
+plot(sd != 0 ? (close - vwap) / sd : 0.0, "conn_vwap_z", display=display.none)  // distancia en σ
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD
+// ════════════════════════════════════════════════════════════════════════════
+string posTxt = above ? "Sobre VWAP (premium)" : "Bajo VWAP (discount)"
+float  zScore = sd != 0 ? (close - vwap) / sd : 0.0
+
+if showDash and barstate.islast
+    string pos = dashLoc == "Arriba Derecha" ? position.top_right : dashLoc == "Abajo Derecha" ? position.bottom_right : dashLoc == "Arriba Izquierda" ? position.top_left : position.bottom_left
+    var table tb = table.new(pos, 2, 5, bgcolor=dashBg, frame_color=color.new(cNeu, 62), frame_width=1, border_color=color.new(cNeu, 82), border_width=1)
+    table.cell(tb, 0, 0, "Ancla · " + anchorSel, text_color=cVwap, text_size=size.small, text_halign=text.align_left)
+    table.cell(tb, 1, 0, posTxt, text_color=vwCol, text_size=size.small, text_halign=text.align_right)
+    table.cell(tb, 0, 1, "VWAP", text_color=cNeu, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(tb, 1, 1, str.tostring(vwap, format.mintick), text_color=cVwap, text_size=size.tiny, text_halign=text.align_right)
+    table.cell(tb, 0, 2, "Distancia", text_color=cNeu, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(tb, 1, 2, str.tostring(zScore, "#.##") + " σ", text_color=math.abs(zScore) >= 2 ? cBear : cWhite, text_size=size.tiny, text_halign=text.align_right)
+    table.cell(tb, 0, 3, "POC", text_color=cNeu, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(tb, 1, 3, na(pocPrice) ? "—" : str.tostring(pocPrice, format.mintick), text_color=cPoc, text_size=size.tiny, text_halign=text.align_right)
+    table.cell(tb, 0, 4, "Área valor", text_color=cNeu, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(tb, 1, 4, na(valPrice) ? "—" : str.tostring(valPrice, format.mintick) + " / " + str.tostring(vahPrice, format.mintick), text_color=cWhite, text_size=size.tiny, text_halign=text.align_right)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+var table wm = table.new(position.bottom_right, 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ PythonissAI", text_color=wmCol, text_size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+bool xUpVwap = ta.crossover(close, vwap)
+bool xDnVwap = ta.crossunder(close, vwap)
+alertcondition(xUpVwap, title="Ancla cruce alcista VWAP", message="Ancla: precio cruza SOBRE el VWAP · {{ticker}}")
+alertcondition(xDnVwap, title="Ancla cruce bajista VWAP", message="Ancla: precio cruza BAJO el VWAP · {{ticker}}")

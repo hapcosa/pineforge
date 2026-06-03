@@ -1,0 +1,1719 @@
+//@version=6
+indicator("Gaussian Trend IA Pro Fusion v6.3 [Indicator]", overlay=true, max_labels_count=500, max_lines_count=500)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🧭  PRESETS OPERATIVOS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+string opProfile = input.string("Base TV", "Perfil operativo", options=["Base TV", "Memecoins", "Majors", "Manual"], group="🧭  PRESETS", tooltip="Base TV replica el setup general. Memecoins es mas agresivo. Majors es mas conservador. Manual usa tus inputs.")
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🌊  GAUSSIAN KERNEL
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+int    len       = input.int(20, "Length", minval=5, inline="g1", group="🌊  GAUSSIAN KERNEL")
+string mode      = input.string("AVG", "Mode", options=["AVG","MEDIAN","TRIMMED"], inline="g1", group="🌊  GAUSSIAN KERNEL")
+float  distance  = input.float(1.0, "Dist", step=0.1, inline="g1", group="🌊  GAUSSIAN KERNEL")
+color  up        = input.color(color.rgb(40,218,150), "Up", inline="g2", group="🌊  GAUSSIAN KERNEL")
+color  dn        = input.color(#287bda, "Down", inline="g2", group="🌊  GAUSSIAN KERNEL")
+bool   useDashed = input.bool(false, "Línea discontinua", group="🌊  GAUSSIAN KERNEL")
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🖼  VISUAL V3.2
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+bool showAiTags  = input.bool(true,  "Mostrar Etiquetas AI",  group="🖼  VISUAL V3.2")
+bool showVidya   = input.bool(false, "Mostrar Bandas VIDYA",  group="🖼  VISUAL V3.2")
+bool showLiqGrab = input.bool(false, "Trampas de Liquidez",   group="🖼  VISUAL V3.2")
+bool showHama    = input.bool(false, "Filtro Visual HAMA",    group="🖼  VISUAL V3.2")
+bool showWarnM15 = input.bool(true,  "Warning Panel M15",     group="🖼  VISUAL V3.2")
+bool show_long   = input.bool(true,  "Long",     inline="sig1", group="🖼  SEÑALES VISUALES")
+bool show_short  = input.bool(true,  "Short",    inline="sig1", group="🖼  SEÑALES VISUALES")
+bool show_retest = input.bool(true,  "Retest",   inline="sig1", group="🖼  SEÑALES VISUALES")
+bool show_entry2 = input.bool(true,  "Entry 2",  inline="sig2", group="🖼  SEÑALES VISUALES")
+bool show_strong = input.bool(true,  "Strong",   inline="sig2", group="🖼  SEÑALES VISUALES")
+bool showReentry = input.bool(true,  "Re-entry", inline="sig2", group="🖼  SEÑALES VISUALES")
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🧠  V6 EXTREME ENGINE
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+bool   useAdaptiveSigma = input.bool(true, "Sigma Dinámico Cuántico", group="🧠  V6 EXTREME ENGINE")
+float  sigmaBase        = input.float(10.0, "Sigma Base", minval=3.0, maxval=20.0, step=0.5, group="🧠  V6 EXTREME ENGINE")
+float  sigmaMin         = input.float(5.0,  "Sigma Mín",  minval=2.0, maxval=10.0, step=0.5, group="🧠  V6 EXTREME ENGINE")
+float  sigmaMax         = input.float(18.0, "Sigma Máx",  minval=10.0, maxval=30.0, step=1.0, group="🧠  V6 EXTREME ENGINE")
+
+bool   useADXFilter  = input.bool(false, "Filtro ADX Institucional", group="📊  ADX TREND STRENGTH")
+int    adxLen        = input.int(14, "ADX Length", minval=7, maxval=50, group="📊  ADX TREND STRENGTH")
+float  adxThreshold  = input.float(25.0, "ADX Umbral Mínimo", minval=15.0, maxval=40.0, step=1.0, group="📊  ADX TREND STRENGTH")
+bool   useDMIConfirm = input.bool(false, "Confirmar con DI+/DI-", group="📊  ADX TREND STRENGTH")
+
+bool   useSMCFilter    = input.bool(false, "Smart Money Structure v2", group="🏴️  MARKET STRUCTURE")
+bool   showBOS         = input.bool(true,  "Mostrar BOS/CHoCH", group="🏴️  MARKET STRUCTURE")
+int    swingStrength   = input.int(5, "Swing Strength", minval=2, maxval=15, group="🏴️  MARKET STRUCTURE")
+float  smcBreakAtrMult = input.float(0.10, "Buffer BOS (xATR)", minval=0.0, maxval=1.0, step=0.05, group="🏴️  MARKET STRUCTURE")
+int    smcFreshBars    = input.int(12, "Ventana fresca", minval=1, maxval=50, group="🏴️  MARKET STRUCTURE")
+
+bool   useVolumeAbsorption = input.bool(true, "Detección de Absorción", group="📈  VOLUME DELTA")
+float  absorptionThreshold = input.float(1.5, "Umbral Absorción", minval=1.0, maxval=3.0, step=0.1, group="📈  VOLUME DELTA")
+bool   showAbsorptionMarks = input.bool(true, "Mostrar Marcas Absorción", group="📈  VOLUME DELTA")
+
+bool   useMultiOsc = input.bool(true,  "Multi-Oscillator Confluence", group="🖼  OSCILLATOR CONFLUENCE")
+bool   useRSI      = input.bool(false, "Usar RSI",        group="🖼  OSCILLATOR CONFLUENCE")
+bool   useStoch    = input.bool(false, "Usar Stochastic", group="🖼  OSCILLATOR CONFLUENCE")
+bool   useCCI      = input.bool(false, "Usar CCI",        group="🖼  OSCILLATOR CONFLUENCE")
+int    rsiLen      = input.int(14, "RSI Length", minval=5, maxval=30, group="🖼  OSCILLATOR CONFLUENCE")
+int    stochLen    = input.int(14, "Stochastic Length", minval=5, maxval=30, group="🖼  OSCILLATOR CONFLUENCE")
+int    cciLen      = input.int(20, "CCI Length", minval=10, maxval=50, group="🖼  OSCILLATOR CONFLUENCE")
+float  rsiOversold   = input.float(35, "RSI Oversold",  minval=20, maxval=45, group="🖼  OSCILLATOR CONFLUENCE")
+float  rsiOverbought = input.float(65, "RSI Overbought", minval=55, maxval=80, group="🖼  OSCILLATOR CONFLUENCE")
+
+bool   useKillZones  = input.bool(true,  "Kill Zones Institucionales", group="⏰  KILL ZONES")
+bool   kzLondonOpen  = input.bool(true,  "London Open (07-10 UTC)",    group="⏰  KILL ZONES")
+bool   kzNYOpen      = input.bool(true,  "NY Open (12-15 UTC)",        group="⏰  KILL ZONES")
+bool   kzLondonClose = input.bool(false, "London Close (15-17 UTC)",   group="⏰  KILL ZONES")
+bool   kzAsiaSession = input.bool(false, "Asia Session (00-03 UTC)",   group="⏰  KILL ZONES")
+
+bool   useHTFAlignment     = input.bool(true,  "Alineación HTF",         group="🧭  REGIME FILTERS")
+bool   requireDualHTF      = input.bool(true,  "Requerir 2 HTF",         group="🧭  REGIME FILTERS")
+bool   useTrendSlopeFilter = input.bool(true,  "Filtro de pendiente",    group="🧭  REGIME FILTERS")
+float  minTrendSlopeATR    = input.float(0.12, "Pendiente mínima (ATR)", minval=0.0, maxval=2.0, step=0.01, group="🧭  REGIME FILTERS")
+bool   useBandWidthFilter  = input.bool(true,  "Filtro de expansión",    group="🧭  REGIME FILTERS")
+float  minBandWidthATR     = input.float(1.10, "Ancho mínimo (ATR)",     minval=0.1, maxval=10.0, step=0.05, group="🧭  REGIME FILTERS")
+
+string slMode             = input.string("Hibrido", "Modo Stop Loss", options=["Trend Line", "Estructura (Swing)", "Hibrido"], group="💧  LIQUIDEZ & TARGETS")
+string targetMode         = input.string("Hibrido", "Modo Targets",   options=["R Multiples", "Liquidez/HTF", "Hibrido"],      group="💧  LIQUIDEZ & TARGETS")
+bool   useLiquidityFilter = input.bool(true,  "Filtro de liquidez contraria", group="💧  LIQUIDEZ & TARGETS")
+bool   requireSweepReject = input.bool(true,  "Bloquear sweep+rechazo",       group="💧  LIQUIDEZ & TARGETS")
+int    sweepLookback      = input.int(30,  "Sweep lookback",          minval=5,   maxval=200,  group="💧  LIQUIDEZ & TARGETS")
+int    pivotLen           = input.int(3,   "Pivot strength",          minval=2,   maxval=10,   group="💧  LIQUIDEZ & TARGETS")
+int    pivHoldBars        = input.int(200, "Vida pivots",             minval=20,  maxval=1000, group="💧  LIQUIDEZ & TARGETS")
+float  proxATR            = input.float(1.0,  "Proximidad opuesta (ATR)", minval=0.1, maxval=5.0, step=0.1, group="💧  LIQUIDEZ & TARGETS")
+float  breakStrengthMin   = input.float(0.55, "Fuerza mínima de ruptura", minval=0.0, maxval=1.0, step=0.05, group="💧  LIQUIDEZ & TARGETS")
+float  snapPct            = input.float(18.0, "Tolerancia snap %",        minval=1.0, maxval=50.0, step=1.0, group="💧  LIQUIDEZ & TARGETS")
+
+bool   useDivergence    = input.bool(true, "Divergencia RSI Avanzada", group="📉  DIVERGENCE ENGINE")
+int    divPivotStrength = input.int(5,    "Pivot Strength Div", minval=2, maxval=10, group="📉  DIVERGENCE ENGINE")
+bool   showDivergence   = input.bool(true, "Mostrar Divergencias",     group="📉  DIVERGENCE ENGINE")
+
+bool   useChopFilter  = input.bool(true, "Choppiness Index Filter",    group="📐  CHOPPINESS INDEX")
+int    chopLen        = input.int(20,    "CI Length", minval=7, maxval=50, group="📐  CHOPPINESS INDEX")
+float  chopThreshold  = input.float(50.0,"CI Max (Trend < esto)", minval=35.0, maxval=65.0, step=1.0, group="📐  CHOPPINESS INDEX")
+
+bool   useSqueeze  = input.bool(false, "Squeeze Momentum Filter", group="📅  SQUEEZE MOMENTUM")
+int    sqzBBLen    = input.int(20,  "BB Length", minval=10, maxval=50, group="📅  SQUEEZE MOMENTUM")
+float  sqzBBMult   = input.float(2.0,"BB Mult",  step=0.1, minval=1.0, maxval=3.0, group="📅  SQUEEZE MOMENTUM")
+int    sqzKCLen    = input.int(20,  "KC Length", minval=10, maxval=50, group="📅  SQUEEZE MOMENTUM")
+float  sqzKCMult   = input.float(1.5,"KC Mult",  step=0.1, minval=1.0, maxval=3.0, group="📅  SQUEEZE MOMENTUM")
+int    sqzLookback = input.int(8,   "Squeeze Lookback", minval=3, maxval=20, group="📅  SQUEEZE MOMENTUM")
+
+bool   useWAE      = input.bool(true, "Waddah Attar Explosion", group="📡  WAE EXPLOSION")
+int    waeSens     = input.int(150,  "Sensibilidad", minval=50, maxval=300, step=10, group="📡  WAE EXPLOSION")
+int    waeFastLen  = input.int(20,   "MACD Fast", minval=5,  maxval=50,  group="📡  WAE EXPLOSION")
+int    waeSlowLen  = input.int(40,   "MACD Slow", minval=20, maxval=100, group="📡  WAE EXPLOSION")
+int    waeBBLen    = input.int(20,   "BB Length", minval=10, maxval=50,  group="📡  WAE EXPLOSION")
+float  waeBBMult   = input.float(2.0,"BB Mult",   step=0.1, minval=1.0, maxval=3.0, group="📡  WAE EXPLOSION")
+float  waeDeadZone = input.float(3.7,"Dead Zone (ATR mult)", step=0.1, minval=0.5, maxval=10.0, group="📡  WAE EXPLOSION")
+
+bool   useFisher     = input.bool(false, "Fisher Transform Filter", group="🎯  FISHER TRANSFORM")
+int    fisherLen     = input.int(10,  "Fisher Length",  minval=5, maxval=30, group="🎯  FISHER TRANSFORM")
+float  fisherExtreme = input.float(1.5,"Nivel Extremo", step=0.1, minval=0.5, maxval=3.0, group="🎯  FISHER TRANSFORM")
+
+bool   useFrost     = input.bool(true, "IA Frost Engine", group="🤖  IA FROST ENGINE")
+int    minFrostConf = input.int(2,    "Min Frost ★ ",    minval=1, maxval=5, group="🤖  IA FROST ENGINE")
+string frostMode    = input.string("Intraday", "Modo", options=["Scalping", "Intraday", "Swing"], group="🤖  IA FROST ENGINE")
+
+float  minScoreRatio = input.float(0.35, "Min Score Ratio", minval=0.10, maxval=1.00, step=0.05, group="🧮  V6.2 SCORE ENGINE")
+
+bool   useReEntry  = input.bool(true, "Re-Entry 50/50 Split",    group="🔴  RE-ENTRY SYSTEM")
+int    reEntryBars = input.int(6,    "Max Barras Espera", minval=2, maxval=15, group="🔴  RE-ENTRY SYSTEM")
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 💸  TARGETS & STOP LOSS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+int    atrLen     = input.int(14,   "ATR",          inline="t1", group="💸  TARGETS & STOP LOSS")
+float  maxSLPct   = input.float(6.0,"SL Cap %",     step=0.5, minval=1.0, inline="t1", group="💸  TARGETS & STOP LOSS") / 100.0
+float  slBuf      = input.float(0.20,"SL Buf %",    step=0.05, minval=0.05, maxval=1.0, inline="t1", group="💸  TARGETS & STOP LOSS") / 100.0
+int    lineExt    = input.int(25,   "Ext Bars",     minval=5, maxval=100, inline="t2", group="💸  TARGETS & STOP LOSS")
+bool   showTgts   = input.bool(true, "Targets",     inline="t2", group="💸  TARGETS & STOP LOSS")
+bool   showPanel  = input.bool(true, "Panel",       inline="t2", group="💸  TARGETS & STOP LOSS")
+string panelPos   = input.string("Sup. Derecha", "Posicion", options=["Sup. Derecha", "Med. Derecha", "Inf. Derecha", "Inf. Centro", "Centro"], inline="t4", group="💸  TARGETS & STOP LOSS")
+string panelSize  = input.string("Minimo", "Tamano", options=["Minimo", "Mediano", "Grande"], inline="t4", group="💸  TARGETS & STOP LOSS")
+bool   shortLines = input.bool(true, "Lineas cortas", inline="t3", group="💸  TARGETS & STOP LOSS")
+float  tp1R = input.float(1.0,   "TP1 (R)",        group="💸  TARGETS & STOP LOSS")
+float  tp2R = input.float(2.0,   "TP2 (R)",        group="💸  TARGETS & STOP LOSS")
+float  tp3R = input.float(3.0,   "TP3 (R)",        group="💸  TARGETS & STOP LOSS")
+float  tp4R = input.float(4.236, "TP4 Runner (R)", group="💸  TARGETS & STOP LOSS")
+string tpProfile    = input.string("Conservador", "Perfil TPs", options=["Manual", "Conservador", "Balanceado", "Tendencial"], group="💸  TARGETS & STOP LOSS")
+float  pct_tp1_input = input.float(30.0, "% TP1 Manual", group="💸  TARGETS & STOP LOSS")
+float  pct_tp2_input = input.float(30.0, "% TP2 Manual", group="💸  TARGETS & STOP LOSS")
+float  pct_tp3_input = input.float(20.0, "% TP3 Manual", group="💸  TARGETS & STOP LOSS")
+float  feePct = input.float(0.15, "BE Fee % (open+close)", step=0.01, minval=0.05, maxval=1.0, group="🛡️  BREAK EVEN (Risk Free)") / 100.0
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🧭  PRESETS EFECTIVOS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+bool isManualProfile = opProfile == "Manual"
+bool isMemeProfile   = opProfile == "Memecoins"
+bool isMajorProfile  = opProfile == "Majors"
+
+int    lenCfg  = isManualProfile ? len      : isMemeProfile ? 28   : isMajorProfile ? 42   : 35
+string modeCfg = isManualProfile ? mode     : "AVG"
+float  distCfg = isManualProfile ? distance : isMemeProfile ? 2.2  : isMajorProfile ? 1.8  : 2.0
+
+bool  useAdaptiveSigmaCfg = isManualProfile ? useAdaptiveSigma : true
+float sigmaBaseCfg = isManualProfile ? sigmaBase : isMemeProfile ? 2.5  : isMajorProfile ? 4.0  : 3.0
+float sigmaMinCfg  = isManualProfile ? sigmaMin  : isMemeProfile ? 4.5  : isMajorProfile ? 6.0  : 5.0
+float sigmaMaxCfg  = isManualProfile ? sigmaMax  : isMemeProfile ? 16.0 : isMajorProfile ? 20.0 : 18.0
+
+bool useADXFilterCfg        = isManualProfile ? useADXFilter        : false
+bool useDMIConfirmCfg       = isManualProfile ? useDMIConfirm       : false
+bool useSMCFilterCfg        = isManualProfile ? useSMCFilter        : false
+bool useMultiOscCfg         = isManualProfile ? useMultiOsc         : true
+bool useRSICfg              = isManualProfile ? useRSI              : false
+bool useStochCfg            = isManualProfile ? useStoch            : false
+bool useCCICfg              = isManualProfile ? useCCI              : false
+bool useVolumeAbsorptionCfg = isManualProfile ? useVolumeAbsorption : true
+bool useDivergenceCfg       = isManualProfile ? useDivergence       : true
+bool useKillZonesCfg        = isManualProfile ? useKillZones  : isMemeProfile ? false : true
+bool kzLondonOpenCfg        = isManualProfile ? kzLondonOpen  : true
+bool kzNYOpenCfg            = isManualProfile ? kzNYOpen      : true
+bool kzLondonCloseCfg       = isManualProfile ? kzLondonClose : false
+bool kzAsiaSessionCfg       = isManualProfile ? kzAsiaSession : false
+bool useHTFAlignmentCfg     = isManualProfile ? useHTFAlignment     : true
+bool requireDualHTFCfg      = isManualProfile ? requireDualHTF : isMemeProfile ? false : true
+bool useTrendSlopeFilterCfg = isManualProfile ? useTrendSlopeFilter : true
+float minTrendSlopeATRCfg   = isManualProfile ? minTrendSlopeATR : isMemeProfile ? 0.08 : isMajorProfile ? 0.18 : 0.12
+bool useBandWidthFilterCfg  = isManualProfile ? useBandWidthFilter  : true
+float minBandWidthATRCfg    = isManualProfile ? minBandWidthATR  : isMemeProfile ? 0.90 : isMajorProfile ? 1.25 : 1.10
+bool useLiquidityFilterCfg  = isManualProfile ? useLiquidityFilter  : true
+bool requireSweepRejectCfg  = isManualProfile ? requireSweepReject  : true
+float proxATRCfg            = isManualProfile ? proxATR          : isMemeProfile ? 1.4  : isMajorProfile ? 0.8  : 1.0
+float breakStrengthMinCfg   = isManualProfile ? breakStrengthMin : isMemeProfile ? 0.45 : isMajorProfile ? 0.65 : 0.55
+float snapPctCfg            = isManualProfile ? snapPct          : isMemeProfile ? 24.0 : isMajorProfile ? 14.0 : 18.0
+string slModeCfg            = isManualProfile ? slMode      : "Hibrido"
+string targetModeCfg        = isManualProfile ? targetMode  : "Hibrido"
+bool useChopFilterCfg       = isManualProfile ? useChopFilter : true
+int  chopLenCfg             = isManualProfile ? chopLen       : 20
+float chopThresholdCfg      = isManualProfile ? chopThreshold : isMemeProfile ? 52.0 : isMajorProfile ? 48.0 : 50.0
+bool useSqueezeCfg          = isManualProfile ? useSqueeze    : false
+bool useWAECfg              = isManualProfile ? useWAE        : true
+int  waeSensCfg             = isManualProfile ? waeSens    : isMemeProfile ? 130 : isMajorProfile ? 170 : 150
+int  waeFastLenCfg          = isManualProfile ? waeFastLen : isMemeProfile ? 16  : isMajorProfile ? 24  : 20
+int  waeSlowLenCfg          = isManualProfile ? waeSlowLen : isMemeProfile ? 32  : isMajorProfile ? 48  : 40
+float waeDeadZoneCfg        = isManualProfile ? waeDeadZone : isMemeProfile ? 3.2 : isMajorProfile ? 4.0 : 3.7
+bool useFisherCfg           = isManualProfile ? useFisher     : false
+bool useFrostCfg            = isManualProfile ? useFrost      : true
+int  minFrostConfCfg        = isManualProfile ? minFrostConf : isMemeProfile ? 1 : isMajorProfile ? 3 : 2
+string frostModeCfg         = isManualProfile ? frostMode : isMemeProfile ? "Scalping" : isMajorProfile ? "Swing" : "Intraday"
+float minScoreRatioCfg      = isManualProfile ? minScoreRatio : isMemeProfile ? 0.25 : isMajorProfile ? 0.45 : 0.35
+string tpProfileCfg         = isManualProfile ? tpProfile : isMemeProfile ? "Tendencial" : "Conservador"
+
+float pct_tp1 = switch tpProfileCfg
+    "Conservador" => 30.0
+    "Balanceado"  => 25.0
+    "Tendencial"  => 20.0
+    => pct_tp1_input
+float pct_tp2 = switch tpProfileCfg
+    "Conservador" => 30.0
+    "Balanceado"  => 25.0
+    "Tendencial"  => 25.0
+    => pct_tp2_input
+float pct_tp3 = switch tpProfileCfg
+    "Conservador" => 20.0
+    "Balanceado"  => 25.0
+    "Tendencial"  => 25.0
+    => pct_tp3_input
+float pct_runner = math.max(0.0, 100.0 - pct_tp1 - pct_tp2 - pct_tp3)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🎨  COLORS & STATE
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+color c_slLine   = color.new(#FF0000, 0)
+color c_slLbl    = #FF0000
+color c_beLine   = color.new(#8b949e, 20)
+color c_beLbl    = #8b949e
+color c_entryLbl = #8b949e
+color c_tp1Line  = color.new(#00FF00, 0)
+color c_tp1Lbl   = #00FF00
+color c_tpLine   = color.new(#00FF00, 0)
+color c_tpLbl    = #00FF00
+color bg         = color.new(#0d1117, 0)
+color secBg      = color.new(#161b22, 0)
+
+string autoHTF = timeframe.in_seconds() <= 300 ? "60" : timeframe.in_seconds() <= 900 ? "240" : "D"
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 📎  UDT
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+type TradeLines
+    line     ln_entry
+    line     ln_sl
+    line     ln_be
+    line     ln_tp1
+    line     ln_tp2
+    line     ln_tp3
+    line     ln_tp4
+    line     ln_tp5
+    line     ln_tp6
+    line     ln_tp7
+    label    lb_entry
+    label    lb_sl
+    label    lb_be
+    label    lb_tp1
+    label    lb_tp2
+    label    lb_tp3
+    label    lb_tp4
+    label    lb_tp5
+    label    lb_tp6
+    label    lb_tp7
+    linefill lf_risk
+    linefill lf_zone
+    linefill lf_ext
+
+var TradeLines tl = TradeLines.new(na,na,na,na,na,na,na,na,na,na,na,na,na,na,na,na,na,na,na,na,na,na,na)
+var array<label> sigLabels  = array.new_label()
+var array<float> pivHighs   = array.new_float()
+var array<int>   pivHighBar = array.new_int()
+var array<float> pivLows    = array.new_float()
+var array<int>   pivLowBar  = array.new_int()
+int maxSigLabels = 50
+
+var int   stat_total    = 0
+var int   stat_wins     = 0
+var int   stat_losses   = 0
+var float stat_totalR   = 0.0
+var float stat_winR     = 0.0
+var float stat_lossR    = 0.0
+var int   stat_streak   = 0
+var int   stat_bestStrk = 0
+var float peakEquity    = 0.0
+var float maxDrawdown   = 0.0
+
+var float entryPrice     = na
+var float trailSL        = na
+var float slP            = na
+var float bePrice        = na
+var float tp1P           = na
+var float tp2P           = na
+var float tp3P           = na
+var float tp4P           = na
+var float tp5P           = na
+var float tp6P           = na
+var float tp7P           = na
+var int   entryBar       = 0
+var bool  bull           = true
+var bool  entryFull      = false
+var bool  trade_open     = false
+var float entryBand      = na
+var float entryAvg       = na
+var bool  avgBroken      = false
+var bool  tp1_hit        = false
+var bool  tp2_hit        = false
+var bool  tp3_hit        = false
+var bool  tp4_hit        = false
+var bool  tp5_hit        = false
+var bool  tp6_hit        = false
+var bool  tp7_hit        = false
+var bool  be_hidden      = false
+var bool  tp1_cleaned    = false
+var bool  tp2_cleaned    = false
+var bool  tp3_cleaned    = false
+var bool  tp4_cleaned    = false
+var bool  tp5_cleaned    = false
+var bool  tp6_cleaned    = false
+var bool  tp7_cleaned    = false
+var int   tradeConf      = 0
+var int   tradeFrostConf = 0
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🛠️  HELPERS (funciones puras — NO mutan variables globales)
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+f_fmtPrice(float p) =>
+    p >= 1000.0 ? str.tostring(p, "#.#") : p >= 1.0 ? str.tostring(p, "#.###") : str.tostring(p, "#.######")
+
+f_lbl(string nm, float price, float pctClose) =>
+    string pctTxt = pctClose > 0 ? " (" + str.tostring(pctClose, "#") + "%)" : ""
+    nm + ": " + f_fmtPrice(price) + pctTxt
+
+f_slLbl(string nm, float price) =>
+    nm + ": " + f_fmtPrice(price)
+
+f_clamp01(float x) =>
+    math.max(0.0, math.min(1.0, x))
+
+f_nearestAbove(array<float> lvls, float price) =>
+    float best = na
+    float bestDist = 1e10
+    int n = array.size(lvls)
+    if n > 0
+        for i = 0 to n - 1
+            float v = array.get(lvls, i)
+            if v >= price
+                float d = v - price
+                if d < bestDist
+                    bestDist := d
+                    best := v
+    best
+
+f_nearestBelow(array<float> lvls, float price) =>
+    float best = na
+    float bestDist = 1e10
+    int n = array.size(lvls)
+    if n > 0
+        for i = 0 to n - 1
+            float v = array.get(lvls, i)
+            if v <= price
+                float d = price - v
+                if d < bestDist
+                    bestDist := d
+                    best := v
+    best
+
+f_recentBearSweep(float lvl, int lb) =>
+    bool ok = false
+    if not na(lvl)
+        for k = 0 to lb - 1
+            if high[k] > lvl and close[k] < lvl
+                ok := true
+    ok
+
+f_recentBullSweep(float lvl, int lb) =>
+    bool ok = false
+    if not na(lvl)
+        for k = 0 to lb - 1
+            if low[k] < lvl and close[k] > lvl
+                ok := true
+    ok
+
+f_adaptiveHTF(bool isBull, int tpNum, int tfSec, float h1h, float h1l, float h4h, float h4l, float pdh, float pdl, float pwh, float pwl) =>
+    float result = na
+    if tfSec <= 900
+        result := tpNum == 1 ? (isBull ? h1h : h1l) : tpNum == 2 ? (isBull ? h4h : h4l) : tpNum == 3 ? (isBull ? pdh : pdl) : (isBull ? pwh : pwl)
+    else if tfSec <= 3600
+        result := tpNum == 1 ? (isBull ? h4h : h4l) : tpNum == 2 ? (isBull ? pdh : pdl) : (isBull ? pwh : pwl)
+    else
+        result := tpNum == 1 ? (isBull ? pdh : pdl) : (isBull ? pwh : pwl)
+    result
+
+f_snap(float base, float rTarget, bool isBull, float htfLvl, float structLvl) =>
+    if targetModeCfg == "R Multiples"
+        rTarget
+    else
+        float snap = rTarget
+        float tol = math.abs(rTarget - base) * (snapPctCfg / 100.0)
+        bool validHTF    = not na(htfLvl)    and (isBull ? htfLvl    > base : htfLvl    < base) and math.abs(htfLvl    - rTarget) < tol
+        bool validStruct = not na(structLvl) and (isBull ? structLvl > base : structLvl < base) and math.abs(structLvl - rTarget) < tol
+        if targetModeCfg == "Liquidez/HTF"
+            if validHTF
+                snap := htfLvl
+            else if validStruct
+                snap := structLvl
+        else
+            if validStruct
+                snap := structLvl
+            else if validHTF
+                snap := htfLvl
+        snap
+
+f_trackSigLabel(label lbl) =>
+    if array.size(sigLabels) >= maxSigLabels
+        label.delete(array.shift(sigLabels))
+    array.push(sigLabels, lbl)
+    lbl
+
+f_sigLabel(int x, float y, string txt, color bgCol, color txtCol, string stl, string sz) =>
+    label lbl = na
+    bool szNormal = sz == "normal"
+    bool szSmall  = sz == "small"
+    if stl == "down"
+        lbl := label.new(x, y, txt, color=bgCol, textcolor=txtCol, size=szNormal ? size.normal : szSmall ? size.small : size.tiny, style=label.style_label_down)
+    else if stl == "upper_right"
+        lbl := label.new(x, y, txt, color=bgCol, textcolor=txtCol, size=szNormal ? size.normal : szSmall ? size.small : size.tiny, style=label.style_label_upper_right)
+    else if stl == "lower_right"
+        lbl := label.new(x, y, txt, color=bgCol, textcolor=txtCol, size=szNormal ? size.normal : szSmall ? size.small : size.tiny, style=label.style_label_lower_right)
+    else if stl == "right"
+        lbl := label.new(x, y, txt, color=bgCol, textcolor=txtCol, size=szNormal ? size.normal : szSmall ? size.small : size.tiny, style=label.style_label_right)
+    else
+        lbl := label.new(x, y, txt, color=bgCol, textcolor=txtCol, size=szNormal ? size.normal : szSmall ? size.small : size.tiny, style=label.style_label_up)
+    f_trackSigLabel(lbl)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 📈  BASE SERIES & MTF
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+float atrSL     = ta.atr(atrLen)
+float atr200    = ta.atr(200)
+float volSma20  = ta.sma(volume, 20)
+float atrSma50  = ta.sma(atrSL, 50)
+float atrStable = nz(ta.sma(atr200, 200), nz(atrSL, close * 0.01)) * 0.8
+int   tfSec     = timeframe.in_seconds()
+
+float h1h = request.security(syminfo.tickerid, "60",  high[1], lookahead=barmerge.lookahead_off)
+float h1l = request.security(syminfo.tickerid, "60",  low[1],  lookahead=barmerge.lookahead_off)
+float h4h = request.security(syminfo.tickerid, "240", high[1], lookahead=barmerge.lookahead_off)
+float h4l = request.security(syminfo.tickerid, "240", low[1],  lookahead=barmerge.lookahead_off)
+float pdh = request.security(syminfo.tickerid, "D",   high[1], lookahead=barmerge.lookahead_off)
+float pdl = request.security(syminfo.tickerid, "D",   low[1],  lookahead=barmerge.lookahead_off)
+float pwh = request.security(syminfo.tickerid, "W",   high[1], lookahead=barmerge.lookahead_off)
+float pwl = request.security(syminfo.tickerid, "W",   low[1],  lookahead=barmerge.lookahead_off)
+
+bool htfBull = request.security(syminfo.tickerid, autoHTF, close > ta.ema(close, 200), lookahead=barmerge.lookahead_off)
+bool m5Bull  = request.security(syminfo.tickerid, "5",   close > ta.ema(close, 200), lookahead=barmerge.lookahead_off)
+bool m15Bull = request.security(syminfo.tickerid, "15",  close > ta.ema(close, 200), lookahead=barmerge.lookahead_off)
+bool h1Bull  = request.security(syminfo.tickerid, "60",  close > ta.ema(close, 200), lookahead=barmerge.lookahead_off)
+bool h4Bull  = request.security(syminfo.tickerid, "240", close > ta.ema(close, 200), lookahead=barmerge.lookahead_off)
+bool dBull   = request.security(syminfo.tickerid, "D",   close > ta.ema(close, 200), lookahead=barmerge.lookahead_off)
+bool wBull   = request.security(syminfo.tickerid, "W",   close > ta.ema(close, 200), lookahead=barmerge.lookahead_off)
+
+bool _emaRev = ta.crossover(ta.ema(close,50), ta.ema(close,200)) or ta.crossunder(ta.ema(close,50), ta.ema(close,200))
+bool m5Rev   = request.security(syminfo.tickerid, "5",   _emaRev, lookahead=barmerge.lookahead_off)
+bool m15Rev  = request.security(syminfo.tickerid, "15",  _emaRev, lookahead=barmerge.lookahead_off)
+bool h1Rev   = request.security(syminfo.tickerid, "60",  _emaRev, lookahead=barmerge.lookahead_off)
+bool h4Rev   = request.security(syminfo.tickerid, "240", _emaRev, lookahead=barmerge.lookahead_off)
+bool dRev    = request.security(syminfo.tickerid, "D",   _emaRev, lookahead=barmerge.lookahead_off)
+bool wRev    = request.security(syminfo.tickerid, "W",   _emaRev, lookahead=barmerge.lookahead_off)
+
+int    utcH    = hour(time, "UTC")
+bool   isAsia  = utcH >= 0  and utcH < 8
+bool   isLondon= utcH >= 8  and utcH < 13
+bool   isNY    = utcH >= 13 and utcH < 21
+string sessNow = isAsia ? "Asia" : isLondon ? "London" : isNY ? "NY" : "Off"
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🟧  HAMA ENGINE (VISUAL ONLY)
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+f_c_gradientAdvDecPro(_source, _center, _steps, _c_bearWeak, _c_bearStrong, _c_bullWeak, _c_bullStrong) =>
+    var float _qtyAdvDec = 0.0
+    var float _maxSteps  = math.max(1, _steps)
+    bool _xUp    = ta.crossover(_source, _center)
+    bool _xDn    = ta.crossunder(_source, _center)
+    float _chg   = ta.change(_source)
+    bool _up     = _chg > 0
+    bool _dn     = _chg < 0
+    bool _srcBull = _source > _center
+    bool _srcBear = _source < _center
+    _qtyAdvDec := _srcBull ? (_xUp ? 1 : _up ? math.min(_maxSteps, _qtyAdvDec + 1) : _dn ? math.max(1, _qtyAdvDec - 1) : _qtyAdvDec) : _srcBear ? (_xDn ? 1 : _dn ? math.min(_maxSteps, _qtyAdvDec + 1) : _up ? math.max(1, _qtyAdvDec - 1) : _qtyAdvDec) : _qtyAdvDec
+    var color _return = na
+    _return := _srcBull ? color.from_gradient(_qtyAdvDec, 1, _maxSteps, _c_bullWeak, _c_bullStrong) : _srcBear ? color.from_gradient(_qtyAdvDec, 1, _maxSteps, _c_bearWeak, _c_bearStrong) : _return
+    _return
+
+f_hama_calc(string _type, float _src, int _len) =>
+    _type == "EMA" ? ta.ema(_src, _len) : _type == "SMA" ? ta.sma(_src, _len) : _type == "WMA" ? ta.wma(_src, _len) : na
+
+float hama_ma       = f_hama_calc("WMA", close, 55)
+color hama_col      = f_c_gradientAdvDecPro(hama_ma, ta.ema(hama_ma, 3), 5, color.rgb(255,255,0,0), color.rgb(255,0,0), color.rgb(255,255,0,0), color.rgb(0,255,0))
+float hama_open     = f_hama_calc("EMA", (open[1] + close[1]) / 2.0, 25)
+float hama_high     = f_hama_calc("EMA", math.max(high, close), 20)
+float hama_low      = f_hama_calc("EMA", math.min(low, close), 20)
+float hama_close    = f_hama_calc("EMA", (open + high + low + close) / 4.0, 20)
+color hama_finalCol = hama_col
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🌊  GAUSSIAN DYNAMIC
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+float atrNorm      = ta.atr(14) / math.max(0.000001, ta.sma(ta.atr(14), 100))
+float dynamicSigma = useAdaptiveSigmaCfg ? math.max(sigmaMinCfg, math.min(sigmaMaxCfg, sigmaBaseCfg * (1.0 / math.max(0.5, atrNorm)))) : sigmaBaseCfg
+
+f_gaussWeight(int i, int length, float sigma) =>
+    math.exp(-0.5 * math.pow((i - length / 2.0) / sigma, 2.0)) / math.sqrt(sigma * 2.0 * math.pi)
+
+gaussian_filter_dynamic(series float src, int step, float sigma) =>
+    int n = lenCfg + step
+    float total = 0.0
+    float s     = 0.0
+    for i = 0 to n - 1
+        float wt = f_gaussWeight(i, n, sigma)
+        s     += src[i] * wt
+        total += wt
+    total > 0 ? s / total : src
+
+multi_trend_v6(series float src, float sigma) =>
+    array<float> g = array.new_float(0)
+    float vol = ta.sma(high - low, 100)
+    for step = 0 to 20
+        array.push(g, gaussian_filter_dynamic(src, step, sigma))
+    float sc    = 0.0
+    float first = array.size(g) > 0 ? array.get(g, 0) : src
+    for i = 0 to array.size(g) - 1
+        if array.get(g, i) > first
+            sc += 0.05
+    color clr = sc > 0.5 ? color.from_gradient(sc, 0.5, 1.0, na, dn) : color.from_gradient(sc, 0.0, 0.5, up, na)
+    float val = na
+    if modeCfg == "AVG"
+        val := array.avg(g)
+    else if modeCfg == "MEDIAN"
+        val := array.median(g)
+    else
+        array<float> g_sort = array.copy(g)
+        array.sort(g_sort)
+        if array.size(g_sort) > 2
+            array.remove(g_sort, 0)
+            array.remove(g_sort, array.size(g_sort) - 1)
+        val := array.avg(g_sort)
+    float lb       = val - vol * distCfg
+    float ub       = val + vol * distCfg
+    int cross_dir  = ta.crossover(src, ub) ? 1 : ta.crossunder(src, lb) ? -1 : 0
+    int last_dir   = ta.valuewhen(cross_dir != 0, cross_dir, 0)
+    bool tr        = nz(last_dir, -1) == 1
+    float tlv      = tr ? lb : ub
+    [sc, val, clr, tlv, tr, vol, lb, ub]
+
+[score, avg, clr, trend_line, trend, gVol, bandLow, bandHigh] = multi_trend_v6(close, dynamicSigma)
+
+bool crossUpTL      = ta.crossover(close, trend_line)
+bool crossDnTL      = ta.crossunder(close, trend_line)
+bool crossUpAVG     = ta.crossover(close, avg)
+bool crossDnAVG     = ta.crossunder(close, avg)
+bool crossDnHighAVG = ta.crossunder(high, avg)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 📊  ADX + DMI
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+f_calcADX(int length) =>
+    float trueRange    = math.max(high - low, math.max(math.abs(high - close[1]), math.abs(low - close[1])))
+    float dmPlus       = math.max(high - high[1], 0)
+    float dmMinus      = math.max(low[1] - low, 0)
+    if dmPlus > dmMinus
+        dmMinus := 0
+    else
+        dmPlus  := 0
+    float smoothTR      = ta.rma(trueRange, length)
+    float smoothDMPlus  = ta.rma(dmPlus,    length)
+    float smoothDMMinus = ta.rma(dmMinus,   length)
+    float diPlus  = smoothTR > 0 ? (smoothDMPlus  / smoothTR) * 100 : 0
+    float diMinus = smoothTR > 0 ? (smoothDMMinus / smoothTR) * 100 : 0
+    float dxDen   = diPlus + diMinus
+    float dx      = dxDen > 0 ? math.abs(diPlus - diMinus) / dxDen * 100 : 0
+    float adx     = ta.rma(dx, length)
+    [adx, diPlus, diMinus]
+
+[adxValue, diPlus, diMinus] = f_calcADX(adxLen)
+bool adxOK      = not useADXFilterCfg  or adxValue >= adxThreshold
+bool dmiLongOK  = not useDMIConfirmCfg or diPlus  > diMinus
+bool dmiShortOK = not useDMIConfirmCfg or diMinus > diPlus
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🏴️  STRUCTURE + LIQUIDITY
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+float swingHigh = ta.pivothigh(high, swingStrength, swingStrength)
+float swingLow  = ta.pivotlow(low,   swingStrength, swingStrength)
+var float lastSwingHigh = na
+var float lastSwingLow  = na
+var float prevSwingHigh = na
+var float prevSwingLow  = na
+var int   structureBias        = 0
+var int   lastBullStructureBar = na
+var int   lastBearStructureBar = na
+
+if not na(swingHigh)
+    prevSwingHigh := lastSwingHigh
+    lastSwingHigh := swingHigh
+if not na(swingLow)
+    prevSwingLow := lastSwingLow
+    lastSwingLow := swingLow
+
+float bullishBreakLevel = not na(lastSwingHigh) ? lastSwingHigh + atrSL * smcBreakAtrMult : na
+float bearishBreakLevel = not na(lastSwingLow)  ? lastSwingLow  - atrSL * smcBreakAtrMult : na
+int   prevStructureBias = nz(structureBias[1], structureBias)
+
+bool bullishBOS   = not na(bullishBreakLevel) and ta.crossover(close,  bullishBreakLevel)
+bool bearishBOS   = not na(bearishBreakLevel) and ta.crossunder(close, bearishBreakLevel)
+bool bullishCHoCH = bullishBOS and prevStructureBias == -1
+bool bearishCHoCH = bearishBOS and prevStructureBias ==  1
+
+if bullishBOS
+    structureBias        := 1
+    lastBullStructureBar := bar_index
+if bearishBOS
+    structureBias        := -1
+    lastBearStructureBar := bar_index
+
+bool smcLongFresh  = not na(lastBullStructureBar) and bar_index - lastBullStructureBar <= smcFreshBars
+bool smcShortFresh = not na(lastBearStructureBar) and bar_index - lastBearStructureBar <= smcFreshBars
+bool smcLongOK     = not useSMCFilterCfg or (structureBias ==  1 and smcLongFresh)
+bool smcShortOK    = not useSMCFilterCfg or (structureBias == -1 and smcShortFresh)
+
+if showBOS and bullishBOS
+    line.new(bar_index, bullishBreakLevel, bar_index + 5, bullishBreakLevel, color=color.new(#00E676, 20), style=line.style_dotted, width=1)
+    label.new(bar_index, bullishBreakLevel, bullishCHoCH ? "CHoCH↑ " : "BOS↑ ", color=color.new(color.white, 100), textcolor=#00E676, style=label.style_label_down, size=size.tiny)
+if showBOS and bearishBOS
+    line.new(bar_index, bearishBreakLevel, bar_index + 5, bearishBreakLevel, color=color.new(#FF1744, 20), style=line.style_dotted, width=1)
+    label.new(bar_index, bearishBreakLevel, bearishCHoCH ? "CHoCH↓ " : "BOS↓ ", color=color.new(color.white, 100), textcolor=#FF1744, style=label.style_label_up, size=size.tiny)
+
+float ph = ta.pivothigh(high, pivotLen, pivotLen)
+float pl = ta.pivotlow(low,   pivotLen, pivotLen)
+if not na(ph)
+    array.push(pivHighs,   ph)
+    array.push(pivHighBar, bar_index - pivotLen)
+if not na(pl)
+    array.push(pivLows,   pl)
+    array.push(pivLowBar, bar_index - pivotLen)
+
+int nh = array.size(pivHighs)
+if nh > 0
+    int i = nh - 1
+    while i >= 0
+        if bar_index - array.get(pivHighBar, i) > pivHoldBars
+            array.remove(pivHighs,   i)
+            array.remove(pivHighBar, i)
+        i -= 1
+int nl = array.size(pivLows)
+if nl > 0
+    int j = nl - 1
+    while j >= 0
+        if bar_index - array.get(pivLowBar, j) > pivHoldBars
+            array.remove(pivLows,   j)
+            array.remove(pivLowBar, j)
+        j -= 1
+
+float nearHigh         = f_nearestAbove(pivHighs, close)
+float nearLow          = f_nearestBelow(pivLows,  close)
+bool  bearSweepRecent  = requireSweepRejectCfg ? f_recentBearSweep(nearHigh, sweepLookback) : false
+bool  bullSweepRecent  = requireSweepRejectCfg ? f_recentBullSweep(nearLow,  sweepLookback) : false
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🧲  ABSORPTION
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+float bodyRange = math.abs(close - open)
+float upperWick = high - math.max(close, open)
+float lowerWick = math.min(close, open) - low
+float volRatio  = volSma20 > 0 ? volume / volSma20 : 1.0
+bool bullishAbsorption = useVolumeAbsorptionCfg and lowerWick > bodyRange * 1.5 and close > open and volRatio > absorptionThreshold and low  == ta.lowest(low,   10)
+bool bearishAbsorption = useVolumeAbsorptionCfg and upperWick > bodyRange * 1.5 and close < open and volRatio > absorptionThreshold and high == ta.highest(high, 10)
+
+if showAbsorptionMarks and bullishAbsorption
+    label.new(bar_index, low,  "🧲  ABS", color=color.new(#00BCD4, 10), textcolor=color.white, style=label.style_label_up,   size=size.tiny)
+if showAbsorptionMarks and bearishAbsorption
+    label.new(bar_index, high, "🧲  ABS", color=color.new(#FF5722, 10), textcolor=color.white, style=label.style_label_down, size=size.tiny)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🖼  OSCILLATORS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+float rsiVal = ta.rsi(close, rsiLen)
+float stochK = ta.stoch(close, high, low, stochLen)
+float cciVal = ta.cci(close, cciLen)
+
+bool rsiLongOK   = (not useRSICfg)   or rsiVal < rsiOversold   or (rsiVal  > 40 and rsiVal  < 60)
+bool rsiShortOK  = (not useRSICfg)   or rsiVal > rsiOverbought or (rsiVal  > 40 and rsiVal  < 60)
+bool stochLongOK = (not useStochCfg) or stochK < 30            or (stochK  > 20 and stochK  < 80)
+bool stochShortOK= (not useStochCfg) or stochK > 70            or (stochK  > 20 and stochK  < 80)
+bool cciLongOK   = (not useCCICfg)   or cciVal < -100          or (cciVal  > -50 and cciVal < 50)
+bool cciShortOK  = (not useCCICfg)   or cciVal > 100           or (cciVal  > -50 and cciVal < 50)
+
+int oscActiveCount    = (useRSICfg ? 1 : 0) + (useStochCfg ? 1 : 0) + (useCCICfg ? 1 : 0)
+int oscRequired       = int(math.max(1.0, math.ceil(oscActiveCount * 0.66)))
+int oscConfluenceLong = (rsiLongOK  ? 1 : 0) + (stochLongOK  ? 1 : 0) + (cciLongOK  ? 1 : 0)
+int oscConfluenceShort= (rsiShortOK ? 1 : 0) + (stochShortOK ? 1 : 0) + (cciShortOK ? 1 : 0)
+bool multiOscEnabled  = useMultiOscCfg and oscActiveCount > 0
+bool multiOscLongOK   = not multiOscEnabled or oscConfluenceLong  >= oscRequired
+bool multiOscShortOK  = not multiOscEnabled or oscConfluenceShort >= oscRequired
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ⏰  KILL ZONES / CHOP / SQUEEZE / WAE / FISHER
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+bool inLondonOpen  = utcH >= 7  and utcH < 10
+bool inNYOpen      = utcH >= 12 and utcH < 15
+bool inLondonClose = utcH >= 15 and utcH < 17
+bool inAsiaSession = utcH >= 0  and utcH < 3
+bool inKillZone    = not useKillZonesCfg or (kzLondonOpenCfg and inLondonOpen) or (kzNYOpenCfg and inNYOpen) or (kzLondonCloseCfg and inLondonClose) or (kzAsiaSessionCfg and inAsiaSession)
+
+float chopATRSum = math.sum(ta.atr(1), chopLenCfg)
+float chopHL     = ta.highest(high, chopLenCfg) - ta.lowest(low, chopLenCfg)
+float chopIndex  = chopHL > 0 ? 100.0 * math.log10(chopATRSum / chopHL) / math.log10(chopLenCfg) : 50.0
+bool  chopOK     = not useChopFilterCfg or chopIndex < chopThresholdCfg
+
+float sqzBBBasis  = ta.sma(close, sqzBBLen)
+float sqzBBDev    = sqzBBMult * ta.stdev(close, sqzBBLen)
+float sqzUpperBB  = sqzBBBasis + sqzBBDev
+float sqzLowerBB  = sqzBBBasis - sqzBBDev
+float sqzKCBasis  = ta.sma(close, sqzKCLen)
+float sqzKCRange  = sqzKCMult * ta.sma(ta.atr(10), sqzKCLen)
+float sqzUpperKC  = sqzKCBasis + sqzKCRange
+float sqzLowerKC  = sqzKCBasis - sqzKCRange
+bool  sqzOn       = sqzLowerBB > sqzLowerKC and sqzUpperBB < sqzUpperKC
+bool  sqzOff      = not sqzOn
+float sqzAvgHL    = (ta.highest(high, sqzBBLen) + ta.lowest(low, sqzBBLen)) / 2.0
+float sqzAvgClose = ta.sma(close, sqzBBLen)
+float sqzMomSrc   = close - (sqzAvgHL + sqzAvgClose) / 2.0
+float sqzMom      = ta.linreg(sqzMomSrc, sqzBBLen, 0)
+bool  sqzFiredRecently = false
+for iSq = 1 to sqzLookback
+    if sqzOn[iSq] and sqzOff[iSq - 1]
+        sqzFiredRecently := true
+bool sqzMomLong  = sqzMom > 0
+bool sqzMomShort = sqzMom < 0
+
+float waeMACD1    = ta.ema(close,    waeFastLenCfg) - ta.ema(close,    waeSlowLenCfg)
+float waeMACD2    = ta.ema(close[1], waeFastLenCfg) - ta.ema(close[1], waeSlowLenCfg)
+float waeTrend    = (waeMACD1 - waeMACD2) * waeSensCfg
+float waeBBBasis2 = ta.sma(close, waeBBLen)
+float waeBBDev2   = waeBBMult * ta.stdev(close, waeBBLen)
+float waeExplosion= (waeBBBasis2 + waeBBDev2) - (waeBBBasis2 - waeBBDev2)
+float waeDeadLine = ta.atr(100) * waeDeadZoneCfg
+bool  waeBullOK   = waeTrend > 0 and waeTrend             > waeExplosion and waeTrend             > waeDeadLine
+bool  waeBearOK   = waeTrend < 0 and math.abs(waeTrend)   > waeExplosion and math.abs(waeTrend)   > waeDeadLine
+bool  filterWAE_L = not useWAECfg or waeBullOK
+bool  filterWAE_S = not useWAECfg or waeBearOK
+
+float fisherRange   = ta.highest(high, fisherLen) - ta.lowest(low, fisherLen)
+float fisherRaw     = fisherRange > 0 ? 2.0 * ((close - ta.lowest(low, fisherLen)) / fisherRange - 0.5) : 0.0
+float fisherClamped = math.max(-0.999, math.min(0.999, fisherRaw))
+var float fisherValue = 0.0
+fisherValue := 0.5 * math.log((1.0 + fisherClamped) / (1.0 - fisherClamped)) + 0.5 * nz(fisherValue[1])
+bool fisherNotExtremeLong  = fisherValue <  fisherExtreme
+bool fisherNotExtremeShort = fisherValue > -fisherExtreme
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🤖  FROST ENGINE
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+float frostSens = frostModeCfg == "Scalping" ? 1.3 : frostModeCfg == "Intraday" ? 3.5 : 4.2
+
+f_smoothrng(float x, int t, float m) =>
+    int   wper  = t * 2 - 1
+    float avrng = ta.ema(math.abs(x - nz(x[1])), t)
+    ta.ema(avrng, wper) * m
+
+f_rngfilt(float x, float r) =>
+    float rngfiltResult = x
+    rngfiltResult := x > nz(rngfiltResult[1]) ? (x - r < nz(rngfiltResult[1]) ? nz(rngfiltResult[1]) : x - r) : (x + r > nz(rngfiltResult[1]) ? nz(rngfiltResult[1]) : x + r)
+    rngfiltResult
+
+float frostSmrng1 = f_smoothrng(close, 27, 1.5)
+float frostSmrng2 = f_smoothrng(close, 55, frostSens)
+float frostSmrng  = (frostSmrng1 + frostSmrng2) / 2.0
+float frostFilt   = f_rngfilt(close, frostSmrng)
+
+float frost_up = 0.0
+frost_up := frostFilt > nz(frostFilt[1]) ? nz(frost_up[1]) + 1 : frostFilt < nz(frostFilt[1]) ? 0 : nz(frost_up[1])
+float frost_dn = 0.0
+frost_dn := frostFilt < nz(frostFilt[1]) ? nz(frost_dn[1]) + 1 : frostFilt > nz(frostFilt[1]) ? 0 : nz(frost_dn[1])
+
+int frostConfLong = 0
+if frost_up > 0
+    frostConfLong += 1
+    if close > frostFilt + atrSL * 0.5
+        frostConfLong += 1
+    if frost_up >= 3
+        frostConfLong += 1
+    if frostSmrng1 > frostSmrng2
+        frostConfLong += 1
+    if adxValue >= 20
+        frostConfLong += 1
+int frostConfShort = 0
+if frost_dn > 0
+    frostConfShort += 1
+    if close < frostFilt - atrSL * 0.5
+        frostConfShort += 1
+    if frost_dn >= 3
+        frostConfShort += 1
+    if frostSmrng1 > frostSmrng2
+        frostConfShort += 1
+    if adxValue >= 20
+        frostConfShort += 1
+bool filterFrost_L = not useFrostCfg or (frost_up > 0 and frostConfLong  >= minFrostConfCfg)
+bool filterFrost_S = not useFrostCfg or (frost_dn > 0 and frostConfShort >= minFrostConfCfg)
+
+var float f_lastCond = 0
+bool ai_bull = frost_up > 0 and nz(f_lastCond[1]) == -1
+bool ai_bear = frost_dn > 0 and nz(f_lastCond[1]) ==  1
+f_lastCond := frost_up > 0 ? 1 : frost_dn > 0 ? -1 : nz(f_lastCond[1])
+var int lele_b = 0
+var int lele_s = 0
+lele_b := nz(lele_b[1], 0) + (close > nz(close[4]) ? 1 : 0)
+lele_s := nz(lele_s[1], 0) + (close < nz(close[4]) ? 1 : 0)
+if lele_b > 50
+    lele_b := 50
+if lele_s > 50
+    lele_s := 50
+int liqGrabState = 0
+if lele_b > 6 and close < open and high >= ta.highest(high, 30)
+    lele_b       := 0
+    liqGrabState := -1
+if lele_s > 6 and close > open and low  <= ta.lowest(low, 30)
+    lele_s       := 0
+    liqGrabState := 1
+bool liqGrabBull = liqGrabState ==  1
+bool liqGrabBear = liqGrabState == -1
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 📉  DIVERGENCE
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+float rsiPivotHigh   = ta.pivothigh(rsiVal, divPivotStrength, divPivotStrength)
+float rsiPivotLow    = ta.pivotlow(rsiVal,  divPivotStrength, divPivotStrength)
+float pricePivotHigh = ta.pivothigh(high,   divPivotStrength, divPivotStrength)
+float pricePivotLow  = ta.pivotlow(low,     divPivotStrength, divPivotStrength)
+var float lastRsiHigh   = na
+var float lastRsiLow    = na
+var float lastPriceHigh = na
+var float lastPriceLow  = na
+if not na(rsiPivotHigh)
+    lastRsiHigh   := rsiPivotHigh
+if not na(rsiPivotLow)
+    lastRsiLow    := rsiPivotLow
+if not na(pricePivotHigh)
+    lastPriceHigh := pricePivotHigh
+if not na(pricePivotLow)
+    lastPriceLow  := pricePivotLow
+bool bearishDivergence = useDivergenceCfg and not na(pricePivotHigh) and not na(lastPriceHigh[divPivotStrength * 2]) and pricePivotHigh > lastPriceHigh[divPivotStrength * 2] and rsiVal < lastRsiHigh[divPivotStrength * 2]
+bool bullishDivergence = useDivergenceCfg and not na(pricePivotLow)  and not na(lastPriceLow[divPivotStrength  * 2]) and pricePivotLow  < lastPriceLow[divPivotStrength  * 2] and rsiVal > lastRsiLow[divPivotStrength  * 2]
+if showDivergence and bullishDivergence
+    label.new(bar_index - divPivotStrength, low[divPivotStrength],  "DIV+", color=color.new(#00E676, 10), textcolor=color.white, style=label.style_label_up,   size=size.tiny)
+if showDivergence and bearishDivergence
+    label.new(bar_index - divPivotStrength, high[divPivotStrength], "DIV-", color=color.new(#FF1744, 10), textcolor=color.white, style=label.style_label_down, size=size.tiny)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🚀  FINAL V6 SIGNAL ENGINE
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+int  trend_int          = trend ? 1 : -1
+bool trend_changed_long = ta.change(trend_int) > 0
+bool trend_changed_short= ta.change(trend_int) < 0
+
+float volRel     = volSma20 > 0 ? volume / volSma20 : 1.0
+float momRel     = atrSL    > 0 ? math.abs(close - open) / atrSL : 0.0
+float strength01 = f_clamp01((volRel - 1.0) * 0.6 + momRel * 0.4)
+
+float distToHighATR   = (not na(nearHigh) and atrSL > 0) ? (nearHigh - close) / atrSL : na
+float distToLowATR    = (not na(nearLow)  and atrSL > 0) ? (close - nearLow)  / atrSL : na
+bool  nearOppLiqLong  = useLiquidityFilterCfg and not na(distToHighATR) and distToHighATR >= 0 and distToHighATR <= proxATRCfg
+bool  nearOppLiqShort = useLiquidityFilterCfg and not na(distToLowATR)  and distToLowATR  >= 0 and distToLowATR  <= proxATRCfg
+bool  blockLongByLiq  = useLiquidityFilterCfg and nearOppLiqLong  and (strength01 < breakStrengthMinCfg or bearSweepRecent)
+bool  blockShortByLiq = useLiquidityFilterCfg and nearOppLiqShort and (strength01 < breakStrengthMinCfg or bullSweepRecent)
+
+bool  htfPrimaryBull   = tfSec <= 900  ? h1Bull : tfSec <= 3600 ? h4Bull : dBull
+bool  htfSecondaryBull = tfSec <= 900  ? h4Bull : tfSec <= 3600 ? dBull  : wBull
+bool  htfPrimaryBear   = not htfPrimaryBull
+bool  htfSecondaryBear = not htfSecondaryBull
+float trendSlopeATR    = not na(trend_line[1]) and atrSL > 0 ? math.abs(trend_line - trend_line[1]) / atrSL : 0.0
+float bandWidthATR     = atrSL > 0 ? (bandHigh - bandLow) / atrSL : 0.0
+bool  slopeLongOK  = not useTrendSlopeFilterCfg or (not na(trend_line[1]) and trend_line > trend_line[1] and trendSlopeATR >= minTrendSlopeATRCfg)
+bool  slopeShortOK = not useTrendSlopeFilterCfg or (not na(trend_line[1]) and trend_line < trend_line[1] and trendSlopeATR >= minTrendSlopeATRCfg)
+bool  bandWidthOK  = not useBandWidthFilterCfg  or bandWidthATR >= minBandWidthATRCfg
+bool  filterHTF_L  = not useHTFAlignmentCfg or (htfPrimaryBull and (not requireDualHTFCfg or htfSecondaryBull))
+bool  filterHTF_S  = not useHTFAlignmentCfg or (htfPrimaryBear and (not requireDualHTFCfg or htfSecondaryBear))
+
+bool long_signal_core  = trend_changed_long  and chopOK and filterWAE_L and filterFrost_L and filterHTF_L and slopeLongOK  and bandWidthOK and not blockLongByLiq  and barstate.isconfirmed
+bool short_signal_core = trend_changed_short and chopOK and filterWAE_S and filterFrost_S and filterHTF_S and slopeShortOK and bandWidthOK and not blockShortByLiq and barstate.isconfirmed
+
+int requiredBaseLong  = 0
+requiredBaseLong  += multiOscEnabled    ? 2 : 0
+requiredBaseLong  += useSMCFilterCfg   ? 2 : 0
+int requiredBaseShort = requiredBaseLong
+
+int requiredScoreLong  = 0
+requiredScoreLong  += multiOscEnabled and multiOscLongOK  ? 2 : 0
+requiredScoreLong  += useSMCFilterCfg and smcLongOK       ? 2 : 0
+int requiredScoreShort = 0
+requiredScoreShort += multiOscEnabled and multiOscShortOK ? 2 : 0
+requiredScoreShort += useSMCFilterCfg and smcShortOK      ? 2 : 0
+
+int bonusScoreLong  = 0
+bonusScoreLong  += useADXFilterCfg   and adxOK            ? 1 : 0
+bonusScoreLong  += useDMIConfirmCfg  and dmiLongOK         ? 1 : 0
+bonusScoreLong  += useKillZonesCfg   and inKillZone        ? 1 : 0
+bonusScoreLong  += useSqueezeCfg     and sqzFiredRecently and sqzMomLong  ? 1 : 0
+bonusScoreLong  += useFisherCfg      and fisherNotExtremeLong             ? 1 : 0
+bonusScoreLong  += bullishAbsorption ? 2 : 0
+bonusScoreLong  += bullishDivergence ? 1 : 0
+int bonusScoreShort = 0
+bonusScoreShort += useADXFilterCfg   and adxOK            ? 1 : 0
+bonusScoreShort += useDMIConfirmCfg  and dmiShortOK        ? 1 : 0
+bonusScoreShort += useKillZonesCfg   and inKillZone        ? 1 : 0
+bonusScoreShort += useSqueezeCfg     and sqzFiredRecently and sqzMomShort ? 1 : 0
+bonusScoreShort += useFisherCfg      and fisherNotExtremeShort            ? 1 : 0
+bonusScoreShort += bearishAbsorption ? 2 : 0
+bonusScoreShort += bearishDivergence ? 1 : 0
+
+int confScoreLong  = requiredScoreLong  + bonusScoreLong
+int confScoreShort = requiredScoreShort + bonusScoreShort
+int minScoreLong   = int(math.ceil(requiredBaseLong  * minScoreRatioCfg))
+int minScoreShort  = int(math.ceil(requiredBaseShort * minScoreRatioCfg))
+
+bool long_signal        = long_signal_core  and requiredScoreLong  >= minScoreLong  and adxOK and dmiLongOK
+bool short_signal       = short_signal_core and requiredScoreShort >= minScoreShort and adxOK and dmiShortOK
+bool long_signal_strong = long_signal   and (bonusScoreLong  >= 2 or (useSMCFilterCfg and smcLongOK))
+bool short_signal_strong= short_signal  and (bonusScoreShort >= 2 or (useSMCFilterCfg and smcShortOK))
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🔔  FIX ALERTAS — Captura ANTES de mutar trade_open
+//  ─────────────────────────────────────────────────────────────
+//  CAUSA DEL BUG: long_open_trigger y short_open_trigger usan
+//  (not trade_open or not bull). Como trade_open se muta inline
+//  DESPUÉS de calcularse las señales, al llegar al alertcondition
+//  al final del script trade_open ya es true → bloquea la alerta.
+//  SOLUCIÓN: Capturar con el estado PREVIO de trade_open.
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+bool alert_long_trigger  = long_signal  and (not trade_open or not bull)
+bool alert_short_trigger = short_signal and (not trade_open or bull)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 💹  TRADE ENGINE PREMIUM V3.2
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+int  confStarsLong  = math.min(5, math.max(1, 1 + confScoreLong))
+int  confStarsShort = math.min(5, math.max(1, 1 + confScoreShort))
+bool active             = trade_open and entryBar > 0
+bool long_open_trigger  = long_signal  and (not trade_open or not bull)
+bool short_open_trigger = short_signal and (not trade_open or bull)
+bool newEntry           = long_open_trigger or short_open_trigger
+
+// ── CLOSE TRADE (inline) ──
+if newEntry and trade_open
+    float _r_risk = math.abs(entryPrice - slP)
+    float _r      = _r_risk > 0 ? (bull ? ((close - entryPrice) / _r_risk) : ((entryPrice - close) / _r_risk)) : 0.0
+    stat_total += 1
+    if _r > 0
+        stat_wins    += 1
+        stat_winR    += _r
+        stat_streak  += 1
+        stat_bestStrk := math.max(stat_bestStrk, stat_streak)
+    else
+        stat_losses  += 1
+        stat_lossR   += math.abs(_r)
+        stat_streak  := 0
+    stat_totalR  += _r
+    peakEquity   := math.max(peakEquity, stat_totalR)
+    maxDrawdown  := peakEquity > 0 ? math.max(maxDrawdown, (peakEquity - stat_totalR) / peakEquity * 100) : maxDrawdown
+    // ── CLEAR (inline) ──
+    if not na(tl.ln_entry)
+        line.delete(tl.ln_entry)
+    if not na(tl.ln_sl)
+        line.delete(tl.ln_sl)
+    if not na(tl.ln_be)
+        line.delete(tl.ln_be)
+    if not na(tl.ln_tp1)
+        line.delete(tl.ln_tp1)
+    if not na(tl.ln_tp2)
+        line.delete(tl.ln_tp2)
+    if not na(tl.ln_tp3)
+        line.delete(tl.ln_tp3)
+    if not na(tl.ln_tp4)
+        line.delete(tl.ln_tp4)
+    if not na(tl.ln_tp5)
+        line.delete(tl.ln_tp5)
+    if not na(tl.ln_tp6)
+        line.delete(tl.ln_tp6)
+    if not na(tl.ln_tp7)
+        line.delete(tl.ln_tp7)
+    if not na(tl.lb_entry)
+        label.delete(tl.lb_entry)
+    if not na(tl.lb_sl)
+        label.delete(tl.lb_sl)
+    if not na(tl.lb_be)
+        label.delete(tl.lb_be)
+    if not na(tl.lb_tp1)
+        label.delete(tl.lb_tp1)
+    if not na(tl.lb_tp2)
+        label.delete(tl.lb_tp2)
+    if not na(tl.lb_tp3)
+        label.delete(tl.lb_tp3)
+    if not na(tl.lb_tp4)
+        label.delete(tl.lb_tp4)
+    if not na(tl.lb_tp5)
+        label.delete(tl.lb_tp5)
+    if not na(tl.lb_tp6)
+        label.delete(tl.lb_tp6)
+    if not na(tl.lb_tp7)
+        label.delete(tl.lb_tp7)
+    if not na(tl.lf_risk)
+        linefill.delete(tl.lf_risk)
+    if not na(tl.lf_zone)
+        linefill.delete(tl.lf_zone)
+    if not na(tl.lf_ext)
+        linefill.delete(tl.lf_ext)
+    int _n = array.size(sigLabels)
+    if _n > 0
+        for _i = 0 to _n - 1
+            label _l = array.get(sigLabels, _i)
+            if not na(_l)
+                label.delete(_l)
+        array.clear(sigLabels)
+    trade_open := false
+
+// ── OPEN NEW TRADE (inline) ──
+if long_open_trigger or short_open_trigger
+    // Clear visuals first
+    if not na(tl.ln_entry)
+        line.delete(tl.ln_entry)
+    if not na(tl.ln_sl)
+        line.delete(tl.ln_sl)
+    if not na(tl.ln_be)
+        line.delete(tl.ln_be)
+    if not na(tl.ln_tp1)
+        line.delete(tl.ln_tp1)
+    if not na(tl.ln_tp2)
+        line.delete(tl.ln_tp2)
+    if not na(tl.ln_tp3)
+        line.delete(tl.ln_tp3)
+    if not na(tl.ln_tp4)
+        line.delete(tl.ln_tp4)
+    if not na(tl.ln_tp5)
+        line.delete(tl.ln_tp5)
+    if not na(tl.ln_tp6)
+        line.delete(tl.ln_tp6)
+    if not na(tl.ln_tp7)
+        line.delete(tl.ln_tp7)
+    if not na(tl.lb_entry)
+        label.delete(tl.lb_entry)
+    if not na(tl.lb_sl)
+        label.delete(tl.lb_sl)
+    if not na(tl.lb_be)
+        label.delete(tl.lb_be)
+    if not na(tl.lb_tp1)
+        label.delete(tl.lb_tp1)
+    if not na(tl.lb_tp2)
+        label.delete(tl.lb_tp2)
+    if not na(tl.lb_tp3)
+        label.delete(tl.lb_tp3)
+    if not na(tl.lb_tp4)
+        label.delete(tl.lb_tp4)
+    if not na(tl.lb_tp5)
+        label.delete(tl.lb_tp5)
+    if not na(tl.lb_tp6)
+        label.delete(tl.lb_tp6)
+    if not na(tl.lb_tp7)
+        label.delete(tl.lb_tp7)
+    if not na(tl.lf_risk)
+        linefill.delete(tl.lf_risk)
+    if not na(tl.lf_zone)
+        linefill.delete(tl.lf_zone)
+    if not na(tl.lf_ext)
+        linefill.delete(tl.lf_ext)
+
+    // Reset state
+    trade_open     := true
+    bull           := long_open_trigger
+    entryFull      := false
+    avgBroken      := false
+    tp1_hit        := false
+    tp2_hit        := false
+    tp3_hit        := false
+    tp4_hit        := false
+    tp5_hit        := false
+    tp6_hit        := false
+    tp7_hit        := false
+    be_hidden      := false
+    tp1_cleaned    := false
+    tp2_cleaned    := false
+    tp3_cleaned    := false
+    tp4_cleaned    := false
+    tp5_cleaned    := false
+    tp6_cleaned    := false
+    tp7_cleaned    := false
+    tradeConf      := long_open_trigger ? confStarsLong  : confStarsShort
+    tradeFrostConf := long_open_trigger ? frostConfLong  : frostConfShort
+
+    // ── OPEN TRADE LOGIC ──
+    bool _isBull = long_open_trigger
+    float _ent = close
+    float _trendSl_l = math.max(trend_line * (1.0 - slBuf), _ent * (1.0 - maxSLPct))
+    float _swingSl_l = (not na(nearLow)  and (_ent - nearLow)  <= _ent * maxSLPct) ? nearLow  * (1.0 - slBuf) : _trendSl_l
+    float _trendSl_s = math.min(trend_line * (1.0 + slBuf), _ent * (1.0 + maxSLPct))
+    float _swingSl_s = (not na(nearHigh) and (nearHigh - _ent) <= _ent * maxSLPct) ? nearHigh * (1.0 + slBuf) : _trendSl_s
+    float _sl = _isBull ? (slModeCfg == "Trend Line" ? _trendSl_l : slModeCfg == "Estructura (Swing)" ? _swingSl_l : math.max(_trendSl_l, _swingSl_l)) : (slModeCfg == "Trend Line" ? _trendSl_s : slModeCfg == "Estructura (Swing)" ? _swingSl_s : math.min(_trendSl_s, _swingSl_s))
+    float _R = math.max(math.abs(_ent - _sl), atrSL * 0.1)
+    entryPrice    := _ent
+    slP           := _sl
+    trailSL       := _sl
+    bePrice       := _isBull ? _ent * (1.0 + feePct) : _ent * (1.0 - feePct)
+    entryBand     := trend_line
+    entryAvg      := avg
+    float _rtp1 = _isBull ? _ent + _R * tp1R : _ent - _R * tp1R
+    float _rtp2 = _isBull ? _ent + _R * tp2R : _ent - _R * tp2R
+    float _rtp3 = _isBull ? _ent + _R * tp3R : _ent - _R * tp3R
+    float _rtp4 = _isBull ? _ent + _R * tp4R : _ent - _R * tp4R
+    float _htf1 = f_adaptiveHTF(_isBull, 1, tfSec, h1h, h1l, h4h, h4l, pdh, pdl, pwh, pwl)
+    float _htf2 = f_adaptiveHTF(_isBull, 2, tfSec, h1h, h1l, h4h, h4l, pdh, pdl, pwh, pwl)
+    float _htf3 = f_adaptiveHTF(_isBull, 3, tfSec, h1h, h1l, h4h, h4l, pdh, pdl, pwh, pwl)
+    float _htf4 = f_adaptiveHTF(_isBull, 4, tfSec, h1h, h1l, h4h, h4l, pdh, pdl, pwh, pwl)
+    tp1P := _isBull ? f_snap(_ent, _rtp1, true,  _htf1, f_nearestAbove(pivHighs, _rtp1)) : f_snap(_ent, _rtp1, false, _htf1, f_nearestBelow(pivLows, _rtp1))
+    tp2P := _isBull ? f_snap(_ent, _rtp2, true,  _htf2, f_nearestAbove(pivHighs, _rtp2)) : f_snap(_ent, _rtp2, false, _htf2, f_nearestBelow(pivLows, _rtp2))
+    tp3P := _isBull ? f_snap(_ent, _rtp3, true,  _htf3, f_nearestAbove(pivHighs, _rtp3)) : f_snap(_ent, _rtp3, false, _htf3, f_nearestBelow(pivLows, _rtp3))
+    tp4P := _isBull ? f_snap(_ent, _rtp4, true,  _htf4, f_nearestAbove(pivHighs, _rtp4)) : f_snap(_ent, _rtp4, false, _htf4, f_nearestBelow(pivLows, _rtp4))
+    if _isBull
+        tp2P := tp2P <= tp1P ? _rtp2 : tp2P
+        tp3P := tp3P <= tp2P ? _rtp3 : tp3P
+        tp4P := tp4P <= tp3P ? _rtp4 : tp4P
+    else
+        tp2P := tp2P >= tp1P ? _rtp2 : tp2P
+        tp3P := tp3P >= tp2P ? _rtp3 : tp3P
+        tp4P := tp4P >= tp3P ? _rtp4 : tp4P
+    tp5P := na
+    tp6P := na
+    tp7P := na
+    entryBar := bar_index
+    if showTgts
+        int _x2Bar = bar_index + lineExt
+        int _x1Bar = shortLines ? math.max(bar_index, _x2Bar - 10) : bar_index
+        tl.ln_entry := line.new(_x1Bar, _ent,  _x2Bar, _ent,  color=color.new(color.rgb(105,105,105), 30), style=line.style_dotted, width=1)
+        tl.ln_sl    := line.new(_x1Bar, _sl,   _x2Bar, _sl,   color=c_slLine,  style=line.style_solid,  width=1)
+        tl.ln_tp1   := line.new(_x1Bar, tp1P,  _x2Bar, tp1P,  color=c_tp1Line, style=line.style_solid,  width=1)
+        tl.ln_tp2   := line.new(_x1Bar, tp2P,  _x2Bar, tp2P,  color=c_tpLine,  style=line.style_solid,  width=1)
+        tl.ln_tp3   := line.new(_x1Bar, tp3P,  _x2Bar, tp3P,  color=c_tpLine,  style=line.style_solid,  width=1)
+        tl.ln_tp4   := line.new(_x1Bar, tp4P,  _x2Bar, tp4P,  color=c_tpLine,  style=line.style_solid,  width=1)
+        tl.lb_entry := label.new(_x2Bar, _ent, "Entrada  " + f_fmtPrice(_ent),          style=label.style_label_left, color=c_entryLbl, textcolor=color.white, size=size.tiny)
+        tl.lb_sl    := label.new(_x2Bar, _sl,  f_slLbl("SL", _sl),                      style=label.style_label_left, color=c_slLbl,    textcolor=color.white, size=size.tiny)
+        tl.lb_tp1   := label.new(_x2Bar, tp1P, f_lbl("TP 1", tp1P, pct_tp1),            style=label.style_label_left, color=c_tp1Lbl,   textcolor=color.black, size=size.tiny)
+        tl.lb_tp2   := label.new(_x2Bar, tp2P, f_lbl("TP 2", tp2P, pct_tp2),            style=label.style_label_left, color=c_tpLbl,    textcolor=color.black, size=size.tiny)
+        tl.lb_tp3   := label.new(_x2Bar, tp3P, f_lbl("TP 3", tp3P, pct_tp3),            style=label.style_label_left, color=c_tpLbl,    textcolor=color.black, size=size.tiny)
+        tl.lb_tp4   := label.new(_x2Bar, tp4P, f_lbl("TP 4", tp4P, pct_runner),         style=label.style_label_left, color=c_tpLbl,    textcolor=color.black, size=size.tiny)
+        if not shortLines
+            tl.lf_risk := linefill.new(tl.ln_entry, tl.ln_sl,  color.new(#FF0000, 80))
+            tl.lf_zone := linefill.new(tl.ln_entry, tl.ln_tp1, color.new(#00FF00, 80))
+            tl.lf_ext  := linefill.new(tl.ln_tp1,   tl.ln_tp4, color.new(#00FF00, 80))
+
+// ── Recalculate active after potential state changes ──
+bool active2 = trade_open and entryBar > 0
+
+// trailing SL
+if active2 and not na(trend_line)
+    float _newSL = bull ? trend_line * (1.0 - slBuf) : trend_line * (1.0 + slBuf)
+    trailSL := bull ? math.max(nz(trailSL, _newSL), _newSL) : math.min(nz(trailSL, _newSL), _newSL)
+
+// TP1 hit
+if active2 and not na(tp1P) and not tp1_hit
+    if bull ? high >= tp1P : low <= tp1P
+        tp1_hit := true
+        trailSL := bull ? math.max(trailSL, bePrice) : math.min(trailSL, bePrice)
+        if showTgts and not na(bePrice)
+            int _x2 = bar_index + lineExt
+            int _x1 = shortLines ? math.max(bar_index, _x2 - 10) : bar_index
+            tl.ln_be := line.new(_x1, bePrice, _x2, bePrice, color=c_beLine, style=line.style_dashed, width=2)
+            tl.lb_be := label.new(_x2, bePrice, "BE  " + f_fmtPrice(bePrice), style=label.style_label_left, color=c_beLbl, textcolor=color.white, size=size.tiny)
+            if not na(tl.lb_entry)
+                label.set_text(tl.lb_entry, "")
+                label.set_color(tl.lb_entry, color.new(color.black, 100))
+        if not na(tl.lb_tp1)
+            label.set_text(tl.lb_tp1, "TP 1: " + f_fmtPrice(tp1P))
+
+// TP2 hit
+if active2 and not na(tp2P) and tp1_hit and not tp2_hit and (bull ? high >= tp2P : low <= tp2P)
+    tp2_hit := true
+    if not na(tl.lb_tp2)
+        label.set_text(tl.lb_tp2, "TP 2: " + f_fmtPrice(tp2P))
+
+// TP3 hit
+if active2 and not na(tp3P) and tp2_hit and not tp3_hit and (bull ? high >= tp3P : low <= tp3P)
+    tp3_hit := true
+    if not na(tl.lb_tp3)
+        label.set_text(tl.lb_tp3, "TP 3: " + f_fmtPrice(tp3P))
+
+// TP4 hit
+if active2 and not na(tp4P) and tp3_hit and not tp4_hit and (bull ? high >= tp4P : low <= tp4P)
+    tp4_hit := true
+    if not na(tl.lb_tp4)
+        label.set_text(tl.lb_tp4, "TP 4: " + f_fmtPrice(tp4P))
+
+// Dynamic TP5
+if active2 and tp3_hit and not na(tp4P) and na(tp5P) and not na(entryPrice) and not na(slP)
+    float _dist4 = bull ? (tp4P - high) : (low - tp4P)
+    if _dist4 < atrSL * 0.5 and _dist4 > 0
+        float _R5 = math.abs(slP - entryPrice)
+        tp5P := bull ? (entryPrice + _R5 * 6.854) : (entryPrice - _R5 * 6.854)
+        if showTgts
+            int _x2 = bar_index + lineExt
+            int _x1 = shortLines ? math.max(entryBar, _x2 - 10) : entryBar
+            tl.ln_tp5 := line.new(_x1, tp5P, _x2, tp5P, color=c_tpLine, style=line.style_solid, width=1)
+            tl.lb_tp5 := label.new(_x2, tp5P, "TP 5: " + f_fmtPrice(tp5P), style=label.style_label_left, color=c_tpLbl, textcolor=color.black, size=size.tiny)
+
+// Dynamic TP6
+if active2 and tp4_hit and not na(tp5P) and na(tp6P) and not na(entryPrice) and not na(slP)
+    float _dist5 = bull ? (tp5P - high) : (low - tp5P)
+    if _dist5 < atrSL * 0.5 and _dist5 > 0
+        float _R6 = math.abs(slP - entryPrice)
+        tp6P := bull ? (entryPrice + _R6 * 11.09) : (entryPrice - _R6 * 11.09)
+        if showTgts
+            int _x2 = bar_index + lineExt
+            int _x1 = shortLines ? math.max(entryBar, _x2 - 10) : entryBar
+            tl.ln_tp6 := line.new(_x1, tp6P, _x2, tp6P, color=c_tpLine, style=line.style_solid, width=1)
+            tl.lb_tp6 := label.new(_x2, tp6P, "TP 6: " + f_fmtPrice(tp6P), style=label.style_label_left, color=c_tpLbl, textcolor=color.black, size=size.tiny)
+
+// Dynamic TP7
+if active2 and tp5_hit and not na(tp6P) and na(tp7P) and not na(entryPrice) and not na(slP)
+    float _dist6 = bull ? (tp6P - high) : (low - tp6P)
+    if _dist6 < atrSL * 0.5 and _dist6 > 0
+        float _R7 = math.abs(slP - entryPrice)
+        tp7P := bull ? (entryPrice + _R7 * 17.944) : (entryPrice - _R7 * 17.944)
+        if showTgts
+            int _x2 = bar_index + lineExt
+            int _x1 = shortLines ? math.max(entryBar, _x2 - 10) : entryBar
+            tl.ln_tp7 := line.new(_x1, tp7P, _x2, tp7P, color=c_tpLine, style=line.style_solid, width=1)
+            tl.lb_tp7 := label.new(_x2, tp7P, "TP 7: " + f_fmtPrice(tp7P), style=label.style_label_left, color=c_tpLbl, textcolor=color.black, size=size.tiny)
+
+if active2 and not na(tp5P) and tp4_hit and not tp5_hit and (bull ? high >= tp5P : low <= tp5P)
+    tp5_hit := true
+if active2 and not na(tp6P) and tp5_hit and not tp6_hit and (bull ? high >= tp6P : low <= tp6P)
+    tp6_hit := true
+if active2 and not na(tp7P) and tp6_hit and not tp7_hit and (bull ? high >= tp7P : low <= tp7P)
+    tp7_hit := true
+
+// ── SL HIT (inline close + clear) ──
+bool slHitNow = active2 and not na(trailSL) and ((bull and low <= trailSL) or (not bull and high >= trailSL))
+if slHitNow
+    float _r_risk2 = math.abs(entryPrice - slP)
+    float _r2      = _r_risk2 > 0 ? (bull ? ((trailSL - entryPrice) / _r_risk2) : ((entryPrice - trailSL) / _r_risk2)) : 0.0
+    stat_total += 1
+    if _r2 > 0
+        stat_wins    += 1
+        stat_winR    += _r2
+        stat_streak  += 1
+        stat_bestStrk := math.max(stat_bestStrk, stat_streak)
+    else
+        stat_losses  += 1
+        stat_lossR   += math.abs(_r2)
+        stat_streak  := 0
+    stat_totalR  += _r2
+    peakEquity   := math.max(peakEquity, stat_totalR)
+    maxDrawdown  := peakEquity > 0 ? math.max(maxDrawdown, (peakEquity - stat_totalR) / peakEquity * 100) : maxDrawdown
+    trade_open := false
+    if not na(tl.ln_entry)
+        line.delete(tl.ln_entry)
+    if not na(tl.ln_sl)
+        line.delete(tl.ln_sl)
+    if not na(tl.ln_be)
+        line.delete(tl.ln_be)
+    if not na(tl.ln_tp1)
+        line.delete(tl.ln_tp1)
+    if not na(tl.ln_tp2)
+        line.delete(tl.ln_tp2)
+    if not na(tl.ln_tp3)
+        line.delete(tl.ln_tp3)
+    if not na(tl.ln_tp4)
+        line.delete(tl.ln_tp4)
+    if not na(tl.ln_tp5)
+        line.delete(tl.ln_tp5)
+    if not na(tl.ln_tp6)
+        line.delete(tl.ln_tp6)
+    if not na(tl.ln_tp7)
+        line.delete(tl.ln_tp7)
+    if not na(tl.lb_entry)
+        label.delete(tl.lb_entry)
+    if not na(tl.lb_sl)
+        label.delete(tl.lb_sl)
+    if not na(tl.lb_be)
+        label.delete(tl.lb_be)
+    if not na(tl.lb_tp1)
+        label.delete(tl.lb_tp1)
+    if not na(tl.lb_tp2)
+        label.delete(tl.lb_tp2)
+    if not na(tl.lb_tp3)
+        label.delete(tl.lb_tp3)
+    if not na(tl.lb_tp4)
+        label.delete(tl.lb_tp4)
+    if not na(tl.lb_tp5)
+        label.delete(tl.lb_tp5)
+    if not na(tl.lb_tp6)
+        label.delete(tl.lb_tp6)
+    if not na(tl.lb_tp7)
+        label.delete(tl.lb_tp7)
+    if not na(tl.lf_risk)
+        linefill.delete(tl.lf_risk)
+    if not na(tl.lf_zone)
+        linefill.delete(tl.lf_zone)
+    if not na(tl.lf_ext)
+        linefill.delete(tl.lf_ext)
+
+bool active3 = trade_open and entryBar > 0
+
+if active3 and not na(entryPrice) and not na(trailSL)
+    if (bull and trailSL >= entryPrice) or (not bull and trailSL <= entryPrice)
+        if not na(tl.ln_entry)
+            line.set_color(tl.ln_entry, color.new(color.rgb(105,105,105), 100))
+        if not na(tl.lb_entry)
+            label.set_color(tl.lb_entry, color.new(color.black, 100))
+            label.set_text(tl.lb_entry, "")
+
+if tp1_hit and not be_hidden and not na(bePrice) and not na(trailSL)
+    if (bull and trailSL >= bePrice) or (not bull and trailSL <= bePrice)
+        be_hidden := true
+        if not na(tl.ln_be)
+            line.set_color(tl.ln_be, color.new(c_beLine, 100))
+        if not na(tl.lb_be)
+            label.set_color(tl.lb_be, color.new(c_beLbl, 100))
+            label.set_text(tl.lb_be, "")
+
+if tp1_hit and not tp1_cleaned and not na(tp1P) and not na(trailSL) and ((bull and trailSL >= tp1P) or (not bull and trailSL <= tp1P))
+    tp1_cleaned := true
+    if not na(tl.ln_tp1)
+        line.set_color(tl.ln_tp1, color.new(c_tp1Line, 100))
+    if not na(tl.lb_tp1)
+        label.set_color(tl.lb_tp1, color.new(c_tp1Lbl, 100))
+        label.set_text(tl.lb_tp1, "")
+
+if tp2_hit and not tp2_cleaned and not na(tp2P) and not na(trailSL) and ((bull and trailSL >= tp2P) or (not bull and trailSL <= tp2P))
+    tp2_cleaned := true
+    if not na(tl.ln_tp2)
+        line.set_color(tl.ln_tp2, color.new(c_tpLine, 100))
+    if not na(tl.lb_tp2)
+        label.set_color(tl.lb_tp2, color.new(c_tpLbl, 100))
+        label.set_text(tl.lb_tp2, "")
+
+if tp3_hit and not tp3_cleaned and not na(tp3P) and not na(trailSL) and ((bull and trailSL >= tp3P) or (not bull and trailSL <= tp3P))
+    tp3_cleaned := true
+    if not na(tl.ln_tp3)
+        line.set_color(tl.ln_tp3, color.new(c_tpLine, 100))
+    if not na(tl.lb_tp3)
+        label.set_color(tl.lb_tp3, color.new(c_tpLbl, 100))
+        label.set_text(tl.lb_tp3, "")
+
+if tp4_hit and not tp4_cleaned and not na(tp4P) and not na(trailSL) and ((bull and trailSL >= tp4P) or (not bull and trailSL <= tp4P))
+    tp4_cleaned := true
+    if not na(tl.ln_tp4)
+        line.set_color(tl.ln_tp4, color.new(c_tpLine, 100))
+    if not na(tl.lb_tp4)
+        label.set_color(tl.lb_tp4, color.new(c_tpLbl, 100))
+        label.set_text(tl.lb_tp4, "")
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🔴  RETEST / ENTRY2 / RE-ENTRY
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+bool retest_long  = show_retest and crossUpAVG     and trend     and barstate.isconfirmed
+bool retest_short = show_retest and crossDnHighAVG and not trend and barstate.isconfirmed
+
+if active3 and not entryFull
+    if bull     and close < avg
+        avgBroken := true
+    if not bull and close > avg
+        avgBroken := true
+
+bool e2_long_lvl1  = (not avgBroken) and low  <= entryAvg  and close > entryAvg
+bool e2_long_lvl2  = avgBroken       and low  <= entryBand and close > entryBand
+bool e2_short_lvl1 = (not avgBroken) and high >= entryAvg  and close < entryAvg
+bool e2_short_lvl2 = avgBroken       and high >= entryBand and close < entryBand
+
+// ── Captura alert_retest2 ANTES de que entryFull cambie ──
+bool alert_retest2_long  = show_entry2 and active3 and bull     and not entryFull and not long_signal  and not na(entryBand) and (e2_long_lvl1  or e2_long_lvl2)  and barstate.isconfirmed
+bool alert_retest2_short = show_entry2 and active3 and not bull and not entryFull and not short_signal and not na(entryBand) and (e2_short_lvl1 or e2_short_lvl2) and barstate.isconfirmed
+
+bool retest2_long  = alert_retest2_long
+bool retest2_short = alert_retest2_short
+if retest2_long or retest2_short
+    entryFull := true
+
+bool reentry_long  = useReEntry and showReentry and active3 and bull     and crossUpAVG and close > trailSL and not long_signal  and not retest2_long  and barstate.isconfirmed
+bool reentry_short = useReEntry and showReentry and active3 and not bull and crossDnAVG and close < trailSL and not short_signal and not retest2_short and barstate.isconfirmed
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 📏  UPDATE LINE EXTENSION
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+if active3 and showTgts and not long_signal and not short_signal
+    int _x2 = bar_index + lineExt
+    int _x1 = shortLines ? math.max(entryBar, _x2 - 10) : entryBar
+    if not na(tl.ln_sl)
+        line.set_x1(tl.ln_sl, _x1)
+        line.set_x2(tl.ln_sl, _x2)
+        line.set_y1(tl.ln_sl, trailSL)
+        line.set_y2(tl.ln_sl, trailSL)
+    if not na(tl.lb_sl)
+        label.set_x(tl.lb_sl, _x2)
+        label.set_y(tl.lb_sl, trailSL)
+        label.set_text(tl.lb_sl, f_slLbl("SL", trailSL))
+    if not na(tl.ln_entry)
+        line.set_x1(tl.ln_entry, _x1)
+        line.set_x2(tl.ln_entry, _x2)
+        if not na(tl.lb_entry)
+            label.set_x(tl.lb_entry, _x2)
+    if not na(tl.ln_tp1)
+        line.set_x1(tl.ln_tp1, _x1)
+        line.set_x2(tl.ln_tp1, _x2)
+        if not na(tl.lb_tp1)
+            label.set_x(tl.lb_tp1, _x2)
+    if not na(tl.ln_tp2)
+        line.set_x1(tl.ln_tp2, _x1)
+        line.set_x2(tl.ln_tp2, _x2)
+        if not na(tl.lb_tp2)
+            label.set_x(tl.lb_tp2, _x2)
+    if not na(tl.ln_tp3)
+        line.set_x1(tl.ln_tp3, _x1)
+        line.set_x2(tl.ln_tp3, _x2)
+        if not na(tl.lb_tp3)
+            label.set_x(tl.lb_tp3, _x2)
+    if not na(tl.ln_tp4)
+        line.set_x1(tl.ln_tp4, _x1)
+        line.set_x2(tl.ln_tp4, _x2)
+        if not na(tl.lb_tp4)
+            label.set_x(tl.lb_tp4, _x2)
+    if not na(tl.ln_tp5)
+        line.set_x1(tl.ln_tp5, _x1)
+        line.set_x2(tl.ln_tp5, _x2)
+        if not na(tl.lb_tp5)
+            label.set_x(tl.lb_tp5, _x2)
+    if not na(tl.ln_tp6)
+        line.set_x1(tl.ln_tp6, _x1)
+        line.set_x2(tl.ln_tp6, _x2)
+        if not na(tl.lb_tp6)
+            label.set_x(tl.lb_tp6, _x2)
+    if not na(tl.ln_tp7)
+        line.set_x1(tl.ln_tp7, _x1)
+        line.set_x2(tl.ln_tp7, _x2)
+        if not na(tl.lb_tp7)
+            label.set_x(tl.lb_tp7, _x2)
+    if tp1_hit and not be_hidden and not na(tl.ln_be)
+        line.set_x1(tl.ln_be, _x1)
+        line.set_x2(tl.ln_be, _x2)
+        if not na(tl.lb_be)
+            label.set_x(tl.lb_be, _x2)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🎨  VISUAL SIGNALS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+if show_long  and long_signal  and not long_signal_strong
+    f_sigLabel(bar_index, trend_line, score > 0.5 ? "▲ +" : "▲ ", up, chart.bg_color, "upper_right", score > 0.5 ? "small" : "tiny")
+if show_short and short_signal and not short_signal_strong
+    f_sigLabel(bar_index, trend_line, score < 0.5 ? "▼ +" : "▼ ", dn, chart.fg_color, "lower_right", score < 0.5 ? "small" : "tiny")
+if show_strong and long_signal_strong
+    f_sigLabel(bar_index, trend_line, "▲ +", #58A6FF, color.white, "upper_right", "normal")
+if show_strong and short_signal_strong
+    f_sigLabel(bar_index, trend_line, "▼ +", #58A6FF, color.white, "lower_right", "normal")
+if showAiTags and ai_bull
+    label.new(bar_index, low  - atrStable * 1.2, "AI", color=color.new(#00E676, 20), textcolor=color.white, style=label.style_label_up,   size=size.small)
+if showAiTags and ai_bear
+    label.new(bar_index, high + atrStable * 1.2, "AI", color=color.new(#FF1744, 20), textcolor=color.white, style=label.style_label_down, size=size.small)
+if showLiqGrab and liqGrabBull
+    label.new(bar_index, low  - atrStable * 1.6, "🤑  LQ", color=color.new(#29b6f6, 15), textcolor=color.white, style=label.style_label_up,   size=size.tiny)
+if showLiqGrab and liqGrabBear
+    label.new(bar_index, high + atrStable * 1.6, "🤑  LQ", color=color.new(#ff9800, 15), textcolor=color.white, style=label.style_label_down, size=size.tiny)
+if show_retest and retest_long  and not retest2_long
+    f_sigLabel(bar_index[1], low[1],  "▲ ", color(na), chart.fg_color, "up",   "small")
+if show_retest and retest_short and not retest2_short
+    f_sigLabel(bar_index[1], high[1], "▼ ", color(na), chart.fg_color, "down", "small")
+if show_entry2 and retest2_long
+    f_sigLabel(bar_index, low,  "E2", #FF6F00, chart.bg_color, "up",   "small")
+if show_entry2 and retest2_short
+    f_sigLabel(bar_index, high, "E2", #FF6F00, chart.bg_color, "down", "small")
+if reentry_long
+    f_sigLabel(bar_index, low  - atrStable * 0.3, "R", color.new(#00BCD4, 50), color.white, "up",   "small")
+if reentry_short
+    f_sigLabel(bar_index, high + atrStable * 0.3, "R", color.new(#FF9800, 50), color.white, "down", "small")
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 📡  VIDYA + PLOTS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+f_vidya(src, v_len, v_mom) =>
+    float momentum         = ta.change(src)
+    float sum_pos_momentum = math.sum(momentum >= 0 ? momentum : 0.0, v_mom)
+    float sum_neg_momentum = math.sum(momentum >= 0 ? 0.0 : -momentum, v_mom)
+    float abs_cmo          = math.abs(100 * (sum_pos_momentum - sum_neg_momentum) / math.max(0.000001, (sum_pos_momentum + sum_neg_momentum)))
+    float alpha            = 2 / (v_len + 1)
+    var float vidya_value  = 0.0
+    vidya_value := alpha * abs_cmo / 100 * src + (1 - alpha * abs_cmo / 100) * nz(vidya_value[1])
+    ta.sma(vidya_value, 15)
+
+float vidyaBase = f_vidya(close, 10, 20)
+float atrVidya  = atrStable * 1.6
+float vidyaUp   = vidyaBase + atrVidya
+float vidyaDn   = vidyaBase - atrVidya
+
+plot(avg, color=clr, linewidth=1, title="Gaussian Avg")
+bool  _tlChange = not na(trend_line) and (na(trend_line[1]) or trend_line != trend_line[1])
+float _tlClean  = useDashed ? (_tlChange ? trend_line : na) : trend_line
+plot(_tlClean, color=close > trend_line ? up : dn, linewidth=2, style=useDashed ? plot.style_circles : plot.style_linebr, title="Trend Line")
+plot(active3 and not na(trailSL) ? trailSL : na, "SL trail", color=color.new(#FF1744, 0), linewidth=2, style=plot.style_linebr)
+barcolor(showHama ? hama_finalCol : na)
+plotcandle(showHama ? hama_open : na, showHama ? hama_high : na, showHama ? hama_low : na, showHama ? hama_close : na, color=hama_finalCol, title="HAMA Candles", wickcolor=hama_finalCol, bordercolor=hama_finalCol)
+plot(showVidya ? vidyaUp : na, title="AI VIDYA Upper", color=color.new(#17dfad, 70), style=plot.style_line, linewidth=1)
+plot(showVidya ? vidyaDn : na, title="AI VIDYA Lower", color=color.new(#f23645, 70), style=plot.style_line, linewidth=1)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🗂️  PANEL
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+var table panel     = na
+var table warnPanel = na
+bool m15AlertUp = m15Bull     and not m15Rev
+bool m15AlertDn = (not m15Bull) and not m15Rev
+
+if barstate.islast and showPanel
+    if not na(panel)
+        table.delete(panel)
+    string pPos  = panelPos == "Med. Derecha" ? position.middle_right : panelPos == "Inf. Derecha" ? position.bottom_right : panelPos == "Inf. Centro" ? position.bottom_center : panelPos == "Centro" ? position.middle_center : position.top_right
+    string wPos  = panelPos == "Med. Derecha" ? position.bottom_right : panelPos == "Inf. Derecha" ? position.middle_right : panelPos == "Inf. Centro" ? position.middle_center : panelPos == "Centro" ? position.bottom_center : position.bottom_right
+    string pTxt  = panelSize == "Mediano" ? size.small  : panelSize == "Grande" ? size.normal : size.tiny
+    string pTxtH = panelSize == "Mediano" ? size.normal : panelSize == "Grande" ? size.large  : size.small
+    float  wr    = stat_total > 0 ? (stat_wins * 100.0 / stat_total) : 0.0
+    color  wrCol = wr >= 50 ? #8FE28A : #ef5350
+    float  avgR  = stat_total > 0 ? stat_totalR / stat_total : 0.0
+    string grade = avgR >= 2.0 ? "A+" : avgR >= 1.5 ? "A" : avgR >= 1.0 ? "B" : avgR >= 0.5 ? "C" : "D"
+    color gradeCol  = avgR >= 2.0 ? #8FE28A : avgR >= 1.5 ? #69F0AE : avgR >= 1.0 ? #FFD600 : avgR >= 0.5 ? #FF9800 : #ef5350
+    color mtfBull   = color.new(#00E676, 15)
+    color mtfBear   = color.new(#FF1744, 15)
+    color mtfRevOn  = color.new(#D500F9, 10)
+    color mtfOff    = color.new(#161b22, 60)
+    float avgWinPct  = stat_wins   > 0 ? (stat_winR  / stat_wins)   * 100.0 : 0.0
+    float avgLossPct = stat_losses > 0 ? (stat_lossR / stat_losses) * 100.0 : 0.0
+    float expectPct  = avgR * 100.0
+    color expectCol  = avgR >= 0 ? #8FE28A : #ef5350
+
+    if active3 and not na(entryPrice)
+        panel := table.new(pPos, 7, 17, bgcolor=bg, border_width=1, border_color=color.new(#30363d, 50), frame_width=1, frame_color=color.new(#30363d, 60))
+        float pnl      = bull ? (close - entryPrice) / entryPrice * 100.0 : (entryPrice - close) / entryPrice * 100.0
+        color pnlCol   = pnl >= 0 ? #8FE28A : #ef5350
+        color pnlBg    = color.new(pnl >= 0 ? #8FE28A : #ef5350, 90)
+        string confTxt  = tradeConf      >= 5 ? "★★★★★ " : tradeConf      >= 4 ? "★★★★☆ " : tradeConf      >= 3 ? "★★★☆☆ " : tradeConf      >= 2 ? "★★☆☆☆ " : "★☆☆☆☆ "
+        string fconfTxt = tradeFrostConf >= 5 ? "★★★★★ " : tradeFrostConf >= 4 ? "★★★★☆ " : tradeFrostConf >= 3 ? "★★★☆☆ " : tradeFrostConf >= 2 ? "★★☆☆☆ " : "★☆☆☆☆ "
+        color gCol  = tradeConf      >= 4 ? #8FE28A : tradeConf      >= 2 ? #FFD600 : #ef5350
+        color fCol  = tradeFrostConf >= 4 ? #8FE28A : tradeFrostConf >= 2 ? #FFD600 : #ef5350
+        string dirTxt = bull ? "▲   LONG" : "▼   SHORT"
+        color dirCol  = bull ? #8FE28A : #ef5350
+        color dirBg   = color.new(bull ? #8FE28A : #ef5350, 85)
+        table.cell(panel, 0, 0, "GAUSSIAN TREND IA PRO", text_color=#8FE28A, text_size=pTxtH, bgcolor=secBg, text_halign=text.align_left)
+        table.merge_cells(panel, 0, 0, 4, 0)
+        table.cell(panel, 5, 0, dirTxt, text_color=dirCol, text_size=pTxtH, bgcolor=dirBg, text_halign=text.align_center)
+        table.merge_cells(panel, 5, 0, 6, 0)
+        table.cell(panel, 0, 1, "ENTRADA",   text_color=color.new(#8b949e, 30), text_size=pTxt, bgcolor=bg, text_halign=text.align_left)
+        table.merge_cells(panel, 0, 1, 2, 1)
+        table.cell(panel, 3, 1, f_fmtPrice(entryPrice), text_color=#58A6FF, text_size=pTxt, bgcolor=bg, text_halign=text.align_right)
+        table.merge_cells(panel, 3, 1, 6, 1)
+        table.cell(panel, 0, 2, "STOP LOSS", text_color=color.new(#8b949e, 30), text_size=pTxt, bgcolor=bg, text_halign=text.align_left)
+        table.merge_cells(panel, 0, 2, 2, 2)
+        table.cell(panel, 3, 2, f_fmtPrice(trailSL),   text_color=#ef5350,  text_size=pTxt, bgcolor=bg, text_halign=text.align_right)
+        table.merge_cells(panel, 3, 2, 6, 2)
+        table.cell(panel, 0, 3, "PnL ACTUAL", text_color=color.new(#8b949e, 30), text_size=pTxt, bgcolor=pnlBg, text_halign=text.align_left)
+        table.merge_cells(panel, 0, 3, 2, 3)
+        table.cell(panel, 3, 3, (pnl >= 0 ? "+" : "") + str.tostring(pnl, "#.##") + "%", text_color=pnlCol, text_size=pTxt, bgcolor=pnlBg, text_halign=text.align_right)
+        table.merge_cells(panel, 3, 3, 6, 3)
+        table.cell(panel, 0, 4, "WR  " + str.tostring(wr, "#.#") + "%", text_color=wrCol, text_size=pTxt, bgcolor=bg, text_halign=text.align_left)
+        table.merge_cells(panel, 0, 4, 2, 4)
+        table.cell(panel, 3, 4, "G\n"  + confTxt,  text_color=gCol, text_size=pTxt, bgcolor=bg, text_halign=text.align_center)
+        table.merge_cells(panel, 3, 4, 4, 4)
+        table.cell(panel, 5, 4, "AI\n" + fconfTxt, text_color=fCol, text_size=pTxt, bgcolor=bg, text_halign=text.align_center)
+        table.merge_cells(panel, 5, 4, 6, 4)
+        table.cell(panel, 0, 5, "  RENDIMIENTO", text_color=color.new(#8b949e, 20), text_size=pTxt, bgcolor=secBg, text_halign=text.align_left)
+        table.merge_cells(panel, 0, 5, 6, 5)
+        table.cell(panel, 0, 6, "↑   Gan. Prom",  text_color=color.new(#8b949e, 20), text_size=pTxt, bgcolor=bg, text_halign=text.align_left)
+        table.merge_cells(panel, 0, 6, 2, 6)
+        table.cell(panel, 3, 6, "+" + str.tostring(avgWinPct,  "#.##") + "%", text_color=#8FE28A, text_size=pTxt, bgcolor=color.new(#8FE28A, 92), text_halign=text.align_right)
+        table.merge_cells(panel, 3, 6, 6, 6)
+        table.cell(panel, 0, 7, "↓   Perd. Prom", text_color=color.new(#8b949e, 20), text_size=pTxt, bgcolor=bg, text_halign=text.align_left)
+        table.merge_cells(panel, 0, 7, 2, 7)
+        table.cell(panel, 3, 7, "-" + str.tostring(avgLossPct, "#.##") + "%", text_color=#ef5350, text_size=pTxt, bgcolor=color.new(#ef5350, 92), text_halign=text.align_right)
+        table.merge_cells(panel, 3, 7, 6, 7)
+        table.cell(panel, 0, 8, "✦   EXPECTATIVA", text_color=expectCol, text_size=pTxt, bgcolor=color.new(expectCol, 90), text_halign=text.align_left)
+        table.merge_cells(panel, 0, 8, 2, 8)
+        table.cell(panel, 3, 8, (expectPct >= 0 ? "+" : "") + str.tostring(expectPct, "#.##") + "% / trade", text_color=expectCol, text_size=pTxt, bgcolor=color.new(expectCol, 90), text_halign=text.align_right)
+        table.merge_cells(panel, 3, 8, 6, 8)
+        table.cell(panel, 0, 9, "  TARGETS", text_color=color.new(#8b949e, 20), text_size=pTxt, bgcolor=secBg, text_halign=text.align_left)
+        table.merge_cells(panel, 0, 9, 6, 9)
+        int    tpOff = tp5_hit ? 5 : tp4_hit ? 4 : tp3_hit ? 3 : tp2_hit ? 2 : tp1_hit ? 1 : 0
+        string n0    = tpOff == 0 ? "TP1" : tpOff == 1 ? "TP2" : tpOff == 2 ? "TP3" : tpOff == 3 ? "TP4" : tpOff == 4 ? "TP5" : "TP6"
+        float  p0    = tpOff == 0 ? tp1P : tpOff == 1 ? tp2P : tpOff == 2 ? tp3P : tpOff == 3 ? tp4P : tpOff == 4 ? tp5P : tp6P
+        string n1    = tpOff == 0 ? "TP2" : tpOff == 1 ? "TP3" : tpOff == 2 ? "TP4" : tpOff == 3 ? "TP5" : tpOff == 4 ? "TP6" : "TP7"
+        float  p1    = tpOff == 0 ? tp2P : tpOff == 1 ? tp3P : tpOff == 2 ? tp4P : tpOff == 3 ? tp5P : tpOff == 4 ? tp6P : tp7P
+        table.cell(panel, 0, 10, "▶   " + n0 + "  ACTIVO", text_color=color.new(#8b949e, 20), text_size=pTxt, bgcolor=bg, text_halign=text.align_left)
+        table.merge_cells(panel, 0, 10, 2, 10)
+        table.cell(panel, 3, 10, not na(p0) ? f_fmtPrice(p0) : "—", text_color=#58A6FF, text_size=pTxt, bgcolor=color.new(#58A6FF, 92), text_halign=text.align_right)
+        table.merge_cells(panel, 3, 10, 6, 10)
+        table.cell(panel, 0, 11, "○   " + n1 + "  PROXIMO", text_color=color.new(#8b949e, 40), text_size=pTxt, bgcolor=bg, text_halign=text.align_left)
+        table.merge_cells(panel, 0, 11, 2, 11)
+        table.cell(panel, 3, 11, not na(p1) ? f_fmtPrice(p1) : "—", text_color=color.new(#8b949e, 20), text_size=pTxt, bgcolor=bg, text_halign=text.align_right)
+        table.merge_cells(panel, 3, 11, 6, 11)
+        color  sessCol12 = sessNow == "Off" ? color.new(#8b949e, 40) : color.white
+        color  sessBg12  = sessNow == "Asia" ? color.new(#9C27B0, 60) : sessNow == "London" ? color.new(#1565C0, 60) : sessNow == "NY" ? color.new(#00695C, 60) : color.new(#30363d, 60)
+        table.cell(panel, 0, 12, "  MTF", text_color=color.new(#8b949e, 20), text_size=pTxt, bgcolor=secBg, text_halign=text.align_left)
+        table.merge_cells(panel, 0, 12, 4, 12)
+        table.cell(panel, 5, 12, sessNow, text_color=sessCol12, text_size=pTxt, bgcolor=sessBg12, text_halign=text.align_center)
+        table.merge_cells(panel, 5, 12, 6, 12)
+        table.cell(panel, 0, 13, "TREND", text_color=color.new(#8b949e, 40), text_size=pTxt, bgcolor=bg, text_halign=text.align_center)
+        table.cell(panel, 1, 13, m5Bull  ? "5M ▲ "  : "5M ▼ ",  text_color=color.white, text_size=pTxt, bgcolor=m5Bull  ? mtfBull : mtfBear)
+        table.cell(panel, 2, 13, m15Bull ? "15M ▲ " : "15M ▼ ", text_color=color.white, text_size=pTxt, bgcolor=m15Bull ? mtfBull : mtfBear)
+        table.cell(panel, 3, 13, h1Bull  ? "1H ▲ "  : "1H ▼ ",  text_color=color.white, text_size=pTxt, bgcolor=h1Bull  ? mtfBull : mtfBear)
+        table.cell(panel, 4, 13, h4Bull  ? "4H ▲ "  : "4H ▼ ",  text_color=color.white, text_size=pTxt, bgcolor=h4Bull  ? mtfBull : mtfBear)
+        table.cell(panel, 5, 13, dBull   ? "1D ▲ "  : "1D ▼ ",  text_color=color.white, text_size=pTxt, bgcolor=dBull   ? mtfBull : mtfBear)
+        table.cell(panel, 6, 13, wBull   ? "1W ▲ "  : "1W ▼ ",  text_color=color.white, text_size=pTxt, bgcolor=wBull   ? mtfBull : mtfBear)
+        table.cell(panel, 0, 14, "⚡ ", text_color=color.new(#D500F9, 20), text_size=pTxt, bgcolor=bg)
+        table.cell(panel, 1, 14, "5M",  text_color=m5Rev  ? color.white : color.new(#8b949e, 60), text_size=pTxt, bgcolor=m5Rev  ? mtfRevOn : mtfOff)
+        table.cell(panel, 2, 14, "15M", text_color=m15Rev ? color.white : color.new(#8b949e, 60), text_size=pTxt, bgcolor=m15Rev ? mtfRevOn : mtfOff)
+        table.cell(panel, 3, 14, "1H",  text_color=h1Rev  ? color.white : color.new(#8b949e, 60), text_size=pTxt, bgcolor=h1Rev  ? mtfRevOn : mtfOff)
+        table.cell(panel, 4, 14, "4H",  text_color=h4Rev  ? color.white : color.new(#8b949e, 60), text_size=pTxt, bgcolor=h4Rev  ? mtfRevOn : mtfOff)
+        table.cell(panel, 5, 14, "1D",  text_color=dRev   ? color.white : color.new(#8b949e, 60), text_size=pTxt, bgcolor=dRev   ? mtfRevOn : mtfOff)
+        table.cell(panel, 6, 14, "1W",  text_color=wRev   ? color.white : color.new(#8b949e, 60), text_size=pTxt, bgcolor=wRev   ? mtfRevOn : mtfOff)
+        string m15Txt = m15AlertUp ? "🚀 M15: PRE-ENTRADA ALCISTA 🚀" : m15AlertDn ? "🚀 M15: PRE-ENTRADA BAJISTA 🚀" : "— M15 Tracker Activo —"
+        color  m15Bg  = m15AlertUp ? color.new(#00E676, 50) : m15AlertDn ? color.new(#FF1744, 50) : bg
+        table.cell(panel, 0, 15, m15Txt, text_color=m15AlertUp or m15AlertDn ? color.white : color.new(#8b949e, 60), text_size=pTxt, bgcolor=m15Bg, text_halign=text.align_center)
+        table.merge_cells(panel, 0, 15, 6, 15)
+        bool   isRanging = not chopOK
+        color  mktBg  = isRanging ? color.new(#FF9800, 82) : bull ? color.new(#8FE28A, 90) : color.new(#ef5350, 90)
+        string mktTxt = isRanging ? "⚠  RANGO — mercado lateral" : bull ? "✓  ALCISTA — tendencia activa" : "✓  BAJISTA — tendencia activa"
+        color  mktCol = isRanging ? #FF9800 : bull ? #8FE28A : #ef5350
+        table.cell(panel, 0, 16, mktTxt, text_color=mktCol, text_size=pTxt, bgcolor=mktBg, text_halign=text.align_center)
+        table.merge_cells(panel, 0, 16, 6, 16)
+
+        bool mismatchDn = bull     and m15Rev and not m15Bull
+        bool mismatchUp = not bull and m15Rev and m15Bull
+        if showWarnM15 and (mismatchDn or mismatchUp)
+            if not na(warnPanel)
+                table.delete(warnPanel)
+            warnPanel := table.new(wPos, 1, 2, bgcolor=bg, border_width=1, border_color=color.new(#FF0000, 10), frame_width=1, frame_color=color.new(#FF0000, 10))
+            string wTitle = mismatchDn ? "⚠  ALERTA: REVERSION M15 BAJISTA ⚠" : "⚠  ALERTA: REVERSION M15 ALCISTA ⚠"
+            table.cell(warnPanel, 0, 0, wTitle,                          text_color=color.white, text_size=pTxtH, bgcolor=color.new(#FF0000, 25), text_halign=text.align_center)
+            table.cell(warnPanel, 0, 1, "Riesgo de Stop Loss en trade actual", text_color=color.white, text_size=pTxt,  bgcolor=bg, text_halign=text.align_center)
+        else
+            if not na(warnPanel)
+                table.delete(warnPanel)
+                warnPanel := na
+    else
+        panel := table.new(pPos, 7, 7, bgcolor=bg, border_width=1, border_color=color.new(#30363d, 50), frame_width=1, frame_color=color.new(#30363d, 60))
+        table.cell(panel, 0, 0, "GAUSSIAN TREND IA PRO", text_color=#8FE28A, text_size=pTxtH, bgcolor=bg, text_halign=text.align_center)
+        table.merge_cells(panel, 0, 0, 6, 0)
+        table.cell(panel, 0, 1, grade,    text_color=gradeCol, text_size=pTxt, bgcolor=bg, text_halign=text.align_center)
+        table.cell(panel, 1, 1, "WinRate", text_color=#8b949e, text_size=pTxt, bgcolor=bg, text_halign=text.align_left)
+        table.cell(panel, 2, 1, str.tostring(wr, "#.#") + "%  (" + str.tostring(stat_wins) + "/" + str.tostring(stat_total) + ")", text_color=wrCol, text_size=pTxt, bgcolor=bg, text_halign=text.align_right)
+        table.merge_cells(panel, 2, 1, 6, 1)
+        table.cell(panel, 0, 2, avgR >= 0 ? "✦ " : "✧ ", text_color=expectCol, text_size=pTxt, bgcolor=bg, text_halign=text.align_center)
+        table.cell(panel, 1, 2, "Expectativa", text_color=#8b949e, text_size=pTxt, bgcolor=bg, text_halign=text.align_left)
+        table.cell(panel, 2, 2, (expectPct >= 0 ? "+" : "") + str.tostring(expectPct, "#.##") + "% / trade", text_color=expectCol, text_size=pTxt, bgcolor=color.new(expectCol, 88), text_halign=text.align_right)
+        table.merge_cells(panel, 2, 2, 6, 2)
+        table.cell(panel, 0, 3, "─ ─  MTF ─ ─", text_color=color.new(#8b949e, 40), text_size=pTxt, bgcolor=bg, text_halign=text.align_center)
+        table.merge_cells(panel, 0, 3, 6, 3)
+        table.cell(panel, 0, 4, "T",   text_color=#8b949e, text_size=pTxt, bgcolor=bg, text_halign=text.align_center)
+        table.cell(panel, 1, 4, "5M",  text_color=color.white, text_size=pTxt, bgcolor=m5Bull  ? mtfBull : mtfBear)
+        table.cell(panel, 2, 4, "15M", text_color=color.white, text_size=pTxt, bgcolor=m15Bull ? mtfBull : mtfBear)
+        table.cell(panel, 3, 4, "1H",  text_color=color.white, text_size=pTxt, bgcolor=h1Bull  ? mtfBull : mtfBear)
+        table.cell(panel, 4, 4, "4H",  text_color=color.white, text_size=pTxt, bgcolor=h4Bull  ? mtfBull : mtfBear)
+        table.cell(panel, 5, 4, "1D",  text_color=color.white, text_size=pTxt, bgcolor=dBull   ? mtfBull : mtfBear)
+        int revCountC = (m5Rev ? 1:0) + (m15Rev ? 1:0) + (h1Rev ? 1:0) + (h4Rev ? 1:0) + (dRev ? 1:0)
+        table.cell(panel, 6, 4, revCountC > 0 ? "⚡" + str.tostring(revCountC) : "—", text_color=revCountC > 0 ? #FFD600 : #8b949e, text_size=pTxt, bgcolor=revCountC > 0 ? color.new(#FFD600, 60) : color.new(#30363d, 0))
+        table.cell(panel, 0, 5, "R",   text_color=#8b949e, text_size=pTxt, bgcolor=bg, text_halign=text.align_center)
+        table.cell(panel, 1, 5, "5M",  text_color=color.white, text_size=pTxt, bgcolor=m5Rev  ? mtfRevOn : mtfOff)
+        table.cell(panel, 2, 5, "15M", text_color=color.white, text_size=pTxt, bgcolor=m15Rev ? mtfRevOn : mtfOff)
+        table.cell(panel, 3, 5, "1H",  text_color=color.white, text_size=pTxt, bgcolor=h1Rev  ? mtfRevOn : mtfOff)
+        table.cell(panel, 4, 5, "4H",  text_color=color.white, text_size=pTxt, bgcolor=h4Rev  ? mtfRevOn : mtfOff)
+        table.cell(panel, 5, 5, "1D",  text_color=color.white, text_size=pTxt, bgcolor=dRev   ? mtfRevOn : mtfOff)
+        table.cell(panel, 6, 5, "1W",  text_color=color.white, text_size=pTxt, bgcolor=wRev   ? mtfRevOn : mtfOff)
+        string m15TxtC = m15AlertUp ? "🚀 M15: ALCISTA 🚀" : m15AlertDn ? "🚀 M15: BAJISTA 🚀" : ""
+        color  m15BgC  = m15AlertUp ? color.new(#00E676, 50) : m15AlertDn ? color.new(#FF1744, 50) : bg
+        table.cell(panel, 0, 6, m15TxtC, text_color=m15AlertUp or m15AlertDn ? color.white : bg, text_size=pTxt, bgcolor=m15BgC, text_halign=text.align_center)
+        table.merge_cells(panel, 0, 6, 6, 6)
+        if not na(warnPanel)
+            table.delete(warnPanel)
+            warnPanel := na
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🔔  ALERTS — FIX APLICADO
+//  Usamos alert_long_trigger / alert_short_trigger capturados
+//  ANTES de que trade_open sea mutado a true en el trade engine.
+//  Configurar alertas en TradingView con: "Once Per Bar Close"
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+alertcondition(alert_long_trigger,                  "Long",           "LONG | {{ticker}} @ {{close}} | {{interval}}")
+alertcondition(alert_short_trigger,                 "Short",          "SHORT | {{ticker}} @ {{close}} | {{interval}}")
+alertcondition(alert_retest2_long,                  "Entry 2 Long",   "ENTRY 2 LONG | {{ticker}} @ {{close}}")
+alertcondition(alert_retest2_short,                 "Entry 2 Short",  "ENTRY 2 SHORT | {{ticker}} @ {{close}}")
+alertcondition(reentry_long,                        "Re-entry Long",  "RE-ENTRY LONG | {{ticker}} @ {{close}}")
+alertcondition(reentry_short,                       "Re-entry Short", "RE-ENTRY SHORT | {{ticker}} @ {{close}}")
+alertcondition(tp1_hit and not tp1_hit[1],          "TP 1 Hit",       "TP 1 HIT | {{ticker}} @ {{close}} | {{interval}}")
+alertcondition(tp2_hit and not tp2_hit[1],          "TP 2 Hit",       "TP 2 HIT | {{ticker}} @ {{close}} | {{interval}}")
+alertcondition(tp3_hit and not tp3_hit[1],          "TP 3 Hit",       "TP 3 HIT | {{ticker}} @ {{close}} | {{interval}}")
+alertcondition(tp4_hit and not tp4_hit[1],          "TP 4 Hit",       "TP 4 HIT | {{ticker}} @ {{close}} | {{interval}}")
+alertcondition(tp5_hit and not tp5_hit[1],          "TP 5 Hit",       "TP 5 HIT | {{ticker}} @ {{close}} | {{interval}}")
+alertcondition(tp6_hit and not tp6_hit[1],          "TP 6 Hit",       "TP 6 HIT | {{ticker}} @ {{close}} | {{interval}}")
+alertcondition(tp7_hit and not tp7_hit[1],          "TP 7 Hit",       "TP 7 HIT | {{ticker}} @ {{close}} | {{interval}}")
+alertcondition(slHitNow,                            "SL Hit",         "SL HIT | {{ticker}} @ {{close}} | {{interval}}")
+alertcondition(be_hidden and not be_hidden[1],      "Break Even Hit", "BREAK EVEN HIT | {{ticker}} @ {{close}} | {{interval}}")
+// ── 🧲 ABS — Absorción ──
+alertcondition(bullishAbsorption,                  "ABS Bull",       "🧲 ABSORCION ALCISTA | {{ticker}} @ {{close}} | {{interval}}")
+alertcondition(bearishAbsorption,                  "ABS Bear",       "🧲 ABSORCION BAJISTA | {{ticker}} @ {{close}} | {{interval}}")
+
+// ── 📉 DIV — Divergencia RSI ──
+alertcondition(bullishDivergence,                  "DIV+",           "📈 DIVERGENCIA ALCISTA | {{ticker}} @ {{close}} | {{interval}}")
+alertcondition(bearishDivergence,                  "DIV-",           "📉 DIVERGENCIA BAJISTA | {{ticker}} @ {{close}} | {{interval}}")
+
+// ── 🤖 AI — Frost Engine direction change ──
+alertcondition(ai_bull,                            "AI Bull",        "🤖 AI ALCISTA | {{ticker}} @ {{close}} | {{interval}}")
+alertcondition(ai_bear,                            "AI Bear",        "🤖 AI BAJISTA | {{ticker}} @ {{close}} | {{interval}}")
+
+// ── 🤑 LQ — Liquidity Grab ──
+alertcondition(liqGrabBull and not liqGrabBull[1], "Liquidity Grab Bull", "🤑 LIQ GRAB LONG | {{ticker}} @ {{close}} | {{interval}}")
+alertcondition(liqGrabBear and not liqGrabBear[1], "Liquidity Grab Bear", "🤑 LIQ GRAB SHORT | {{ticker}} @ {{close}} | {{interval}}")

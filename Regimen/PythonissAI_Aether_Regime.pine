@@ -1,0 +1,164 @@
+//@version=6
+// ██████╗ ██╗   ██╗████████╗██╗  ██╗ ██████╗ ███╗   ██╗██╗███████╗███████╗ █████╗ ██╗
+// ██╔══██╗╚██╗ ██╔╝╚══██╔══╝██║  ██║██╔═══██╗████╗  ██║██║██╔════╝██╔════╝██╔══██╗██║
+// ██████╔╝ ╚████╔╝    ██║   ███████║██║   ██║██╔██╗ ██║██║███████╗███████╗███████║██║
+// ██╔═══╝   ╚██╔╝     ██║   ██╔══██║██║   ██║██║╚██╗██║██║╚════██║╚════██║██╔══██║██║
+// ██║        ██║      ██║   ██║  ██║╚██████╔╝██║ ╚████║██║███████║███████║██║  ██║██║
+// ╚═╝        ╚═╝      ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝╚══════╝╚══════╝╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  PythonissAI® - Aether · Regime
+//  Ancla maestra de tendencia y régimen. Línea adaptativa (AlphaTrend) que
+//  define la dirección dominante, + clasificador de régimen TENDENCIA/RANGO
+//  (Efficiency Ratio o ADX) que dice cuándo confiar en ella. Estética rayo:
+//  línea finísima + núcleo blanco + halo único, nodos diminutos en los giros.
+//  Exporta dirección/régimen/fuerza (display.none) para la meta-confluencia.
+//  (c) PythonissAI® — Pine v6 · overlay
+// ────────────────────────────────────────────────────────────────────────────
+indicator("PythonissAI® - Aether · Regime", shorttitle="Aether", overlay=true, max_labels_count=100)
+
+// ════════════════ GRUPOS ════════════════
+G_TREND = "① Tendencia (AlphaTrend)"
+G_REG   = "② Régimen (Tendencia/Rango)"
+G_VIS   = "③ Estética"
+G_DASH  = "④ Dashboard"
+G_COL   = "⑤ Paleta"
+G_WM    = "✦ Marca de agua"
+
+// ════════════════ ① TENDENCIA ════════════════
+atrLen   = input.int(14, "Longitud ATR", minval=1, group=G_TREND)
+coeff    = input.float(1.0, "Sensibilidad (×ATR)", minval=0.3, maxval=5.0, step=0.1, group=G_TREND, tooltip="Menor = la línea sigue al precio más de cerca (más giros). Mayor = más estable.")
+momSrc   = input.string("RSI", "Confirmador de momentum", options=["RSI","MFI"], group=G_TREND, tooltip="Decide el lado de la línea adaptativa. MFI usa volumen; RSI no.")
+momLen   = input.int(14, "Longitud del momentum", minval=2, group=G_TREND)
+
+// ════════════════ ② RÉGIMEN ════════════════
+regMethod = input.string("Efficiency Ratio", "Método de régimen", options=["Efficiency Ratio","ADX"], group=G_REG, tooltip="Efficiency Ratio (Kaufman) = qué tan direccional es el movimiento. ADX = fuerza de tendencia clásica.")
+erLen     = input.int(20, "Ventana Efficiency Ratio", minval=2, group=G_REG)
+erThresh  = input.float(0.30, "Umbral ER (≥ = tendencia)", minval=0.05, maxval=0.95, step=0.05, group=G_REG)
+adxLen    = input.int(14, "Longitud ADX", minval=2, group=G_REG, inline="adx")
+adxThresh = input.float(23, "Umbral ADX", minval=10, maxval=60, group=G_REG, inline="adx")
+
+// ════════════════ ③ ESTÉTICA ════════════════
+showCloud = input.bool(true,  "Nube hacia el precio (difusa)", group=G_VIS)
+showNodes = input.bool(true,  "Nodos de giro (diminutos)", group=G_VIS)
+dimRange  = input.bool(true,  "Atenuar la línea en RANGO", group=G_VIS, tooltip="En régimen de rango la línea se difumina: aviso visual de baja convicción.")
+tintBars  = input.bool(false, "Teñir velas por régimen", group=G_VIS)
+
+// ════════════════ ④ DASHBOARD ════════════════
+showDash  = input.bool(true, "Dashboard", group=G_DASH)
+dashLoc   = input.string("Arriba Derecha", "Ubicación", options=["Arriba Derecha","Abajo Derecha","Arriba Izquierda","Abajo Izquierda"], group=G_DASH)
+dashBg    = input.color(color.new(#0b0e16, 10), "Fondo", group=G_DASH)
+
+// ════════════════ ⑤ PALETA ════════════════
+palette = input.string("Cyan vs Magenta", "Paleta Bull/Bear", options=["Cyan vs Magenta","Oro vs Violeta","Verde Lima vs Naranja","Blanco vs Carbón","Menta vs Coral","Eléctrico BudAI","Aqua vs Rubí"], group=G_COL)
+cNeu   = input.color(#90a4ae, "Neutral / rango (gris)", group=G_COL)
+cWhite = input.color(#ffffff, "Núcleo (blanco)", group=G_COL)
+
+color cBull = palette == "Oro vs Violeta" ? #ffe600 : palette == "Verde Lima vs Naranja" ? #39ff14 : palette == "Blanco vs Carbón" ? #ffffff : palette == "Menta vs Coral" ? #00ffc4 : palette == "Eléctrico BudAI" ? #00e5ff : palette == "Aqua vs Rubí" ? #18ffff : #00f0ff
+color cBear = palette == "Oro vs Violeta" ? #9d00ff : palette == "Verde Lima vs Naranja" ? #ff4500 : palette == "Blanco vs Carbón" ? #4a4a4a : palette == "Menta vs Coral" ? #ff5757 : palette == "Eléctrico BudAI" ? #ff1e6e : palette == "Aqua vs Rubí" ? #ff1744 : #ff007a
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Firma PythonissAI", group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 30), "Color firma", group=G_WM)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NÚCLEO — LÍNEA ADAPTATIVA (AlphaTrend)
+// ════════════════════════════════════════════════════════════════════════════
+float atrv = ta.atr(atrLen)
+float mom  = momSrc == "MFI" ? ta.mfi(hlc3, momLen) : ta.rsi(close, momLen)
+bool  momUp = mom >= 50
+
+float upT   = low  - atrv * coeff
+float downT = high + atrv * coeff
+
+var float at = 0.0
+at := momUp ? (upT < nz(at[1]) ? nz(at[1]) : upT) : (downT > nz(at[1]) ? nz(at[1]) : downT)
+
+bool xUp = ta.crossover(at, at[2])
+bool xDn = ta.crossunder(at, at[2])
+var int dir = 1
+if xUp
+    dir := 1
+if xDn
+    dir := -1
+
+// ════════════════════════════════════════════════════════════════════════════
+//  RÉGIMEN — TENDENCIA vs RANGO
+// ════════════════════════════════════════════════════════════════════════════
+float erChg = math.abs(close - close[erLen])
+float erVol = math.sum(math.abs(close - close[1]), erLen)
+float er    = erVol != 0 ? erChg / erVol : 0.0
+
+[diPlus, diMinus, adxVal] = ta.dmi(adxLen, adxLen)
+
+bool  trending = regMethod == "ADX" ? adxVal >= adxThresh : er >= erThresh
+float strength = regMethod == "ADX" ? adxVal : er * 100.0
+
+// ════════════════════════════════════════════════════════════════════════════
+//  VISUAL — LÍNEA estilo rayo (finísima) + nube difusa
+// ════════════════════════════════════════════════════════════════════════════
+color baseCol = dir == 1 ? cBull : cBear
+int   atTransp = (dimRange and not trending) ? 55 : 0
+color lineCol  = color.new(baseCol, atTransp)
+
+plot(at, "Aether halo",   color=color.new(baseCol, trending ? 80 : 90), linewidth=2)
+pAt = plot(at, "Aether",   color=lineCol, linewidth=1)
+plot(at, "Aether núcleo", color=color.new(cWhite, trending ? 45 : 70), linewidth=1)
+
+pPx = plot(showCloud ? close : na, "px", color=color.new(cWhite, 100), display=display.none)
+fill(pAt, pPx, color=color.new(baseCol, trending ? 90 : 95), title="Nube régimen")
+
+// Tinte de velas por régimen (opcional, sutil)
+barcolor(tintBars ? (trending ? color.new(baseCol, 55) : color.new(cNeu, 80)) : na)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NODOS DE GIRO (diminutos, glow + núcleo) — alineados por location.absolute
+// ════════════════════════════════════════════════════════════════════════════
+float upY = showNodes and xUp ? at : na
+float dnY = showNodes and xDn ? at : na
+plotchar(upY, "Giro alcista glow", "•", location.absolute, color.new(cBull, 55), size=size.small)
+plotchar(upY, "Giro alcista",      "•", location.absolute, color.new(cBull, 0),  size=size.tiny)
+plotchar(dnY, "Giro bajista glow", "•", location.absolute, color.new(cBear, 55), size=size.small)
+plotchar(dnY, "Giro bajista",      "•", location.absolute, color.new(cBear, 0),  size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  CONECTOR (display.none) — para la futura meta-confluencia
+// ════════════════════════════════════════════════════════════════════════════
+plot(dir,              "conn_dir",      display=display.none)   // +1 alcista · -1 bajista
+plot(trending ? 1 : 0, "conn_trending", display=display.none)   // 1 tendencia · 0 rango
+plot(strength,         "conn_strength", display=display.none)   // ER×100 o ADX
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD
+// ════════════════════════════════════════════════════════════════════════════
+string dirTxt = dir == 1 ? "Alcista" : "Bajista"
+color  dirCol = dir == 1 ? cBull : cBear
+string regTxt = trending ? "TENDENCIA" : "RANGO"
+color  regCol = trending ? (dir == 1 ? cBull : cBear) : cNeu
+string verTxt = not trending ? "NO TRADE (rango)" : dir == 1 ? "SESGO LONG" : "SESGO SHORT"
+color  verCol = not trending ? cNeu : dir == 1 ? cBull : cBear
+
+if showDash and barstate.islast
+    string pos = dashLoc == "Arriba Derecha" ? position.top_right : dashLoc == "Abajo Derecha" ? position.bottom_right : dashLoc == "Arriba Izquierda" ? position.top_left : position.bottom_left
+    var table tb = table.new(pos, 2, 4, bgcolor=dashBg, frame_color=color.new(cNeu, 62), frame_width=1, border_color=color.new(cNeu, 82), border_width=1)
+    table.cell(tb, 0, 0, "Aether", text_color=cWhite, text_size=size.small, text_halign=text.align_left)
+    table.cell(tb, 1, 0, verTxt, text_color=verCol, text_size=size.small, text_halign=text.align_right)
+    table.cell(tb, 0, 1, "Dirección", text_color=cNeu, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(tb, 1, 1, dirTxt, text_color=dirCol, text_size=size.tiny, text_halign=text.align_right)
+    table.cell(tb, 0, 2, "Régimen", text_color=cNeu, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(tb, 1, 2, regTxt, text_color=regCol, text_size=size.tiny, text_halign=text.align_right)
+    table.cell(tb, 0, 3, regMethod == "ADX" ? "ADX" : "Efficiency", text_color=cNeu, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(tb, 1, 3, str.tostring(strength, "#.#"), text_color=cWhite, text_size=size.tiny, text_halign=text.align_right)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+var table wm = table.new(position.bottom_right, 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ PythonissAI", text_color=wmCol, text_size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(xUp and trending, title="Aether giro alcista", message="Aether: giro ALCISTA en tendencia · {{ticker}}")
+alertcondition(xDn and trending, title="Aether giro bajista", message="Aether: giro BAJISTA en tendencia · {{ticker}}")
+alertcondition(trending and not trending[1], title="Aether: entra en TENDENCIA", message="Aether: régimen pasa a TENDENCIA · {{ticker}}")
+alertcondition(not trending and trending[1], title="Aether: entra en RANGO", message="Aether: régimen pasa a RANGO · {{ticker}}")

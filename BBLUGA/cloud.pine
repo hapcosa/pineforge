@@ -1,0 +1,136 @@
+// This work is licensed under Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International  
+// https://creativecommons.org/licenses/by-nc-sa/4.0/
+// © BigBeluga
+
+//@version=5
+indicator("Smooth Cloud [BigBeluga]", overlay=true)
+
+
+// ====================================================================================================================}
+// ＩＮＰＵＴＳ
+// ===================================================================================================================={
+// Inputs Smooth Cloud
+int  length1      = input.int(20, "Length ▶", minval=5, group = "Smooth Cloud")
+series float src  = input.source(hl2, "Source ▶", group = "Smooth Cloud")
+string signalType = input.string("Fast", "Signals Type", ["Fast", "Slow"])
+
+color color_up    = input.color(#2de674,   "🢁", inline = "c", group = "Colors") 
+color color_dn    = input.color(#e6522dcc, "🢃", inline = "c", group = "Colors") 
+
+color ds_colup    = input.color(#2de674,   "🢁", inline = "c", group = "DashBoard Colors") 
+color ds_coldn    = input.color(#e6522dcc, "🢁", inline = "c", group = "DashBoard Colors") 
+
+// Color Palette
+color col_up1     = color_up
+color col_up2     = color.new(color_up, 50)
+color col_dn1     = color_dn
+color col_dn2     = color.new(color_dn, 50)
+
+
+// =====================================================================================================================}
+// ＦＵＮＣＴＩＯＮＳ
+// ====================================================================================================================={
+
+// @function SUPERSMOOTHER filter of Ehlers Filter
+// @param price (float) The price series to be smoothed
+// @param period (int) The smoothing period
+// @returns [float] smoothed price
+smoother_F(price, period) =>
+
+    float    step       = 2.0 * math.pi / period
+    
+    a1  = math.exp(-math.sqrt(2) * math.pi / period)
+    b1  = 2 * a1 * math.cos(math.sqrt(2) * step / period)
+    c2  = b1
+    c3  = -a1 * a1
+    c1  = 1 - c2 - c3
+    ss  = 0.0
+    ss := if bar_index >= 4
+        c1 * (price + price[1]) / 2 + c2 * ss[1] + c3 * ss[2]
+    else
+        price
+    ss
+
+
+// ====================================================================================================================}
+// ＳＭＯＯＴＨ ＣＬＯＵＤ
+// ===================================================================================================================={
+s1 = smoother_F(src, length1*3)
+s2 = smoother_F(src, length1*2)
+s3 = smoother_F(src, length1)
+
+fast_trend = s3 > s1
+mid_trend  = s2 > s1
+slow_trend = s1 < s2
+
+macro_trend = fast_trend and mid_trend and slow_trend
+not_macro_trend = not fast_trend and not mid_trend and not slow_trend
+
+band_width = math.abs(s3 - s1) / src
+mid_col    = color.from_gradient(band_width, 0, 0.05, na, chart.fg_color)
+
+p1 = plot(s1, "SuperSmoother",  color = color(na), linewidth=1, style = plot.style_linebr)
+p2 = plot(s2, "SuperSmoother",  color = bar_index % 2 == 0 ? mid_col : na, linewidth=1, style = plot.style_linebr)
+p3 = plot(s3, "SuperSmoother",  color = color(na), linewidth=1, style = plot.style_linebr)
+
+fill(p1, p2, s2, s1, 
+         mid_trend ? col_up2 : col_dn2,
+         mid_trend ? col_up1 : col_dn1
+         )
+
+fill(p1, p3, s3, s1, fast_trend ? col_up1 : col_dn2, na)
+
+s1_rise = ta.rising(s1, 3)
+s2_rise = ta.rising(s2, 3)
+s3_rise = ta.rising(s3, 3)
+
+if barstate.islast
+    color_ = macro_trend ? ds_colup : not_macro_trend ? ds_coldn : chart.fg_color
+    var dash = table.new(position.top_right, 10, 10,
+     frame_color = color.new(color_, 50),
+     frame_width = 1)
+
+    dash.cell(1,0,"Trend",   text_color = chart.fg_color)   
+    dash.cell(0,1,"𝙁ast",   text_color = color_)
+    dash.cell(1,1,"𝙈iddle", text_color = color_)
+    dash.cell(2,1,"𝙎low",   text_color  = color_)
+
+    dash.cell(0,2, fast_trend ? "🢁" : "🢃", text_color = fast_trend ? ds_colup : ds_coldn)
+    dash.cell(1,2, mid_trend  ? "🢁" : "🢃", text_color = mid_trend  ? ds_colup : ds_coldn)
+    dash.cell(2,2, slow_trend ? "🢁" : "🢃", text_color = slow_trend ? ds_colup : ds_coldn)
+
+    table.merge_cells(dash, 0, 3, 2, 3)
+    dash.cell(0,3, "Rising or Falling", text_color = chart.fg_color)
+    dash.cell(0,4, s3_rise ? "🢁" : "🢃", text_color = s3_rise ? ds_colup : ds_coldn)
+    dash.cell(1,4, s2_rise ? "🢁" : "🢃", text_color = s2_rise  ? ds_colup : ds_coldn)
+    dash.cell(2,4, s1_rise ? "🢁" : "🢃", text_color = s1_rise ? ds_colup : ds_coldn)
+
+    table.merge_cells(dash, 0, 5, 2, 5)
+    dash.cell(0,5, "-----------------------------\nPrices", text_color = chart.fg_color)    
+    dash.cell(0,6, str.tostring(math.round(s3, 2)), text_color = ds_colup)
+    dash.cell(1,6, str.tostring(math.round(s2, 2)), text_color = ds_colup)
+    dash.cell(2,6, str.tostring(math.round(s1, 2)), text_color = ds_colup)
+
+
+    label.delete(
+     label.new(bar_index, s1 , "𝙎", color = color(na), style = label.style_label_left, textcolor = chart.fg_color)[1])
+    label.delete(
+     label.new(bar_index, s2, "𝙈", color = color(na), style = label.style_label_left, textcolor = chart.fg_color)[1])
+    label.delete(
+     label.new(bar_index, s3, "𝙁", color = color(na), style = label.style_label_left, textcolor = chart.fg_color)[1])
+
+// Signals
+atr = ta.atr(200)
+
+signalUp = switch signalType
+    "Fast" => ta.crossover(s3, s1)
+    "Slow" => ta.crossover(s2, s1)
+signalDown = switch signalType
+    "Fast" => ta.crossunder(s3, s1)
+    "Slow" => ta.crossunder(s2, s1)
+
+plotchar(signalUp ? s3 - atr *2 : na, "", "🢁", location.absolute, color = col_up1, size = size.tiny)
+plotchar(signalDown ? s3 + atr *2 : na, "", "🢃", location.absolute, color = col_dn1, size = size.tiny)
+
+// ====================================================================================================================}
+

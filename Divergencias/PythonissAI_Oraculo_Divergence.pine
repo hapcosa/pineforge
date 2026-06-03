@@ -1,0 +1,191 @@
+//@version=6
+// ██████╗ ██╗   ██╗████████╗██╗  ██╗ ██████╗ ███╗   ██╗██╗███████╗███████╗ █████╗ ██╗
+// ██╔══██╗╚██╗ ██╔╝╚══██╔══╝██║  ██║██╔═══██╗████╗  ██║██║██╔════╝██╔════╝██╔══██╗██║
+// ██████╔╝ ╚████╔╝    ██║   ███████║██║   ██║██╔██╗ ██║██║███████╗███████╗███████║██║
+// ██╔═══╝   ╚██╔╝     ██║   ██╔══██║██║   ██║██║╚██╗██║██║╚════██║╚════██║██╔══██║██║
+// ██║        ██║      ██║   ██║  ██║╚██████╔╝██║ ╚████║██║███████║███████║██║  ██║██║
+// ╚═╝        ╚═╝      ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝╚══════╝╚══════╝╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  PythonissAI® - Oráculo · Divergence
+//  El que ve el giro antes que el precio. Motor de divergencias (RSI / MFI /
+//  MACD) regulares y ocultas: compara los pivotes del oscilador contra los del
+//  precio y marca el agotamiento. Onda neón con relleno en gradiente, líneas de
+//  divergencia finísimas y nodos diminutos. Exporta el tipo de divergencia y la
+//  onda 0-100 (display.none) para la meta-confluencia.
+//  (c) PythonissAI® — Pine v6 · panel
+// ────────────────────────────────────────────────────────────────────────────
+indicator("PythonissAI® - Oráculo · Divergence", shorttitle="Oraculo", overlay=false, precision=1, max_lines_count=100, max_labels_count=100)
+
+// ════════════════ GRUPOS ════════════════
+G_OSC = "① Oscilador fuente"
+G_DIV = "② Divergencias"
+G_VIS = "③ Estética"
+G_DASH= "④ Dashboard"
+G_COL = "⑤ Paleta"
+G_WM  = "✦ Marca de agua"
+
+// ════════════════ ① OSCILADOR ════════════════
+oscType = input.string("RSI", "Fuente", options=["RSI","MFI (flujo)","MACD"], group=G_OSC, tooltip="RSI = momentum puro. MFI = flujo con volumen. MACD = convergencia/divergencia de medias (normalizado 0-100).")
+oscLen  = input.int(14, "Longitud", minval=2, group=G_OSC)
+smoothLen = input.int(3, "Suavizado de la onda", minval=1, maxval=20, group=G_OSC)
+
+// ════════════════ ② DIVERGENCIAS ════════════════
+lbL     = input.int(5, "Pivote izquierda", minval=1, group=G_DIV, inline="piv")
+lbR     = input.int(5, "Pivote derecha", minval=1, group=G_DIV, inline="piv")
+rngU    = input.int(60, "Máx velas entre pivotes", minval=5, group=G_DIV, inline="rng")
+rngL    = input.int(5,  "Mín velas entre pivotes", minval=1, group=G_DIV, inline="rng")
+showReg = input.bool(true,  "Divergencias regulares (reversión)", group=G_DIV)
+showHid = input.bool(false, "Divergencias ocultas (continuación)", group=G_DIV)
+
+// ════════════════ ③ ESTÉTICA ════════════════
+fillOp   = input.int(78, "Opacidad del relleno (transp.)", minval=55, maxval=92, group=G_VIS)
+showLines= input.bool(true, "Líneas de divergencia", group=G_VIS)
+showDash = input.bool(true, "Dashboard", group=G_VIS)
+
+// ════════════════ ④ DASHBOARD ════════════════
+dashLoc  = input.string("Arriba Derecha", "Ubicación", options=["Arriba Derecha","Abajo Derecha","Arriba Izquierda","Abajo Izquierda"], group=G_DASH)
+dashBg   = input.color(color.new(#0b0e16, 12), "Fondo", group=G_DASH)
+
+// ════════════════ ⑤ PALETA ════════════════
+palette = input.string("Verde Lima vs Naranja", "Paleta Bull/Bear", options=["Cyan vs Magenta","Oro vs Violeta","Verde Lima vs Naranja","Blanco vs Carbón","Menta vs Coral","Eléctrico BudAI","Aqua vs Rubí"], group=G_COL)
+cMid    = input.color(#90a4ae, "Equilibrio (gris)", group=G_COL)
+cWhite  = input.color(#ffffff, "Núcleo (blanco)", group=G_COL)
+
+color cBull = palette == "Oro vs Violeta" ? #ffe600 : palette == "Verde Lima vs Naranja" ? #39ff14 : palette == "Blanco vs Carbón" ? #ffffff : palette == "Menta vs Coral" ? #00ffc4 : palette == "Eléctrico BudAI" ? #00e5ff : palette == "Aqua vs Rubí" ? #18ffff : palette == "Cyan vs Magenta" ? #00f0ff : #39ff14
+color cBear = palette == "Oro vs Violeta" ? #9d00ff : palette == "Verde Lima vs Naranja" ? #ff4500 : palette == "Blanco vs Carbón" ? #4a4a4a : palette == "Menta vs Coral" ? #ff5757 : palette == "Eléctrico BudAI" ? #ff1e6e : palette == "Aqua vs Rubí" ? #ff1744 : palette == "Cyan vs Magenta" ? #ff007a : #ff4500
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Firma PythonissAI", group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 30), "Color firma", group=G_WM)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NÚCLEO — OSCILADOR 0-100
+// ════════════════════════════════════════════════════════════════════════════
+f_norm(float s, int len) =>
+    float lo = ta.lowest(s, len)
+    float hi = ta.highest(s, len)
+    hi - lo != 0 ? 100.0 * (s - lo) / (hi - lo) : 50.0
+
+float macd = ta.ema(close, 12) - ta.ema(close, 26)
+float macdSig = ta.ema(macd, 9)
+float macdHist = macd - macdSig
+
+float oscRaw = oscType == "MFI (flujo)" ? ta.mfi(hlc3, oscLen) : oscType == "MACD" ? f_norm(macdHist, 100) : ta.rsi(close, oscLen)
+float osc = ta.ema(oscRaw, smoothLen)
+
+bool  waveUp  = osc >= osc[1]
+color waveCol = waveUp ? cBull : cBear
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DETECCIÓN DE DIVERGENCIAS (pivotes osc vs precio)
+// ════════════════════════════════════════════════════════════════════════════
+float plv = ta.pivotlow(osc, lbL, lbR)
+float phv = ta.pivothigh(osc, lbL, lbR)
+bool  plFound = not na(plv)
+bool  phFound = not na(phv)
+
+_inRange(bool c) =>
+    int bars = ta.barssince(c)
+    rngL <= bars and bars <= rngU
+
+float oscAtPL  = ta.valuewhen(plFound, osc[lbR], 1)
+float lowAtPL  = ta.valuewhen(plFound, low[lbR], 1)
+float oscAtPH  = ta.valuewhen(phFound, osc[lbR], 1)
+float highAtPH = ta.valuewhen(phFound, high[lbR], 1)
+bool  plPrev   = _inRange(plFound[1])
+bool  phPrev   = _inRange(phFound[1])
+
+// Regulares (reversión)
+bool bullReg = showReg and plFound and (osc[lbR] > oscAtPL and plPrev) and (low[lbR]  < lowAtPL)
+bool bearReg = showReg and phFound and (osc[lbR] < oscAtPH and phPrev) and (high[lbR] > highAtPH)
+// Ocultas (continuación)
+bool bullHid = showHid and plFound and (osc[lbR] < oscAtPL and plPrev) and (low[lbR]  > lowAtPL)
+bool bearHid = showHid and phFound and (osc[lbR] > oscAtPH and phPrev) and (high[lbR] < highAtPH)
+
+bool anyBull = bullReg or bullHid
+bool anyBear = bearReg or bearHid
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ZONAS (hline con color input-qualified)
+// ════════════════════════════════════════════════════════════════════════════
+hline(100, "", color.new(cMid, 92), hline.style_dotted)
+h70 = hline(70, "Sobrecompra", color.new(cBear, 80), hline.style_dotted)
+h50 = hline(50, "Equilibrio",  color.new(cMid, 60), hline.style_solid)
+h30 = hline(30, "Sobreventa",  color.new(cBull, 80), hline.style_dotted)
+hline(0,   "", color.new(cMid, 92), hline.style_dotted)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ONDA estilo rayo + relleno en GRADIENTE (se desvanece, no macizo)
+// ════════════════════════════════════════════════════════════════════════════
+plot(osc, "Halo", color=color.new(waveCol, 82), linewidth=2)
+pOsc = plot(osc, "Onda Oráculo", color=waveCol, linewidth=1)
+plot(osc, "Núcleo", color=color.new(cWhite, 40), linewidth=1)
+pMid = plot(50, "mid", color=color.new(cWhite, 100), display=display.none)
+fill(pOsc, pMid, top_value=100, bottom_value=50, top_color=color.new(cBull, fillOp), bottom_color=color.new(cBull, 100), title="Glow Bull")
+fill(pOsc, pMid, top_value=50,  bottom_value=0,  top_color=color.new(cBear, 100), bottom_color=color.new(cBear, fillOp), title="Glow Bear")
+
+// ════════════════════════════════════════════════════════════════════════════
+//  LÍNEAS DE DIVERGENCIA (finísimas, conectan pivotes vía offset)
+// ════════════════════════════════════════════════════════════════════════════
+plot(showLines and plFound ? osc[lbR] : na, "Línea alcista", offset=-lbR, color=bullReg ? cBull : bullHid ? color.new(cBull, 45) : na, linewidth=1)
+plot(showLines and phFound ? osc[lbR] : na, "Línea bajista", offset=-lbR, color=bearReg ? cBear : bearHid ? color.new(cBear, 45) : na, linewidth=1)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NODOS DE DIVERGENCIA (• diminutos, glow + núcleo)
+// ════════════════════════════════════════════════════════════════════════════
+plotchar(anyBull ? osc[lbR] : na, "Div alcista glow", "•", location.absolute, color=color.new(cBull, 55), offset=-lbR, size=size.small)
+plotchar(anyBull ? osc[lbR] : na, "Div alcista",      "•", location.absolute, color=color.new(cBull, 0),  offset=-lbR, size=size.tiny)
+plotchar(anyBear ? osc[lbR] : na, "Div bajista glow", "•", location.absolute, color=color.new(cBear, 55), offset=-lbR, size=size.small)
+plotchar(anyBear ? osc[lbR] : na, "Div bajista",      "•", location.absolute, color=color.new(cBear, 0),  offset=-lbR, size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  CONECTOR (display.none) — para la meta-confluencia
+// ════════════════════════════════════════════════════════════════════════════
+int divSig = bullReg ? 1 : bearReg ? -1 : bullHid ? 2 : bearHid ? -2 : 0
+plot(divSig, "conn_div", display=display.none)   // 1 bull · -1 bear · 2 bull oculta · -2 bear oculta
+plot(osc,    "conn_osc", display=display.none)    // onda 0-100
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD
+// ════════════════════════════════════════════════════════════════════════════
+var string lastTxt = "—"
+var color  lastCol = cMid
+if bullReg
+    lastTxt := "Alcista (reversión)"
+    lastCol := cBull
+if bearReg
+    lastTxt := "Bajista (reversión)"
+    lastCol := cBear
+if bullHid
+    lastTxt := "Alcista (oculta)"
+    lastCol := cBull
+if bearHid
+    lastTxt := "Bajista (oculta)"
+    lastCol := cBear
+
+string zoneTxt = osc >= 70 ? "Sobrecompra" : osc <= 30 ? "Sobreventa" : "Neutral"
+color  zoneCol = osc >= 70 ? cBear : osc <= 30 ? cBull : cMid
+
+if showDash and barstate.islast
+    string pos = dashLoc == "Arriba Derecha" ? position.top_right : dashLoc == "Abajo Derecha" ? position.bottom_right : dashLoc == "Arriba Izquierda" ? position.top_left : position.bottom_left
+    var table tb = table.new(pos, 2, 3, bgcolor=dashBg, frame_color=color.new(cMid, 62), frame_width=1, border_color=color.new(cMid, 82), border_width=1)
+    table.cell(tb, 0, 0, "Oráculo · " + (oscType == "MFI (flujo)" ? "MFI" : oscType), text_color=cWhite, text_size=size.small, text_halign=text.align_left)
+    table.cell(tb, 1, 0, str.tostring(osc, "#"), text_color=waveCol, text_size=size.small, text_halign=text.align_right)
+    table.cell(tb, 0, 1, "Zona", text_color=cMid, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(tb, 1, 1, zoneTxt, text_color=zoneCol, text_size=size.tiny, text_halign=text.align_right)
+    table.cell(tb, 0, 2, "Divergencia", text_color=cMid, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(tb, 1, 2, lastTxt, text_color=lastCol, text_size=size.tiny, text_halign=text.align_right)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+var table wm = table.new(position.bottom_right, 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ PythonissAI", text_color=wmCol, text_size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(bullReg, title="Oráculo div. alcista", message="Oráculo: divergencia ALCISTA (reversión) · {{ticker}}")
+alertcondition(bearReg, title="Oráculo div. bajista", message="Oráculo: divergencia BAJISTA (reversión) · {{ticker}}")
+alertcondition(bullHid, title="Oráculo div. alcista oculta", message="Oráculo: divergencia alcista OCULTA · {{ticker}}")
+alertcondition(bearHid, title="Oráculo div. bajista oculta", message="Oráculo: divergencia bajista OCULTA · {{ticker}}")

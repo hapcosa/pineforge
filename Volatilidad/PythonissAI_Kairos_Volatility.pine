@@ -1,0 +1,197 @@
+//@version=6
+// ██████╗ ██╗   ██╗████████╗██╗  ██╗ ██████╗ ███╗   ██╗██╗███████╗███████╗ █████╗ ██╗
+// ██╔══██╗╚██╗ ██╔╝╚══██╔══╝██║  ██║██╔═══██╗████╗  ██║██║██╔════╝██╔════╝██╔══██╗██║
+// ██████╔╝ ╚████╔╝    ██║   ███████║██║   ██║██╔██╗ ██║██║███████╗███████╗███████║██║
+// ██╔═══╝   ╚██╔╝     ██║   ██╔══██║██║   ██║██║╚██╗██║██║╚════██║╚════██║██╔══██║██║
+// ██║        ██║      ██║   ██║  ██║╚██████╔╝██║ ╚████║██║███████║███████║██║  ██║██║
+// ╚═╝        ╚═╝      ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝╚══════╝╚══════╝╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  PythonissAI® - Kairos · Volatility
+//  El momento oportuno. Detecta la COMPRESIÓN de volatilidad (Squeeze BB/KC) y
+//  el canal Donchian que la contiene; cuando la energía estalla, marca el
+//  BREAKOUT en la dirección de la ruptura. Estética rayo: canal finísimo, nube
+//  difusa, nodos diminutos. Filtro opcional de régimen (Aether) por input.source.
+//  Exporta compresión/ruptura/energía (display.none) para la meta-confluencia.
+//  (c) PythonissAI® — Pine v6 · overlay
+// ────────────────────────────────────────────────────────────────────────────
+indicator("PythonissAI® - Kairos · Volatility", shorttitle="Kairos", overlay=true, max_labels_count=100)
+
+// ════════════════ GRUPOS ════════════════
+G_SQZ = "① Compresión (Squeeze)"
+G_BRK = "② Ruptura (Breakout)"
+G_REG = "③ Filtro de régimen (Aether)"
+G_VIS = "④ Estética"
+G_DASH= "⑤ Dashboard"
+G_COL = "⑥ Paleta"
+G_WM  = "✦ Marca de agua"
+
+// ════════════════ ① COMPRESIÓN ════════════════
+bbLen   = input.int(20, "Bollinger / Keltner Longitud", minval=5, group=G_SQZ, inline="l")
+bbMult  = input.float(2.0, "BB Mult", step=0.1, group=G_SQZ, inline="l")
+kcMult  = input.float(1.5, "KC Mult", step=0.1, group=G_SQZ, inline="k")
+bbwLook = input.int(120, "Ventana percentil de volatilidad", minval=20, group=G_SQZ, tooltip="Sobre cuántas velas se mide qué tan apretado está el rango (energía de compresión).")
+
+// ════════════════ ② RUPTURA ════════════════
+donLen  = input.int(20, "Canal Donchian", minval=3, group=G_BRK, tooltip="Rupturas mecánicas tipo canal de N velas (escuela de seguimiento de tendencia).")
+armWin  = input.int(6, "Velas tras compresión para validar", minval=1, maxval=40, group=G_BRK, tooltip="El breakout sólo cuenta si hubo compresión en las últimas N velas.")
+sigMode = input.string("Confirmado", "Modo de señal", options=["Confirmado","Tiempo Real"], group=G_BRK)
+
+// ════════════════ ③ FILTRO RÉGIMEN ════════════════
+useReg  = input.bool(false, "Validar con Aether (régimen)", group=G_REG, tooltip="Conecta el conector conn_dir de Aether: LONG sólo con régimen alcista, SHORT bajista.")
+regDir  = input.source(close, "Aether → conn_dir (+1/-1)", group=G_REG)
+
+// ════════════════ ④ ESTÉTICA ════════════════
+showChan  = input.bool(true,  "Nube del canal (bicolor, sin trazo)", group=G_VIS)
+showBrk   = input.bool(true,  "Nodos de ruptura", group=G_VIS)
+
+// ════════════════ ⑤ DASHBOARD ════════════════
+showDash  = input.bool(true, "Dashboard", group=G_DASH)
+dashLoc   = input.string("Arriba Derecha", "Ubicación", options=["Arriba Derecha","Abajo Derecha","Arriba Izquierda","Abajo Izquierda"], group=G_DASH)
+dashBg    = input.color(color.new(#0b0e16, 10), "Fondo", group=G_DASH)
+
+// ════════════════ ⑥ PALETA ════════════════
+palette = input.string("Oro vs Violeta", "Paleta Bull/Bear", options=["Cyan vs Magenta","Oro vs Violeta","Verde Lima vs Naranja","Blanco vs Carbón","Menta vs Coral","Eléctrico BudAI","Aqua vs Rubí"], group=G_COL)
+cLiq   = input.color(#ffb300, "Canal / liquidez (ámbar)", group=G_COL)
+cCoil  = input.color(#b388ff, "Compresión (violeta)", group=G_COL)
+cNeu   = input.color(#90a4ae, "Neutral (gris)", group=G_COL)
+cWhite = input.color(#ffffff, "Núcleo (blanco)", group=G_COL)
+
+color cBull = palette == "Oro vs Violeta" ? #ffe600 : palette == "Verde Lima vs Naranja" ? #39ff14 : palette == "Blanco vs Carbón" ? #ffffff : palette == "Menta vs Coral" ? #00ffc4 : palette == "Eléctrico BudAI" ? #00e5ff : palette == "Aqua vs Rubí" ? #18ffff : palette == "Cyan vs Magenta" ? #00f0ff : #ffe600
+color cBear = palette == "Oro vs Violeta" ? #9d00ff : palette == "Verde Lima vs Naranja" ? #ff4500 : palette == "Blanco vs Carbón" ? #4a4a4a : palette == "Menta vs Coral" ? #ff5757 : palette == "Eléctrico BudAI" ? #ff1e6e : palette == "Aqua vs Rubí" ? #ff1744 : palette == "Cyan vs Magenta" ? #ff007a : #9d00ff
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Firma PythonissAI", group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 30), "Color firma", group=G_WM)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NÚCLEO — SQUEEZE BB/KC + ENERGÍA DE COMPRESIÓN
+// ════════════════════════════════════════════════════════════════════════════
+bool  conf = sigMode == "Tiempo Real" or barstate.isconfirmed
+float atr  = ta.atr(14)
+
+float basis = ta.sma(close, bbLen)
+float dev   = bbMult * ta.stdev(close, bbLen)
+float bbU   = basis + dev
+float bbL   = basis - dev
+float rngMa = ta.sma(ta.tr(true), bbLen)
+float kcU   = basis + rngMa * kcMult
+float kcL   = basis - rngMa * kcMult
+
+bool squeezeOn  = bbL > kcL and bbU < kcU
+bool released   = squeezeOn[1] and not squeezeOn
+
+float bbw    = basis != 0 ? (bbU - bbL) / basis : 0.0
+float bbwPct = ta.percentrank(bbw, bbwLook)
+float energia = 100.0 - bbwPct        // alto = más comprimido
+
+var int sinceSqz = 9999
+if squeezeOn
+    sinceSqz := 0
+else
+    sinceSqz += 1
+bool recentSqz = sinceSqz <= armWin
+
+// ════════════════════════════════════════════════════════════════════════════
+//  CANAL DONCHIAN + RUPTURA
+// ════════════════════════════════════════════════════════════════════════════
+float donU = ta.highest(high, donLen)
+float donL = ta.lowest(low, donLen)
+float donM = (donU + donL) / 2.0
+
+float upRef = ta.highest(high, donLen)[1]
+float dnRef = ta.lowest(low, donLen)[1]
+bool  brkUp = ta.crossover(close, upRef)
+bool  brkDn = ta.crossunder(close, dnRef)
+
+bool regLongOk  = not useReg or regDir > 0
+bool regShortOk = not useReg or regDir < 0
+
+bool breakLong  = brkUp and recentSqz and regLongOk and conf
+bool breakShort = brkDn and recentSqz and regShortOk and conf
+
+// Trade activo (para líneas)
+var int   tDir   = 0
+var float tEntry = na
+var float tSL    = na
+var float tTP    = na
+var float tR     = na
+
+if breakLong or breakShort
+    tDir   := breakLong ? 1 : -1
+    tEntry := close
+    tSL    := breakLong ? donM : donM
+    float risk = math.abs(tEntry - tSL)
+    tTP    := breakLong ? tEntry + risk * 2.0 : tEntry - risk * 2.0
+    tR     := risk > 0 ? 2.0 : 0.0
+
+// ════════════════════════════════════════════════════════════════════════════
+//  VISUAL — CANAL estilo rayo (finísimo) + nube difusa
+// ════════════════════════════════════════════════════════════════════════════
+// Nube bicolor SIN TRAZO: bordes invisibles (transp 100) que sólo anclan el relleno
+// suavizado en ondas (ta.ema); la ruptura usa el canal crudo. Pintado ~75%.
+float dU = ta.ema(donU, 3)
+float dL = ta.ema(donL, 3)
+color chanCol = squeezeOn ? cCoil : cLiq
+pU = plot(showChan ? dU : na, "Canal Sup", color=color.new(chanCol, 100), linewidth=1)
+pL = plot(showChan ? dL : na, "Canal Inf", color=color.new(chanCol, 100), linewidth=1)
+// Gradiente neón: el color arranca arriba y se DESVANECE al 100% hacia abajo (no macizo)
+fill(pU, pL, top_value=dU, bottom_value=dL, top_color=color.new(chanCol, squeezeOn ? 68 : 76), bottom_color=color.new(chanCol, 100), title="Nube canal")
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NODOS DE RUPTURA (diminutos •, glow + núcleo) — alineados por location.absolute
+// ════════════════════════════════════════════════════════════════════════════
+float upY = showBrk and breakLong  ? high + 0.6 * atr : na
+float dnY = showBrk and breakShort ? low  - 0.6 * atr : na
+plotchar(upY, "Ruptura alcista halo",   "•", location.absolute, color.new(cBull, 62), size=size.normal)
+plotchar(upY, "Ruptura alcista",        "•", location.absolute, color.new(cBull, 0),  size=size.small)
+plotchar(upY, "Ruptura alcista brillo", "•", location.absolute, color.new(cWhite, 30), size=size.tiny)
+plotchar(dnY, "Ruptura bajista halo",   "•", location.absolute, color.new(cBear, 62), size=size.normal)
+plotchar(dnY, "Ruptura bajista",        "•", location.absolute, color.new(cBear, 0),  size=size.small)
+plotchar(dnY, "Ruptura bajista brillo", "•", location.absolute, color.new(cWhite, 30), size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  CONECTOR (display.none) — para la meta-confluencia
+// ════════════════════════════════════════════════════════════════════════════
+plot(squeezeOn ? 1 : 0, "conn_squeeze", display=display.none)            // 1 comprimido
+plot(breakLong ? 1 : breakShort ? -1 : 0, "conn_break", display=display.none)  // +1/-1 ruptura
+plot(energia, "conn_energia", display=display.none)                     // 0-100 compresión
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD
+// ════════════════════════════════════════════════════════════════════════════
+string estado = squeezeOn ? "COMPRIMIDO" : recentSqz ? "EXPANSIÓN" : "NEUTRO"
+color  estCol = squeezeOn ? cCoil : recentSqz ? cWhite : cNeu
+string brkTxt = breakLong ? "LONG" : breakShort ? "SHORT" : "—"
+color  brkCol = breakLong ? cBull : breakShort ? cBear : cNeu
+
+color tCol = tDir == 1 ? cBull : tDir == -1 ? cBear : cNeu
+if showDash and barstate.islast
+    string pos = dashLoc == "Arriba Derecha" ? position.top_right : dashLoc == "Abajo Derecha" ? position.bottom_right : dashLoc == "Arriba Izquierda" ? position.top_left : position.bottom_left
+    var table tb = table.new(pos, 2, 7, bgcolor=dashBg, frame_color=color.new(cNeu, 62), frame_width=1, border_color=color.new(cNeu, 82), border_width=1)
+    table.cell(tb, 0, 0, "Kairos", text_color=cWhite, text_size=size.small, text_halign=text.align_left)
+    table.cell(tb, 1, 0, estado, text_color=estCol, text_size=size.small, text_halign=text.align_right)
+    table.cell(tb, 0, 1, "Energía", text_color=cNeu, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(tb, 1, 1, str.tostring(energia, "#") + " / 100", text_color=energia >= 70 ? cCoil : cWhite, text_size=size.tiny, text_halign=text.align_right)
+    table.cell(tb, 0, 2, "Ruptura", text_color=cNeu, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(tb, 1, 2, brkTxt, text_color=brkCol, text_size=size.tiny, text_halign=text.align_right)
+    table.cell(tb, 0, 3, "Entrada", text_color=cNeu, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(tb, 1, 3, na(tEntry) ? "—" : str.tostring(tEntry, format.mintick), text_color=tCol, text_size=size.tiny, text_halign=text.align_right)
+    table.cell(tb, 0, 4, "SL", text_color=cNeu, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(tb, 1, 4, na(tSL) ? "—" : str.tostring(tSL, format.mintick), text_color=cBear, text_size=size.tiny, text_halign=text.align_right)
+    table.cell(tb, 0, 5, "TP (" + (na(tR) ? "—" : str.tostring(tR, "#.#") + "R") + ")", text_color=cNeu, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(tb, 1, 5, na(tTP) ? "—" : str.tostring(tTP, format.mintick), text_color=cBull, text_size=size.tiny, text_halign=text.align_right)
+    table.cell(tb, 0, 6, "Régimen", text_color=cNeu, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(tb, 1, 6, not useReg ? "off" : regDir > 0 ? "Alcista" : regDir < 0 ? "Bajista" : "—", text_color=not useReg ? cNeu : regDir > 0 ? cBull : cBear, text_size=size.tiny, text_halign=text.align_right)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+var table wm = table.new(position.bottom_right, 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ PythonissAI", text_color=wmCol, text_size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(breakLong,  title="Kairos BREAK LONG",  message="Kairos: ruptura ALCISTA tras compresión · {{ticker}}")
+alertcondition(breakShort, title="Kairos BREAK SHORT", message="Kairos: ruptura BAJISTA tras compresión · {{ticker}}")
+alertcondition(squeezeOn and not squeezeOn[1], title="Kairos compresión", message="Kairos: COMPRESIÓN detectada · {{ticker}}")

@@ -1,0 +1,158 @@
+//@version=6
+// ██████╗ ██╗   ██╗████████╗██╗  ██╗ ██████╗ ███╗   ██╗██╗███████╗███████╗ █████╗ ██╗
+// ██╔══██╗╚██╗ ██╔╝╚══██╔══╝██║  ██║██╔═══██╗████╗  ██║██║██╔════╝██╔════╝██╔══██╗██║
+// ██████╔╝ ╚████╔╝    ██║   ███████║██║   ██║██╔██╗ ██║██║███████╗███████╗███████║██║
+// ██╔═══╝   ╚██╔╝     ██║   ██╔══██║██║   ██║██║╚██╗██║██║╚════██║╚════██║██╔══██║██║
+// ██║        ██║      ██║   ██║  ██║╚██████╔╝██║ ╚████║██║███████║███████║██║  ██║██║
+// ╚═╝        ╚═╝      ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝╚══════╝╚══════╝╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  PythonissAI® - Cónclave · Confluence
+//  El consejo que vota el veredicto. Lee por input.source los conectores de las
+//  anclas de la suite (Aether régimen, Kairos ruptura, Oráculo divergencia,
+//  Ancla VWAP y Maya) y fusiona sus votos en una sola decisión: LONG / SHORT /
+//  NO TRADE — con el conteo de confluencia y el porqué. Régimen de RANGO veta.
+//  No reemplaza a nadie: orquesta. Estética sobria, sólo el veredicto importa.
+//  (c) PythonissAI® — Pine v6 · overlay
+// ────────────────────────────────────────────────────────────────────────────
+indicator("PythonissAI® - Cónclave · Confluence", shorttitle="Conclave", overlay=true, max_labels_count=50)
+
+// ════════════════ GRUPOS ════════════════
+G_AE  = "① Aether (régimen + dirección)"
+G_KA  = "② Kairos (ruptura)"
+G_OR  = "③ Oráculo (divergencia)"
+G_AN  = "④ Ancla (VWAP)"
+G_MA  = "⑤ Maya (oscilador 0-100)"
+G_VER = "⑥ Veredicto"
+G_VIS = "⑦ Estética"
+G_COL = "⑧ Paleta"
+G_WM  = "✦ Marca de agua"
+
+// ════════════════ ① AETHER ════════════════
+useAe    = input.bool(true, "Usar Aether", group=G_AE)
+srcAeDir = input.source(close, "Aether → conn_dir (+1/-1)", group=G_AE)
+gateReg  = input.bool(true, "RANGO de Aether veta la señal", group=G_AE, tooltip="Si Aether marca RANGO (conn_trending=0), el veredicto es NO TRADE aunque haya votos.")
+srcAeTr  = input.source(close, "Aether → conn_trending (1/0)", group=G_AE)
+
+// ════════════════ ② KAIROS ════════════════
+useKa    = input.bool(true, "Usar Kairos", group=G_KA)
+srcKaBrk = input.source(close, "Kairos → conn_break (+1/-1)", group=G_KA)
+
+// ════════════════ ③ ORÁCULO ════════════════
+useOr    = input.bool(true, "Usar Oráculo", group=G_OR)
+srcOrDiv = input.source(close, "Oráculo → conn_div (+/-1, +/-2)", group=G_OR)
+
+// ════════════════ ④ ANCLA ════════════════
+useAn    = input.bool(true, "Usar Ancla", group=G_AN)
+srcAnVw  = input.source(close, "Ancla → conn_vwap (+1/-1)", group=G_AN)
+
+// ════════════════ ⑤ MAYA ════════════════
+useMa    = input.bool(false, "Usar Maya (oscilador)", group=G_MA)
+srcMaW   = input.source(close, "Maya → onda 0-100", group=G_MA)
+maDisc   = input.float(45, "Discount ≤ (voto LONG)", minval=0, maxval=100, group=G_MA, inline="ma")
+maPrem   = input.float(55, "Premium ≥ (voto SHORT)", minval=0, maxval=100, group=G_MA, inline="ma")
+
+// ════════════════ ⑥ VEREDICTO ════════════════
+minVotes = input.int(3, "Votos mínimos a favor", minval=1, maxval=5, group=G_VER, tooltip="Cuántas anclas deben coincidir para emitir LONG/SHORT. Más alto = más exigente.")
+showHist = input.bool(true, "Marcar señal en el gráfico (•)", group=G_VER)
+
+// ════════════════ ⑦ ESTÉTICA ════════════════
+showDash = input.bool(true, "Dashboard", group=G_VIS)
+dashLoc  = input.string("Arriba Derecha", "Ubicación", options=["Arriba Derecha","Abajo Derecha","Arriba Izquierda","Abajo Izquierda"], group=G_VIS)
+dashBg   = input.color(color.new(#0b0e16, 6), "Fondo", group=G_VIS)
+
+// ════════════════ ⑧ PALETA ════════════════
+palette = input.string("Cyan vs Magenta", "Paleta Bull/Bear", options=["Cyan vs Magenta","Oro vs Violeta","Verde Lima vs Naranja","Blanco vs Carbón","Menta vs Coral","Eléctrico BudAI","Aqua vs Rubí"], group=G_COL)
+cNeu    = input.color(#90a4ae, "Neutral (gris)", group=G_COL)
+cWhite  = input.color(#ffffff, "Núcleo (blanco)", group=G_COL)
+cWarn   = input.color(#ffb300, "Aviso (ámbar)", group=G_COL)
+
+color cBull = palette == "Oro vs Violeta" ? #ffe600 : palette == "Verde Lima vs Naranja" ? #39ff14 : palette == "Blanco vs Carbón" ? #ffffff : palette == "Menta vs Coral" ? #00ffc4 : palette == "Eléctrico BudAI" ? #00e5ff : palette == "Aqua vs Rubí" ? #18ffff : #00f0ff
+color cBear = palette == "Oro vs Violeta" ? #9d00ff : palette == "Verde Lima vs Naranja" ? #ff4500 : palette == "Blanco vs Carbón" ? #4a4a4a : palette == "Menta vs Coral" ? #ff5757 : palette == "Eléctrico BudAI" ? #ff1e6e : palette == "Aqua vs Rubí" ? #ff1744 : #ff007a
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Firma PythonissAI", group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 30), "Color firma", group=G_WM)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  VOTOS DE CADA ANCLA (+1 alcista · -1 bajista · 0 neutral)
+// ════════════════════════════════════════════════════════════════════════════
+int vAe = useAe ? (srcAeDir > 0 ? 1 : srcAeDir < 0 ? -1 : 0) : 0
+int vKa = useKa ? (srcKaBrk > 0 ? 1 : srcKaBrk < 0 ? -1 : 0) : 0
+int vOr = useOr ? (srcOrDiv > 0 ? 1 : srcOrDiv < 0 ? -1 : 0) : 0
+int vAn = useAn ? (srcAnVw > 0 ? 1 : srcAnVw < 0 ? -1 : 0) : 0
+int vMa = useMa ? (srcMaW <= maDisc ? 1 : srcMaW >= maPrem ? -1 : 0) : 0
+
+bool trending = not (useAe and gateReg) or srcAeTr > 0
+
+int active   = (useAe ? 1 : 0) + (useKa ? 1 : 0) + (useOr ? 1 : 0) + (useAn ? 1 : 0) + (useMa ? 1 : 0)
+int bullVote = (vAe == 1 ? 1 : 0) + (vKa == 1 ? 1 : 0) + (vOr == 1 ? 1 : 0) + (vAn == 1 ? 1 : 0) + (vMa == 1 ? 1 : 0)
+int bearVote = (vAe == -1 ? 1 : 0) + (vKa == -1 ? 1 : 0) + (vOr == -1 ? 1 : 0) + (vAn == -1 ? 1 : 0) + (vMa == -1 ? 1 : 0)
+
+int netDir = bullVote > bearVote ? 1 : bearVote > bullVote ? -1 : 0
+int agree  = netDir == 1 ? bullVote : netDir == -1 ? bearVote : 0
+
+string verdict = not trending ? "NO TRADE" : (agree >= minVotes and netDir != 0) ? (netDir == 1 ? "LONG" : "SHORT") : "NO TRADE"
+color  verCol  = verdict == "LONG" ? cBull : verdict == "SHORT" ? cBear : cNeu
+string motivo  = not trending ? "Rango (Aether veta)" : verdict == "NO TRADE" ? "Confluencia insuficiente" : str.tostring(agree) + "/" + str.tostring(active) + " anclas a favor"
+
+bool fireLong  = verdict == "LONG"  and verdict[1] != "LONG"
+bool fireShort = verdict == "SHORT" and verdict[1] != "SHORT"
+
+// ════════════════════════════════════════════════════════════════════════════
+//  SEÑAL EN EL GRÁFICO (• con glow, sólo al cambiar de veredicto)
+// ════════════════════════════════════════════════════════════════════════════
+float atr = ta.atr(14)
+float upY = showHist and fireLong  ? low  - 0.8 * atr : na
+float dnY = showHist and fireShort ? high + 0.8 * atr : na
+plotchar(upY, "Cónclave LONG halo",  "•", location.absolute, color=color.new(cBull, 62), size=size.normal)
+plotchar(upY, "Cónclave LONG",       "•", location.absolute, color=color.new(cBull, 0),  size=size.small)
+plotchar(upY, "Cónclave LONG brillo", "•", location.absolute, color=color.new(cWhite, 30), size=size.tiny)
+plotchar(dnY, "Cónclave SHORT halo", "•", location.absolute, color=color.new(cBear, 62), size=size.normal)
+plotchar(dnY, "Cónclave SHORT",      "•", location.absolute, color=color.new(cBear, 0),  size=size.small)
+plotchar(dnY, "Cónclave SHORT brillo","•", location.absolute, color=color.new(cWhite, 30), size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  CONECTOR (display.none)
+// ════════════════════════════════════════════════════════════════════════════
+plot(verdict == "LONG" ? 1 : verdict == "SHORT" ? -1 : 0, "conn_verdict", display=display.none)
+plot(agree, "conn_agree", display=display.none)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD — el consejo y su voto
+// ════════════════════════════════════════════════════════════════════════════
+f_chip(int v, bool on) =>
+    not on ? "·" : v == 1 ? "▲" : v == -1 ? "▼" : "—"
+f_chipCol(int v, bool on) =>
+    not on ? cNeu : v == 1 ? cBull : v == -1 ? cBear : cNeu
+
+if showDash and barstate.islast
+    string pos = dashLoc == "Arriba Derecha" ? position.top_right : dashLoc == "Abajo Derecha" ? position.bottom_right : dashLoc == "Arriba Izquierda" ? position.top_left : position.bottom_left
+    var table tb = table.new(pos, 2, 8, bgcolor=dashBg, frame_color=color.new(cNeu, 55), frame_width=1, border_color=color.new(cNeu, 82), border_width=1)
+    table.cell(tb, 0, 0, "CÓNCLAVE", text_color=cWhite, text_size=size.normal, text_halign=text.align_left)
+    table.cell(tb, 1, 0, verdict, text_color=verCol, text_size=size.normal, text_halign=text.align_right)
+    table.cell(tb, 0, 1, "Confluencia", text_color=cNeu, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(tb, 1, 1, str.tostring(agree) + " / " + str.tostring(active), text_color=agree >= minVotes ? verCol : cWarn, text_size=size.tiny, text_halign=text.align_right)
+    table.cell(tb, 0, 2, "Motivo", text_color=cNeu, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(tb, 1, 2, motivo, text_color=cWhite, text_size=size.tiny, text_halign=text.align_right)
+    table.cell(tb, 0, 3, "Aether (régimen)", text_color=cNeu, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(tb, 1, 3, (useAe ? (trending ? "" : "RANGO ") : "") + f_chip(vAe, useAe), text_color=useAe and not trending ? cWarn : f_chipCol(vAe, useAe), text_size=size.tiny, text_halign=text.align_right)
+    table.cell(tb, 0, 4, "Kairos (ruptura)", text_color=cNeu, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(tb, 1, 4, f_chip(vKa, useKa), text_color=f_chipCol(vKa, useKa), text_size=size.tiny, text_halign=text.align_right)
+    table.cell(tb, 0, 5, "Oráculo (divergencia)", text_color=cNeu, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(tb, 1, 5, f_chip(vOr, useOr), text_color=f_chipCol(vOr, useOr), text_size=size.tiny, text_halign=text.align_right)
+    table.cell(tb, 0, 6, "Ancla (VWAP)", text_color=cNeu, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(tb, 1, 6, f_chip(vAn, useAn), text_color=f_chipCol(vAn, useAn), text_size=size.tiny, text_halign=text.align_right)
+    table.cell(tb, 0, 7, "Maya (premium/disc)", text_color=cNeu, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(tb, 1, 7, f_chip(vMa, useMa), text_color=f_chipCol(vMa, useMa), text_size=size.tiny, text_halign=text.align_right)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+var table wm = table.new(position.bottom_right, 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ PythonissAI", text_color=wmCol, text_size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(fireLong,  title="Cónclave LONG",  message="Cónclave: veredicto LONG (confluencia) · {{ticker}}")
+alertcondition(fireShort, title="Cónclave SHORT", message="Cónclave: veredicto SHORT (confluencia) · {{ticker}}")
