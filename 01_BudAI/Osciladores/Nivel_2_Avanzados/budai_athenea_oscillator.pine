@@ -222,11 +222,31 @@ bool released   = sqzOn[1] and not sqzOn
 bool sqzEntryBuy  = showSqzS and released and osc > 50 and flowUp and barstate.isconfirmed
 bool sqzEntrySell = showSqzS and released and osc < 50 and flowDn and barstate.isconfirmed
 
-// Dibujo de entradas neón con efecto GLOW brillante
-plotchar(entryBuy or sqzEntryBuy, "BULL Entry Glow", "•", location.bottom, color=color.new(sigUpCol, 65), size=size.small)
-plotchar(entryBuy or sqzEntryBuy, "BULL Entry", "•", location.bottom, color=sigUpCol, size=size.tiny)
-plotchar(entrySell or sqzEntrySell, "BEAR Entry Glow", "•", location.top, color=color.new(sigDnCol, 65), size=size.small)
-plotchar(entrySell or sqzEntrySell, "BEAR Entry", "•", location.top, color=sigDnCol, size=size.tiny)
+// ── Señales de CRUCE sobre la oscilación, justo en el cruce ──
+//    Trazo blanco neón + fondo verde (bull) / rojo (bear) + glow. Minimalista.
+bool bullSig = entryBuy or sqzEntryBuy
+bool bearSig = entrySell or sqzEntrySell
+
+var array<line> xLines = array.new_line()
+f_crossTrazo(color bg) =>
+    if array.size(xLines) >= 60
+        line.delete(array.shift(xLines))
+        line.delete(array.shift(xLines))
+    // fondo de color (glow) detrás
+    array.push(xLines, line.new(bar_index - 1, osc[1], bar_index, osc, color=color.new(bg, 35), width=3))
+    // trazo blanco neón al frente
+    array.push(xLines, line.new(bar_index - 1, osc[1], bar_index, osc, color=color.new(color.white, 0), width=1))
+
+if showSig and bullSig
+    f_crossTrazo(upCol)
+if showSig and bearSig
+    f_crossTrazo(dnCol)
+
+// Punto neón en el cruce: halo de color + núcleo blanco (sobre la onda)
+plotchar(showSig and bullSig ? osc : na, "Cruce BULL halo",   "•", location.absolute, color=color.new(upCol, 55), size=size.small)
+plotchar(showSig and bullSig ? osc : na, "Cruce BULL núcleo", "•", location.absolute, color=color.new(color.white, 0), size=size.tiny)
+plotchar(showSig and bearSig ? osc : na, "Cruce BEAR halo",   "•", location.absolute, color=color.new(dnCol, 55), size=size.small)
+plotchar(showSig and bearSig ? osc : na, "Cruce BEAR núcleo", "•", location.absolute, color=color.new(color.white, 0), size=size.tiny)
 
 
 // ════════════════════════════════════════════════════════════════════════════
