@@ -13,7 +13,7 @@
 //  Responde de un vistazo: ¿están alineadas las temporalidades para operar?
 //  (c) BudAI Capital® — Pine v6 · panel sobre precio
 // ────────────────────────────────────────────────────────────────────────────
-indicator("BudAI Capital® - Aion", shorttitle="BudAI · Aion", overlay=true, max_labels_count=50, max_lines_count=50)
+indicator("BudAI Capital® - Aion", shorttitle="BudAI Capital® - Aion", overlay=true, max_labels_count=50, max_lines_count=50)
 
 // ════════════════════════════════════════════════════════════════════════════
 //  GRUPOS
@@ -206,7 +206,7 @@ if barstate.islast
 // ════════════════ ✦ MARCA DE AGUA ════════════════
 var table wm = table.new(f_wmPos(wmPos), 1, 1, bgcolor=color.new(color.black, 100))
 if showWM and barstate.islast
-    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.tiny)
+    table.cell(wm, 0, 0, "₿ BudAI Capital®", text_color=wmCol, text_size=size.tiny)
 
 
 // ════════════════════════════════════════════════════════════════════════════
