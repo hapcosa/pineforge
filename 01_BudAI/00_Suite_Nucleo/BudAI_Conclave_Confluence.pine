@@ -1,21 +1,21 @@
 //@version=6
-// ██████╗ ██╗   ██╗████████╗██╗  ██╗ ██████╗ ███╗   ██╗██╗███████╗███████╗ █████╗ ██╗
-// ██╔══██╗╚██╗ ██╔╝╚══██╔══╝██║  ██║██╔═══██╗████╗  ██║██║██╔════╝██╔════╝██╔══██╗██║
-// ██████╔╝ ╚████╔╝    ██║   ███████║██║   ██║██╔██╗ ██║██║███████╗███████╗███████║██║
-// ██╔═══╝   ╚██╔╝     ██║   ██╔══██║██║   ██║██║╚██╗██║██║╚════██║╚════██║██╔══██║██║
-// ██║        ██║      ██║   ██║  ██║╚██████╔╝██║ ╚████║██║███████║███████║██║  ██║██║
-// ╚═╝        ╚═╝      ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝╚══════╝╚══════╝╚═╝  ╚═╝╚═╝
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
 //         C R I P T O   ·   T R A D I N G   C A P I T A L
 // ────────────────────────────────────────────────────────────────────────────
-//  PythonissAI® - Cónclave · Confluence
+//  BudAI Capital® - Cónclave · Confluence
 //  El consejo que vota el veredicto. Lee por input.source los conectores de las
 //  anclas de la suite (Aether régimen, Kairos ruptura, Oráculo divergencia,
 //  Ancla VWAP y Maya) y fusiona sus votos en una sola decisión: LONG / SHORT /
 //  NO TRADE — con el conteo de confluencia y el porqué. Régimen de RANGO veta.
 //  No reemplaza a nadie: orquesta. Estética sobria, sólo el veredicto importa.
-//  (c) PythonissAI® — Pine v6 · overlay
+//  (c) BudAI Capital® — Pine v6 · overlay
 // ────────────────────────────────────────────────────────────────────────────
-indicator("PythonissAI® - Cónclave · Confluence", shorttitle="Conclave", overlay=true, max_labels_count=50)
+indicator("BudAI Capital® - Cónclave · Confluence", shorttitle="Conclave", overlay=true, max_labels_count=50)
 
 // ════════════════ GRUPOS ════════════════
 G_AE  = "① Aether (régimen + dirección)"
@@ -71,7 +71,7 @@ color cBull = palette == "Oro vs Violeta" ? #ffe600 : palette == "Verde Lima vs 
 color cBear = palette == "Oro vs Violeta" ? #9d00ff : palette == "Verde Lima vs Naranja" ? #ff4500 : palette == "Blanco vs Carbón" ? #4a4a4a : palette == "Menta vs Coral" ? #ff5757 : palette == "Eléctrico BudAI" ? #ff1e6e : palette == "Aqua vs Rubí" ? #ff1744 : #ff007a
 
 // ════════════════ ✦ MARCA DE AGUA ════════════════
-showWM = input.bool(true, "Firma PythonissAI", group=G_WM)
+showWM = input.bool(true, "Firma BudAI", group=G_WM)
 wmCol  = input.color(color.new(#b6f400, 30), "Color firma", group=G_WM)
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -149,7 +149,7 @@ if showDash and barstate.islast
 // ════════════════ ✦ MARCA DE AGUA ════════════════
 var table wm = table.new(position.bottom_right, 1, 1, bgcolor=color.new(color.black, 100))
 if showWM and barstate.islast
-    table.cell(wm, 0, 0, "₿ PythonissAI", text_color=wmCol, text_size=size.tiny)
+    table.cell(wm, 0, 0, "₿ BudAI", text_color=wmCol, text_size=size.tiny)
 
 // ════════════════════════════════════════════════════════════════════════════
 //  ALERTAS

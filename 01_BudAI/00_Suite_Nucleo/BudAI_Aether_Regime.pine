@@ -1,21 +1,21 @@
 //@version=6
-// ██████╗ ██╗   ██╗████████╗██╗  ██╗ ██████╗ ███╗   ██╗██╗███████╗███████╗ █████╗ ██╗
-// ██╔══██╗╚██╗ ██╔╝╚══██╔══╝██║  ██║██╔═══██╗████╗  ██║██║██╔════╝██╔════╝██╔══██╗██║
-// ██████╔╝ ╚████╔╝    ██║   ███████║██║   ██║██╔██╗ ██║██║███████╗███████╗███████║██║
-// ██╔═══╝   ╚██╔╝     ██║   ██╔══██║██║   ██║██║╚██╗██║██║╚════██║╚════██║██╔══██║██║
-// ██║        ██║      ██║   ██║  ██║╚██████╔╝██║ ╚████║██║███████║███████║██║  ██║██║
-// ╚═╝        ╚═╝      ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝╚══════╝╚══════╝╚═╝  ╚═╝╚═╝
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
 //         C R I P T O   ·   T R A D I N G   C A P I T A L
 // ────────────────────────────────────────────────────────────────────────────
-//  PythonissAI® - Aether · Regime
+//  BudAI Capital® - Aether · Regime
 //  Ancla maestra de tendencia y régimen. Línea adaptativa (AlphaTrend) que
 //  define la dirección dominante, + clasificador de régimen TENDENCIA/RANGO
 //  (Efficiency Ratio o ADX) que dice cuándo confiar en ella. Estética rayo:
 //  línea finísima + núcleo blanco + halo único, nodos diminutos en los giros.
 //  Exporta dirección/régimen/fuerza (display.none) para la meta-confluencia.
-//  (c) PythonissAI® — Pine v6 · overlay
+//  (c) BudAI Capital® — Pine v6 · overlay
 // ────────────────────────────────────────────────────────────────────────────
-indicator("PythonissAI® - Aether · Regime", shorttitle="Aether", overlay=true, max_labels_count=100)
+indicator("BudAI Capital® - Aether · Regime", shorttitle="Aether", overlay=true, max_labels_count=100)
 
 // ════════════════ GRUPOS ════════════════
 G_TREND = "① Tendencia (AlphaTrend)"
@@ -58,7 +58,7 @@ color cBull = palette == "Oro vs Violeta" ? #ffe600 : palette == "Verde Lima vs 
 color cBear = palette == "Oro vs Violeta" ? #9d00ff : palette == "Verde Lima vs Naranja" ? #ff4500 : palette == "Blanco vs Carbón" ? #4a4a4a : palette == "Menta vs Coral" ? #ff5757 : palette == "Eléctrico BudAI" ? #ff1e6e : palette == "Aqua vs Rubí" ? #ff1744 : #ff007a
 
 // ════════════════ ✦ MARCA DE AGUA ════════════════
-showWM = input.bool(true, "Firma PythonissAI", group=G_WM)
+showWM = input.bool(true, "Firma BudAI", group=G_WM)
 wmCol  = input.color(color.new(#b6f400, 30), "Color firma", group=G_WM)
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -153,7 +153,7 @@ if showDash and barstate.islast
 // ════════════════ ✦ MARCA DE AGUA ════════════════
 var table wm = table.new(position.bottom_right, 1, 1, bgcolor=color.new(color.black, 100))
 if showWM and barstate.islast
-    table.cell(wm, 0, 0, "₿ PythonissAI", text_color=wmCol, text_size=size.tiny)
+    table.cell(wm, 0, 0, "₿ BudAI", text_color=wmCol, text_size=size.tiny)
 
 // ════════════════════════════════════════════════════════════════════════════
 //  ALERTAS

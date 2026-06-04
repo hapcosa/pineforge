@@ -1,20 +1,20 @@
 //@version=6
-// ██████╗ ██╗   ██╗████████╗██╗  ██╗ ██████╗ ███╗   ██╗██╗███████╗███████╗ █████╗ ██╗
-// ██╔══██╗╚██╗ ██╔╝╚══██╔══╝██║  ██║██╔═══██╗████╗  ██║██║██╔════╝██╔════╝██╔══██╗██║
-// ██████╔╝ ╚████╔╝    ██║   ███████║██║   ██║██╔██╗ ██║██║███████╗███████╗███████║██║
-// ██╔═══╝   ╚██╔╝     ██║   ██╔══██║██║   ██║██║╚██╗██║██║╚════██║╚════██║██╔══██║██║
-// ██║        ██║      ██║   ██║  ██║╚██████╔╝██║ ╚████║██║███████║███████║██║  ██║██║
-// ╚═╝        ╚═╝      ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝╚══════╝╚══════╝╚═╝  ╚═╝╚═╝
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
 //         C R I P T O   ·   T R A D I N G   C A P I T A L
 // ────────────────────────────────────────────────────────────────────────────
-//  PythonissAI® - Maya · Oscillator
+//  BudAI Capital® - Maya · Oscillator
 //  Oscilador de contexto de liquidez. Mide la posición del precio dentro del
 //  rango de la vela superior (0 = SSL/discount · 100 = BSL/premium), con onda
 //  difuminada estilo rayo, nodo blanco en el cruce de equilibrio, nodos de
 //  entrada bull/bear y marcas de barrido. Exporta su onda 0-100 para el híbrido.
-//  (c) PythonissAI® — Pine v6 · panel
+//  (c) BudAI Capital® — Pine v6 · panel
 // ────────────────────────────────────────────────────────────────────────────
-indicator("PythonissAI® - Maya · Oscillator", shorttitle="Maya Osc", overlay=false, precision=1, max_labels_count=100)
+indicator("BudAI Capital® - Maya · Oscillator", shorttitle="Maya Osc", overlay=false, precision=1, max_labels_count=100)
 
 // ════════════════ GRUPOS ════════════════
 G_RNG = "① Rango"
@@ -43,7 +43,7 @@ palette = input.string("Cyan vs Magenta", "Paleta Bull/Bear", options=["Cyan vs 
 cLiq    = input.color(#ffb300, "Liquidez (ámbar)", group=G_COL)
 cMid    = input.color(#90a4ae, "Equilibrio (gris)", group=G_COL)
 cWhite  = input.color(#ffffff, "Núcleo (blanco)", group=G_COL)
-showWM  = input.bool(true, "Firma PythonissAI", group=G_VIS)
+showWM  = input.bool(true, "Firma BudAI", group=G_VIS)
 wmCol   = input.color(color.new(#b6f400, 30), "Color firma", group=G_VIS)
 
 // Ternario (no función) para que los colores queden input-qualified y sirvan en hline
@@ -154,7 +154,7 @@ if showDash and barstate.islast
 // ✦ MARCA DE AGUA
 var table wm = table.new(position.bottom_right, 1, 1, bgcolor=color.new(color.black, 100))
 if showWM and barstate.islast
-    table.cell(wm, 0, 0, "₿ PythonissAI", text_color=wmCol, text_size=size.tiny)
+    table.cell(wm, 0, 0, "₿ BudAI", text_color=wmCol, text_size=size.tiny)
 
 // ════════════════════════════════════════════════════════════════════════════
 //  ALERTAS

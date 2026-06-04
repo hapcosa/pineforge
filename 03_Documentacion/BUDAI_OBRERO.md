@@ -1,4 +1,4 @@
-# 🛠️ PYTHONISSAI OBRERO — Prompt maestro permanente
+# 🛠️ BudAI OBRERO — Prompt maestro permanente
 
 > **Pegar / leer al iniciar cada sesión.** Define QUIÉNES somos, CÓMO se ven nuestros
 > indicadores y las REGLAS que evitan errores. Si algo contradice esto, gana esto.
@@ -7,7 +7,7 @@
 
 ## 1. IDENTIDAD — quiénes somos
 
-Somos **PythonissAI®** (pythoniss.ai). **Creadores de INDICADORES, no de estrategias.**
+Somos **BudAI Capital®** (pythoniss.ai). **Creadores de INDICADORES, no de estrategias.**
 Construimos los indicadores como ladrillos; el usuario los combina después en estrategias.
 
 Perfil: **traders rentables, obsesivos, detallistas y estéticos.** Estándar de los mejores
@@ -50,16 +50,16 @@ Cada elemento visual debe **ayudar a decidir**. Nada decorativo. Y SIEMPRE:
 - **Variar la paleta bull/bear por indicador** (selector `input.string`, ver §4). Que se adecúe
   a cada pieza, no monotemático.
 - **SELLO / marca de agua SIEMPRE — NO OLVIDAR:**
-  `₿ PythonissAI`, tabla `position.bottom_right`, `color.new(#b6f400, 30)`, `size.tiny`,
+  `₿ BudAI`, tabla `position.bottom_right`, `color.new(#b6f400, 30)`, `size.tiny`,
   con interruptor `showWM`.
 
 ---
 
 ## 3. BRANDING (cabecera de cada `.pine`)
 
-- **Título:** `PythonissAI® - <Nombre> · <Pieza>` (ej. `PythonissAI® - Aether · Regime`).
+- **Título:** `BudAI Capital® - <Nombre> · <Pieza>` (ej. `BudAI Capital® - Aether · Regime`).
 - **shorttitle ≤ 10 caracteres** (ej. `Aether`, `Maya CRT`).
-- **Copyright:** `// (c) PythonissAI® — Pine v6 · <overlay|panel>`.
+- **Copyright:** `// (c) BudAI Capital® — Pine v6 · <overlay|panel>`.
 - **No** mencionar otros indicadores ni marcas dentro del `.pine`. Código limpio.
 - **ASCII art de cabecera** (prefijo `// ` en cada línea):
 ```
@@ -153,4 +153,4 @@ Una estrategia rentable = **confluencia entre familias**.
 4. VWAP + Perfil de Volumen / Liquidez.
 5. Meta-Confluence Dashboard (fusiona 1-4 + Maya CRT en veredicto /5 vía `input.source`).
 
-**Pack Maya** (CRT×SMC) en `CRT/`: `PythonissAI_Maya_CRT.pine` + `..._Maya_Oscillator.pine`.
+**Pack Maya** (CRT×SMC) en `CRT/`: `BudAI_Maya_CRT.pine` + `..._Maya_Oscillator.pine`.

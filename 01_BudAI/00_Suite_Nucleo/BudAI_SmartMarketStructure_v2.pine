@@ -1,0 +1,412 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Smart Market Structure v.2
+//  SMC clásico con Order Blocks VOLUMÉTRICOS (fondo + franja buy/sell + métrica
+//  volumen %), FVG / IFVG recortados con línea 50%, estructura BOS / CHoCH con
+//  burbujas y barridos (x), raids ($) y nodo glow al combinarse con CHoCH.
+//  Verde / rojo neón. SMA + cruce de EMAs ocultables. Exporta conn_smc / conn_fvg.
+//  (c) BudAI Capital® — código propio · Pine v6 · overlay
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Smart Market Structure v.2", "SMS v2", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_bars_back=2000)
+
+// ════════════════ GRUPOS ════════════════
+G_STR = "① Estructura (BOS / CHoCH)"
+G_OB  = "② Order Blocks volumétricos"
+G_FVG = "③ FVG / IFVG"
+G_RAID= "④ Raids de liquidez"
+G_MA  = "⑤ SMA / Cruce EMAs"
+G_COL = "⑥ Paleta"
+G_WM  = "✦ Marca de agua"
+
+// ════════════════ ① ESTRUCTURA ════════════════
+swLen     = input.int(8, "Swing (pivote)", minval=2, maxval=50, group=G_STR)
+showBOS   = input.bool(true, "Mostrar BOS", inline="s1", group=G_STR)
+showCHoCH = input.bool(true, "Mostrar CHoCH", inline="s1", group=G_STR)
+showSweep = input.bool(true, "Barridos (x)", inline="s2", group=G_STR)
+showBubble= input.bool(true, "Burbujas", inline="s2", group=G_STR)
+
+// ════════════════ ② ORDER BLOCKS ════════════════
+showOB    = input.bool(true, "Mostrar Order Blocks", group=G_OB)
+obLast    = input.int(5, "Máx OB por lado", minval=1, maxval=12, group=G_OB)
+showAct   = input.bool(true, "Franja buy/sell activity", group=G_OB)
+showMid   = input.bool(true, "Línea media (avg)", inline="o1", group=G_OB)
+showMetric= input.bool(true, "Métrica volumen + %", inline="o1", group=G_OB)
+obOp      = input.int(86, "Opacidad fondo OB", minval=70, maxval=94, group=G_OB)
+obActOp   = input.int(35, "Opacidad franja activity", minval=10, maxval=70, group=G_OB)
+obExt     = input.int(8, "Extensión derecha (barras)", minval=0, maxval=40, group=G_OB)
+obAct     = input.int(4, "Ancho franja activity (barras)", minval=1, maxval=20, group=G_OB)
+
+// ════════════════ ③ FVG / IFVG ════════════════
+showFVG  = input.bool(true, "Mostrar FVG", inline="f1", group=G_FVG)
+showIFVG = input.bool(true, "IFVG (invertido)", inline="f1", group=G_FVG)
+fvgMax   = input.int(2, "Máx FVG / IFVG", minval=1, maxval=10, group=G_FVG, tooltip="Por defecto 2 — concreto y limpio.")
+fvgMin   = input.float(0.0, "Tamaño mínimo ×ATR", minval=0.0, step=0.05, group=G_FVG)
+fvgLen   = input.int(6, "Ancho FVG (recortado)", minval=2, maxval=30, group=G_FVG)
+
+// ════════════════ ④ RAIDS ════════════════
+showRaid = input.bool(true, "Mostrar raids ($)", group=G_RAID)
+raidWin  = input.int(5, "Ventana raid→CHoCH (velas)", minval=1, maxval=20, group=G_RAID, tooltip="Si tras un raid llega un CHoCH dentro de N velas, se dibuja el nodo glow.")
+
+// ════════════════ ⑤ SMA / EMAs ════════════════
+showSMA  = input.bool(true,  "SMA line", inline="sma", group=G_MA)
+smaLen   = input.int(50, "", inline="sma", minval=2, group=G_MA)
+useEmaX  = input.bool(false, "Cruce de EMAs (oculto)", group=G_MA, tooltip="Desactivado por defecto.")
+emaFastL = input.int(9,  "EMA rápida", inline="ema", minval=2, group=G_MA)
+emaSlowL = input.int(21, "EMA lenta",  inline="ema", minval=3, group=G_MA)
+
+// ════════════════ ⑥ PALETA ════════════════
+palette = input.string("Verde vs Rojo (neón)", "Paleta Bull/Bear", options=["Verde vs Rojo (neón)","Cyan vs Magenta","Oro vs Violeta","Verde Lima vs Naranja","Menta vs Coral","Aqua vs Rubí"], group=G_COL)
+cIfvg   = input.color(#b388ff, "IFVG (violeta)", group=G_COL)
+cAmber  = input.color(#ffb300, "Raid / SMA (ámbar)", group=G_COL)
+cWhite  = input.color(#ffffff, "Núcleo (blanco)", group=G_COL)
+cEmaF   = input.color(#00e5ff, "EMA rápida (cian)", inline="ec", group=G_COL)
+cEmaS   = input.color(#ff6a00, "EMA lenta (naranjo)", inline="ec", group=G_COL)
+
+color upCol = palette == "Cyan vs Magenta" ? #00f0ff : palette == "Oro vs Violeta" ? #ffe600 : palette == "Verde Lima vs Naranja" ? #39ff14 : palette == "Menta vs Coral" ? #00ffc4 : palette == "Aqua vs Rubí" ? #18ffff : #00e676
+color dnCol = palette == "Cyan vs Magenta" ? #ff007a : palette == "Oro vs Violeta" ? #9d00ff : palette == "Verde Lima vs Naranja" ? #ff4500 : palette == "Menta vs Coral" ? #ff5757 : palette == "Aqua vs Rubí" ? #ff1744 : #ff1744
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Firma BudAI", group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 30), "Color firma", group=G_WM)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  BASE
+// ════════════════════════════════════════════════════════════════════════════
+float atr  = ta.atr(14)
+bool  conf = barstate.isconfirmed
+
+float ph = ta.pivothigh(high, swLen, swLen)
+float pl = ta.pivotlow(low,  swLen, swLen)
+
+var float swHi  = na
+var int   swHiX = na
+var float swLo  = na
+var int   swLoX = na
+var bool  brkHi = false
+var bool  brkLo = false
+if not na(ph)
+    swHi  := ph
+    swHiX := bar_index - swLen
+    brkHi := false
+if not na(pl)
+    swLo  := pl
+    swLoX := bar_index - swLen
+    brkLo := false
+
+// ── Detección BOS / CHoCH / barridos ──
+var int trend = 0
+bool bosUp = false
+bool bosDn = false
+bool chochUp = false
+bool chochDn = false
+bool sweepUp = false
+bool sweepDn = false
+
+if conf and not na(swHi) and not brkHi
+    if close > swHi
+        brkHi := true
+        if trend < 0
+            chochUp := true
+        else
+            bosUp := true
+        trend := 1
+    else if showSweep and high > swHi and close < swHi
+        sweepUp := true   // barrió el máximo y cerró debajo
+
+if conf and not na(swLo) and not brkLo
+    if close < swLo
+        brkLo := true
+        if trend > 0
+            chochDn := true
+        else
+            bosDn := true
+        trend := -1
+    else if showSweep and low < swLo and close > swLo
+        sweepDn := true   // barrió el mínimo y cerró encima
+
+// ── Dibujo estructura: línea del nivel roto + texto + burbuja ──
+var array<line>  stLines = array.new_line()
+var array<label> stLbls  = array.new_label()
+
+f_struct(string txt, float y, int x1, color col, bool up) =>
+    if array.size(stLines) >= 24
+        line.delete(array.shift(stLines))
+    if array.size(stLbls) >= 48
+        label.delete(array.shift(stLbls))
+    array.push(stLines, line.new(x1, y, bar_index, y, color=color.new(col, 45), style=line.style_dashed, width=1))
+    array.push(stLbls,  label.new(bar_index, y, txt, style=label.style_none, textcolor=color.new(col, 10), size=size.tiny))
+    if showBubble
+        array.push(stLbls, label.new(x1, y, "", style=label.style_circle, color=color.new(col, 78), size=size.tiny))
+
+int hiX = na(swHiX) ? bar_index - swLen : swHiX
+int loX = na(swLoX) ? bar_index - swLen : swLoX
+if showBOS   and bosUp
+    f_struct("BOS",   swHi, hiX, upCol, true)
+if showBOS   and bosDn
+    f_struct("BOS",   swLo, loX, dnCol, false)
+if showCHoCH and chochUp
+    f_struct("CHoCH", swHi, hiX, upCol, true)
+if showCHoCH and chochDn
+    f_struct("CHoCH", swLo, loX, dnCol, false)
+if showSweep and sweepUp
+    f_struct("x", swHi, hiX, upCol, true)
+if showSweep and sweepDn
+    f_struct("x", swLo, loX, dnCol, false)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ② ORDER BLOCKS VOLUMÉTRICOS — fondo + franja buy/sell + métrica %
+// ════════════════════════════════════════════════════════════════════════════
+type OB
+    box   bg
+    box   atop
+    box   abot
+    line  mid
+    label lb
+    float top
+    float btm
+    float avg
+    float vol
+    bool  bull
+    bool  dead
+
+var array<OB> obs = array.new<OB>()
+
+// localiza la pierna de impulso: última vela opuesta antes de la ruptura
+f_legIdx(bool bull) =>
+    int idx = na
+    for i = 1 to 60
+        if bull
+            if close[i] < open[i]
+                idx := i
+                break
+        else
+            if close[i] > open[i]
+                idx := i
+                break
+    idx
+
+f_addOB(bool bull) =>
+    int idx = f_legIdx(bull)
+    if not na(idx) and showOB
+        float t = high[idx]
+        float b = low[idx]
+        float a = (t + b) / 2.0
+        float v = 0.0
+        for i = 0 to idx
+            v += nz(volume[i])
+        color c = bull ? upCol : dnCol
+        int loc = bar_index - idx
+        box bg = box.new(loc, t, bar_index + obExt, b, border_color=color.new(c, 68), border_width=1, bgcolor=color.new(c, obOp))
+        box at = na
+        box ab = na
+        if showAct
+            at := box.new(loc, t, loc + obAct, a, border_color=na, bgcolor=color.new(upCol, obActOp))
+            ab := box.new(loc, a, loc + obAct, b, border_color=na, bgcolor=color.new(dnCol, obActOp))
+        line ml = showMid ? line.new(loc, a, bar_index + obExt, a, color=color.new(c, 20), style=line.style_dashed, width=1) : na
+        label lb = showMetric ? label.new(bar_index + obExt, a, "", style=label.style_label_left, color=color.new(#000000, 100), textcolor=c, size=size.tiny) : na
+        array.unshift(obs, OB.new(bg, at, ab, ml, lb, t, b, a, v, bull, false))
+
+f_delOB(OB o) =>
+    box.delete(o.bg)
+    if not na(o.atop)
+        box.delete(o.atop)
+    if not na(o.abot)
+        box.delete(o.abot)
+    if not na(o.mid)
+        line.delete(o.mid)
+    if not na(o.lb)
+        label.delete(o.lb)
+
+// poda: quita muertos y respeta máx por lado (más nuevos primero)
+f_prune() =>
+    int nb = 0
+    int ns = 0
+    int i = 0
+    while i < array.size(obs)
+        OB o = array.get(obs, i)
+        bool drop = false
+        if o.dead
+            drop := true
+        else
+            if o.bull
+                nb += 1
+                if nb > obLast
+                    drop := true
+                    f_delOB(o)
+            else
+                ns += 1
+                if ns > obLast
+                    drop := true
+                    f_delOB(o)
+        if drop
+            array.remove(obs, i)
+            i := i   // el elemento en i ya se removió; no avanzar
+        else
+            i += 1
+
+if showOB and (bosUp or chochUp)
+    f_addOB(true)
+    f_prune()
+if showOB and (bosDn or chochDn)
+    f_addOB(false)
+    f_prune()
+
+// mitigación + extensión + métrica %
+if array.size(obs) > 0
+    float total = 0.0
+    for i = 0 to array.size(obs) - 1
+        OB o = array.get(obs, i)
+        if not o.dead
+            total += o.vol
+    for i = array.size(obs) - 1 to 0
+        OB o = array.get(obs, i)
+        if o.dead
+            continue
+        bool mit = (o.bull and close < o.btm) or (not o.bull and close > o.top)
+        if mit
+            o.dead := true
+            f_delOB(o)
+            continue
+        box.set_right(o.bg, bar_index + obExt)
+        if not na(o.mid)
+            line.set_x2(o.mid, bar_index + obExt)
+        if not na(o.lb)
+            int pct = total > 0 ? int(math.round(o.vol / total * 100)) : 0
+            label.set_x(o.lb, bar_index + obExt)
+            label.set_y(o.lb, o.avg)
+            label.set_text(o.lb, str.tostring(o.vol, format.volume) + " (" + str.tostring(pct) + "%)")
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ③ FVG / IFVG — recortados, trazo fino + línea 50%
+// ════════════════════════════════════════════════════════════════════════════
+type FVG
+    box   bx
+    line  ln
+    float top
+    float btm
+    int   dir
+    bool  inv
+    bool  dead
+
+var array<FVG> fvgs = array.new<FVG>()
+
+bool fvgUp = low > high[2] and (low - high[2]) >= fvgMin * atr
+bool fvgDn = high < low[2] and (low[2] - high) >= fvgMin * atr
+
+f_addFVG(float top, float bot, int dir) =>
+    if array.size(fvgs) >= fvgMax
+        FVG old = array.shift(fvgs)
+        box.delete(old.bx)
+        line.delete(old.ln)
+    color c = dir > 0 ? upCol : dnCol
+    float mid = (top + bot) / 2.0
+    int xl = bar_index - 1
+    int xr = bar_index + fvgLen
+    box bx = box.new(xl, top, xr, bot, bgcolor=color.new(c, 90), border_color=color.new(c, 45), border_width=1)
+    line ln = line.new(xl, mid, xr, mid, color=color.new(c, 20), style=line.style_solid, width=1)
+    array.push(fvgs, FVG.new(bx, ln, top, bot, dir, false, false))
+
+if showFVG and conf and fvgUp
+    f_addFVG(low, high[2], 1)
+if showFVG and conf and fvgDn
+    f_addFVG(low[2], high, -1)
+
+int fvgBias = 0
+if array.size(fvgs) > 0
+    for i = array.size(fvgs) - 1 to 0
+        FVG f = array.get(fvgs, i)
+        if f.dead
+            continue
+        if not f.inv
+            bool violated = (f.dir == 1 and close < f.btm) or (f.dir == -1 and close > f.top)
+            if violated and showIFVG
+                f.inv := true
+                box.set_bgcolor(f.bx, color.new(cIfvg, 88))
+                box.set_border_color(f.bx, color.new(cIfvg, 45))
+                line.set_color(f.ln, color.new(cIfvg, 20))
+            else if violated and not showIFVG
+                f.dead := true
+                box.delete(f.bx)
+                line.delete(f.ln)
+        else
+            bool kill = (f.dir == 1 and close > f.top) or (f.dir == -1 and close < f.btm)
+            if kill
+                f.dead := true
+                box.delete(f.bx)
+                line.delete(f.ln)
+        if not f.dead and close <= f.top and close >= f.btm
+            fvgBias := f.inv ? -f.dir : f.dir
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ④ RAIDS ($) + nodo glow al combinarse con CHoCH
+// ════════════════════════════════════════════════════════════════════════════
+bool raidDn = showRaid and not na(swHi) and high > swHi and close < swHi   // barre máximos (bajista)
+bool raidUp = showRaid and not na(swLo) and low  < swLo and close > swLo   // barre mínimos (alcista)
+var int lastRaidBar = na
+var int lastRaidDir = 0
+if raidUp
+    lastRaidBar := bar_index
+    lastRaidDir := 1
+if raidDn
+    lastRaidBar := bar_index
+    lastRaidDir := -1
+
+plotchar(raidDn ? high : na, "Raid $", "$", location.absolute, color=color.new(cAmber, 15), size=size.tiny)
+plotchar(raidUp ? low  : na, "Raid $", "$", location.absolute, color=color.new(cAmber, 15), size=size.tiny)
+
+bool recentRaid = not na(lastRaidBar) and (bar_index - lastRaidBar) <= raidWin
+bool comboLong  = chochUp and recentRaid and lastRaidDir == 1
+bool comboShort = chochDn and recentRaid and lastRaidDir == -1
+
+float cy = comboLong ? low - 0.8 * atr : comboShort ? high + 0.8 * atr : na
+color cc = comboLong ? upCol : dnCol
+plotchar(na(cy) ? na : cy, "Combo halo",   "●", location.absolute, color=color.new(cc, 65), size=size.large)
+plotchar(na(cy) ? na : cy, "Combo mid",    "●", location.absolute, color=color.new(cc, 25), size=size.normal)
+plotchar(na(cy) ? na : cy, "Combo núcleo", "●", location.absolute, color=color.new(cWhite, 0), size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ⑤ SMA line + cruce de EMAs (ocultos por defecto) — finísimos + glow
+// ════════════════════════════════════════════════════════════════════════════
+float sma = ta.sma(close, smaLen)
+plot(showSMA ? sma : na, "SMA halo", color=color.new(cAmber, 82), linewidth=3)
+plot(showSMA ? sma : na, "SMA", color=color.new(cAmber, 0), linewidth=1)
+
+float emaF = ta.ema(close, emaFastL)
+float emaS = ta.ema(close, emaSlowL)
+plot(useEmaX ? emaF : na, "EMA rápida halo", color=color.new(cEmaF, 82), linewidth=3)
+plot(useEmaX ? emaF : na, "EMA rápida", color=color.new(cEmaF, 0), linewidth=1)
+plot(useEmaX ? emaS : na, "EMA lenta halo", color=color.new(cEmaS, 82), linewidth=3)
+plot(useEmaX ? emaS : na, "EMA lenta", color=color.new(cEmaS, 0), linewidth=1)
+
+bool emaXUp = ta.crossover(emaF, emaS)
+bool emaXDn = ta.crossunder(emaF, emaS)
+plotchar(useEmaX and emaXUp ? emaS : na, "Cruce EMA alcista", "•", location.absolute, color=color.new(upCol, 0), size=size.tiny)
+plotchar(useEmaX and emaXDn ? emaS : na, "Cruce EMA bajista", "•", location.absolute, color=color.new(dnCol, 0), size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  CONECTOR (display.none) — para el Cónclave
+// ════════════════════════════════════════════════════════════════════════════
+plot(trend, "conn_smc", display=display.none)
+plot(fvgBias, "conn_fvg", display=display.none)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+var table wm = table.new(position.bottom_right, 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI", text_color=wmCol, text_size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(bosUp,      "BOS alcista",   "SMS v2 · BOS alcista {{ticker}}")
+alertcondition(bosDn,      "BOS bajista",   "SMS v2 · BOS bajista {{ticker}}")
+alertcondition(chochUp,    "CHoCH alcista", "SMS v2 · CHoCH alcista {{ticker}}")
+alertcondition(chochDn,    "CHoCH bajista", "SMS v2 · CHoCH bajista {{ticker}}")
+alertcondition(comboLong,  "Raid+CHoCH LONG",  "SMS v2 · Raid + CHoCH alcista {{ticker}}")
+alertcondition(comboShort, "Raid+CHoCH SHORT", "SMS v2 · Raid + CHoCH bajista {{ticker}}")
