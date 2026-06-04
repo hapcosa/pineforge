@@ -1,0 +1,284 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Smart Market Structure v.3
+//  SMC institucional en 4 módulos (cada uno on/off, sin saturar):
+//   ① Supply/Demand volumétricos con % de fuerza   ② FVG multi-TF (HTF)
+//   ③ Volume Profile (POC/VAH/VAL)                  ④ Smart Trend multi-TF (semáforo)
+//  Código propio. Estética neón: zonas translúcidas, líneas finas, % discreto.
+//  (c) BudAI Capital® — Pine v6 · overlay
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Smart Market Structure v.3", "SMS v3", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=2000)
+
+// ════════════════ GRUPOS ════════════════
+G_SD  = "① Supply / Demand (%)"
+G_FVG = "② FVG multi-TF"
+G_VP  = "③ Volume Profile"
+G_TR  = "④ Smart Trend (MTF)"
+G_COL = "⑤ Paleta"
+G_WM  = "✦ Marca de agua"
+
+// ① Supply/Demand
+showSD  = input.bool(true,  "Mostrar Supply/Demand", group=G_SD)
+sdMax   = input.int(4, "Máx zonas por lado", minval=1, maxval=10, group=G_SD)
+sdImp   = input.float(1.4, "Fuerza de impulso ×ATR", minval=0.5, step=0.1, group=G_SD, tooltip="Qué tan fuerte debe ser el movimiento para crear una zona.")
+sdOp    = input.int(82, "Opacidad zona", minval=60, maxval=94, group=G_SD)
+sdExt   = input.int(30, "Extensión derecha (barras)", minval=5, maxval=120, group=G_SD)
+
+// ② FVG multi-TF
+showFvg = input.bool(true,  "Mostrar FVG multi-TF", group=G_FVG)
+fvgTF   = input.timeframe("240", "Temporalidad del FVG", group=G_FVG, tooltip="El FVG se calcula en esta TF y se pinta en tu gráfico (ej. 240 = 4H).")
+fvgMax  = input.int(4, "Máx FVG", minval=1, maxval=10, group=G_FVG)
+fvgExt  = input.int(20, "Extensión derecha (barras)", minval=4, maxval=80, group=G_FVG)
+
+// ③ Volume Profile
+showVP  = input.bool(true,  "Mostrar Volume Profile", group=G_VP)
+vpLook  = input.int(200, "Ventana (barras)", minval=30, maxval=1000, group=G_VP)
+vpBins  = input.int(24, "Número de bins", minval=8, maxval=50, group=G_VP)
+vpWidth = input.int(80, "Ancho máximo (barras)", minval=20, maxval=200, group=G_VP)
+
+// ④ Smart Trend MTF
+showTr  = input.bool(true,  "Mostrar Smart Trend", group=G_TR)
+tf1     = input.timeframe("15",  "TF 1", group=G_TR, inline="t")
+tf2     = input.timeframe("60",  "TF 2", group=G_TR, inline="t")
+tf3     = input.timeframe("240", "TF 3", group=G_TR, inline="t")
+trEma   = input.int(50, "EMA de tendencia", minval=5, group=G_TR)
+
+// ⑤ Paleta
+supCol  = input.color(#ff1744, "Supply (rojo)", group=G_COL, inline="sd")
+demCol  = input.color(#00e0b0, "Demand (teal)", group=G_COL, inline="sd")
+fvgCol  = input.color(#b388ff, "FVG (violeta)", group=G_COL)
+vpCol   = input.color(#3d7bd9, "Volume Profile", group=G_COL, inline="vp")
+pocCol  = input.color(#ffb300, "POC (ámbar)", group=G_COL, inline="vp")
+
+// ✦ WM
+showWM = input.bool(true, "Firma BudAI", group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 30), "Color", group=G_WM)
+
+float atr = ta.atr(14)
+bool  conf = barstate.isconfirmed
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ① SUPPLY / DEMAND — zona volumétrica desde la base del impulso, con %
+// ════════════════════════════════════════════════════════════════════════════
+type Zone
+    box   bx
+    line  ln
+    label lb
+    float top
+    float btm
+    float vol
+    bool  dem
+    bool  dead
+
+var array<Zone> zones = array.new<Zone>()
+
+// localiza la base del impulso: última vela opuesta antes del movimiento fuerte
+f_legIdx(bool bull) =>
+    int idx = na
+    for i = 1 to 30
+        if bull
+            if close[i] < open[i]
+                idx := i
+                break
+        else
+            if close[i] > open[i]
+                idx := i
+                break
+    idx
+
+bool strongUp = (close - open) > sdImp * atr
+bool strongDn = (open - close) > sdImp * atr
+
+f_addZone(bool dem) =>
+    int idx = f_legIdx(dem)
+    if not na(idx)
+        float t = high[idx]
+        float b = low[idx]
+        float v = 0.0
+        for i = 0 to idx
+            v += nz(volume[i])
+        color c = dem ? demCol : supCol
+        int loc = bar_index - idx
+        box bx = box.new(loc, t, bar_index + sdExt, b, border_color=color.new(c, 55), border_width=1, bgcolor=color.new(c, sdOp))
+        float prox = dem ? t : b
+        line ln = line.new(loc, prox, bar_index + sdExt, prox, color=color.new(c, 25), style=line.style_dashed, width=1)
+        label lb = label.new(bar_index + sdExt, (t + b) / 2.0, "", style=label.style_label_left, color=color.new(#000000, 100), textcolor=c, size=size.tiny)
+        array.unshift(zones, Zone.new(bx, ln, lb, t, b, v, dem, false))
+
+f_pruneZones() =>
+    int nd = 0
+    int ns = 0
+    int i = 0
+    while i < array.size(zones)
+        Zone z = array.get(zones, i)
+        bool drop = z.dead
+        if not z.dead
+            if z.dem
+                nd += 1
+                drop := nd > sdMax
+            else
+                ns += 1
+                drop := ns > sdMax
+            if drop
+                box.delete(z.bx)
+                line.delete(z.ln)
+                label.delete(z.lb)
+        if drop
+            array.remove(zones, i)
+            i := i
+        else
+            i += 1
+
+if showSD and strongUp and conf
+    f_addZone(true)
+    f_pruneZones()
+if showSD and strongDn and conf
+    f_addZone(false)
+    f_pruneZones()
+
+if array.size(zones) > 0
+    float total = 0.0
+    for i = 0 to array.size(zones) - 1
+        Zone z = array.get(zones, i)
+        if not z.dead
+            total += z.vol
+    for i = array.size(zones) - 1 to 0
+        Zone z = array.get(zones, i)
+        if z.dead
+            continue
+        bool mit = (z.dem and close < z.btm) or (not z.dem and close > z.top)
+        if mit
+            z.dead := true
+            box.delete(z.bx)
+            line.delete(z.ln)
+            label.delete(z.lb)
+            continue
+        box.set_right(z.bx, bar_index + sdExt)
+        line.set_x2(z.ln, bar_index + sdExt)
+        int pct = total > 0 ? int(math.round(z.vol / total * 100)) : 0
+        label.set_x(z.lb, bar_index + sdExt)
+        label.set_text(z.lb, (z.dem ? "Demand " : "Supply ") + str.tostring(pct) + "%")
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ② FVG MULTI-TF — calcula el FVG en HTF y lo pinta en tu gráfico
+// ════════════════════════════════════════════════════════════════════════════
+type Fvg
+    box   bx
+    line  ln
+    float top
+    float btm
+    bool  dead
+
+var array<Fvg> fvgs = array.new<Fvg>()
+
+f_htf(float e) => request.security(syminfo.tickerid, fvgTF, e, lookahead=barmerge.lookahead_off)
+float hHi2 = f_htf(high[2])
+float hLo  = f_htf(low)
+float hHi  = f_htf(high)
+float hLo2 = f_htf(low[2])
+bool htfNew = ta.change(time(fvgTF)) != 0
+bool bullFvg = showFvg and htfNew and hLo > hHi2
+bool bearFvg = showFvg and htfNew and hHi < hLo2
+
+f_addFvg(float top, float btm) =>
+    if array.size(fvgs) >= fvgMax
+        Fvg old = array.shift(fvgs)
+        box.delete(old.bx)
+        line.delete(old.ln)
+    float mid = (top + btm) / 2.0
+    box bx = box.new(bar_index, top, bar_index + fvgExt, btm, bgcolor=color.new(fvgCol, 86), border_color=color.new(fvgCol, 45), border_width=1)
+    line ln = line.new(bar_index, mid, bar_index + fvgExt, mid, color=color.new(fvgCol, 25), style=line.style_dotted, width=1)
+    label.new(bar_index + fvgExt, top, "Strong FVG (" + fvgTF + ")", style=label.style_label_left, color=color.new(#000000, 100), textcolor=color.new(fvgCol, 0), size=size.tiny)
+    array.push(fvgs, Fvg.new(bx, ln, top, btm, false))
+
+if bullFvg
+    f_addFvg(hLo, hHi2)
+if bearFvg
+    f_addFvg(hLo2, hHi)
+
+if array.size(fvgs) > 0
+    for i = array.size(fvgs) - 1 to 0
+        Fvg f = array.get(fvgs, i)
+        if f.dead
+            continue
+        bool fill = close <= f.top and close >= f.btm
+        if fill
+            f.dead := true
+            box.delete(f.bx)
+            line.delete(f.ln)
+        else
+            box.set_right(f.bx, bar_index + fvgExt)
+            line.set_x2(f.ln, bar_index + fvgExt)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ③ VOLUME PROFILE — bins a la derecha + POC/VAH/VAL
+// ════════════════════════════════════════════════════════════════════════════
+var array<box> vpBoxes = array.new<box>()
+var line pocLn = na
+
+if showVP and barstate.islast
+    for b in vpBoxes
+        box.delete(b)
+    array.clear(vpBoxes)
+    if not na(pocLn)
+        line.delete(pocLn)
+    float hi = ta.highest(high, vpLook)
+    float lo = ta.lowest(low, vpLook)
+    float rng = hi - lo
+    if rng > 0
+        array<float> bins = array.new_float(vpBins, 0.0)
+        for i = 0 to vpLook - 1
+            float p = hlc3[i]
+            int bi = int(math.floor((p - lo) / rng * (vpBins - 1)))
+            bi := math.max(0, math.min(vpBins - 1, bi))
+            array.set(bins, bi, array.get(bins, bi) + nz(volume[i]))
+        float maxv = array.max(bins)
+        int pocI = array.indexof(bins, maxv)
+        float binH = rng / vpBins
+        for bi = 0 to vpBins - 1
+            float v = array.get(bins, bi)
+            int len = maxv > 0 ? int(math.round(vpWidth * v / maxv)) : 0
+            if len > 0
+                float bt = lo + binH * bi
+                float bb = bt + binH
+                bool isPoc = bi == pocI
+                box bx = box.new(bar_index - len, bb, bar_index, bt, border_color=na, bgcolor=isPoc ? color.new(pocCol, 35) : color.new(vpCol, 70))
+                array.push(vpBoxes, bx)
+        float pocPrice = lo + binH * pocI + binH / 2.0
+        pocLn := line.new(bar_index - vpWidth, pocPrice, bar_index, pocPrice, color=color.new(pocCol, 0), width=1)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ④ SMART TREND MULTI-TF — semáforo
+// ════════════════════════════════════════════════════════════════════════════
+f_tfTrend(string tf) => request.security(syminfo.tickerid, tf, close >= ta.ema(close, trEma), lookahead=barmerge.lookahead_off)
+bool t1 = f_tfTrend(tf1)
+bool t2 = f_tfTrend(tf2)
+bool t3 = f_tfTrend(tf3)
+
+var table tr = table.new(position.bottom_right, 4, 2, bgcolor=color.new(#0a0e17, 6), frame_color=color.new(#00e0b0, 45), frame_width=1, border_color=color.new(#1b2436, 30), border_width=1)
+f_trCell(int col, string tf, bool up) =>
+    table.cell(tr, col, 0, tf, text_color=color.new(#8aa0b8, 0), text_size=size.tiny)
+    table.cell(tr, col, 1, up ? "▲" : "▼", text_color=up ? demCol : supCol, text_size=size.tiny)
+
+if showTr and barstate.islast
+    table.cell(tr, 0, 0, "Trend", text_color=color.white, text_size=size.tiny)
+    table.cell(tr, 0, 1, (t1 ? 1 : 0) + (t2 ? 1 : 0) + (t3 ? 1 : 0) >= 2 ? "↑" : "↓", text_color=(t1 ? 1 : 0) + (t2 ? 1 : 0) + (t3 ? 1 : 0) >= 2 ? demCol : supCol, text_size=size.tiny)
+    f_trCell(1, tf1, t1)
+    f_trCell(2, tf2, t2)
+    f_trCell(3, tf3, t3)
+
+// Conector (sesgo MTF) para el Cónclave
+int trScore = (t1 ? 1 : -1) + (t2 ? 1 : -1) + (t3 ? 1 : -1)
+plot(trScore, "conn_smc_v3", display=display.none)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+var table wm = table.new(position.bottom_left, 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Capital®", text_color=wmCol, text_size=size.tiny)

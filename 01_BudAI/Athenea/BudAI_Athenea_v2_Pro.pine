@@ -1,0 +1,363 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Athenea Pro (v2 — Athenea base = v1, intacto y sin HTF)
+//  Versión mejorada de Athenea: paleta CYAN vs NARANJA neón. Señales que confirman
+//  PASADA LA CÚSPIDE (entras tras el giro, no en la punta), filtradas por zona OB/OS,
+//  régimen HTF y VOLUMEN (RVOL). Dashboard TP/SL (ENTRY/TP1/TP2/TP3/SL) al haber señal,
+//  y alertas consolidadas limpias para TradingView.
+//  Base híbrida: WaveTrend + Regresión Slope + COG + Squeeze BB/KC + Vix Fix.
+//  (c) BudAI Capital® — Pine v6
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Athenea Pro", shorttitle="BudAI Capital® - Athenea Pro", overlay=false, precision=1, max_labels_count=300, max_lines_count=300)
+
+// ════════════════ GRUPOS ════════════════
+G_CORE = "① Núcleo Híbrido"
+G_SQZ  = "② Volatilidad (Squeeze)"
+G_VIX  = "③ Pánico (Vix Fix)"
+G_MF   = "④ Flujo de Capital"
+G_LVL  = "⑤ Niveles Fibonacci"
+G_SIG  = "⑥ Señales y Entradas"
+G_HTF  = "⑥·b Filtro Régimen HTF"
+G_RISK = "⑦ TP / SL (Dashboard)"
+G_VIS  = "⑧ Estética Cyberpunk"
+G_WM   = "✦ Marca de agua"
+
+// ════════════════ ① NÚCLEO HÍBRIDO ════════════════
+src      = input.source(hlc3, "Fuente", group=G_CORE)
+chanLen  = input.int(9, "WaveTrend Canal", minval=3, group=G_CORE, tooltip="Período de WaveTrend cíclico.")
+avgLen   = input.int(12, "WaveTrend Promedio", minval=2, group=G_CORE)
+trigLen  = input.int(3, "Trigger (Señal)", minval=1, group=G_CORE)
+slopeLen = input.int(20, "Slope Regresión (len)", minval=3, group=G_CORE, tooltip="Ventana para la pendiente de regresión lineal.")
+useCOG   = input.bool(true, "Mezclar COG (Centro de Gravedad)", group=G_CORE, tooltip="Reduce el retraso de los giros cíclicos de manera adaptativa.")
+cogLen   = input.int(9, "COG Longitud", minval=3, group=G_CORE)
+
+// ════════════════ ② VOLATILIDAD (SQUEEZE) ════════════════
+showSqz = input.bool(true, "Detectar Compresión (Squeeze)", group=G_SQZ)
+bbLen   = input.int(20, "Bollinger Longitud", minval=5, group=G_SQZ, inline="bb")
+bbMult  = input.float(2.0, "Mult", step=0.1, group=G_SQZ, inline="bb")
+kcLen   = input.int(20, "Keltner Longitud", minval=5, group=G_SQZ, inline="kc")
+kcMult  = input.float(1.5, "Mult", step=0.1, group=G_SQZ, inline="kc")
+useTR   = input.bool(true, "Usar True Range", group=G_SQZ)
+
+// ════════════════ ③ PÁNICO (VIX FIX) ════════════════
+useVix  = input.bool(true, "Integrar Filtro de Pánico", group=G_VIX, tooltip="Usa Williams Vix Fix para colorear alertas en la onda principal.")
+vixLen  = input.int(22, "Vix Fix Período", minval=2, group=G_VIX)
+bbLenV  = input.int(20, "BB Período Vix", minval=2, group=G_VIX, inline="vix")
+bbMultV = input.float(2.0, "Mult Vix", step=0.1, group=G_VIX, inline="vix")
+phLen   = input.int(50, "Percentil Ventana", minval=10, group=G_VIX)
+phUp    = input.float(0.85, "Umbral Pánico", minval=0.5, step=0.01, group=G_VIX)
+
+// ════════════════ ④ FLUJO DE CAPITAL ════════════════
+showMF  = input.bool(true, "Histograma Money Flow", group=G_MF)
+mfLen   = input.int(14, "Money Flow Longitud", minval=2, group=G_MF)
+
+// ════════════════ ⑤ NIVELES FIBONACCI (Sublimes/Sutiles) ════════════════
+showFib = input.bool(true, "Mostrar Niveles Fibonacci Sutiles", group=G_LVL)
+showFib5 = input.bool(true, "Mostrar Fibo 0.382 · 0.5 · 0.618", group=G_LVL)
+obLvl   = input.int(80, "Sobrecompra (78.6/80)", group=G_LVL)
+osLvl   = input.int(20, "Sobreventa (20/23.6)", group=G_LVL)
+
+// ════════════════ ⑥ SEÑALES Y ENTRADAS ════════════════
+showSig   = input.bool(true, "Mostrar Círculos de Entrada (BULL/BEAR)", group=G_SIG)
+reqFlow   = input.bool(true, "Validar con Money Flow a favor", group=G_SIG)
+showSqzS  = input.bool(true, "Disparo por Liberación Squeeze", group=G_SIG)
+showCross50 = input.bool(true, "Mostrar Cruce 50 (Nodo Blanco)", group=G_SIG, tooltip="Dibuja un punto brillante blanco neón cuando el oscilador cruza la línea 50, indicando cambio de sesgo/momento.")
+showXcross  = input.bool(true, "Marcar señales direccionales", group=G_SIG, tooltip="Punto solo en señales VÁLIDAS: alcista pasada la cúspide baja, bajista pasada la cúspide alta.")
+cuspLen     = input.int(2, "Confirmar pasada la cúspide (barras)", minval=1, maxval=6, group=G_SIG, tooltip="Espera N barras tras la punta de la onda antes de validar: entras DESPUÉS del giro, no en la punta (evita comerte el SL).")
+volThr      = input.float(1.3, "Volumen mínimo (RVOL ×)", minval=1.0, maxval=5.0, step=0.1, group=G_SIG, tooltip="Solo valida señales y el cruce de 50 si el volumen relativo supera este múltiplo. Volumen = combustible para ejecutar.")
+
+// ════════════════ ⑥·b FILTRO RÉGIMEN HTF ════════════════
+useHTF    = input.bool(true, "Filtrar por tendencia de TF mayor", group=G_HTF, tooltip="Solo permite cruces alcistas si el TF mayor es alcista, y bajistas si es bajista. Limpia el chop lateral.")
+htfRes    = input.timeframe("240", "Temporalidad mayor", group=G_HTF)
+htfEmaLen = input.int(50, "EMA de tendencia HTF", minval=5, group=G_HTF)
+
+// ════════════════ ⑦ TP / SL ════════════════
+showRisk = input.bool(true, "Mostrar dashboard TP/SL al haber señal", group=G_RISK)
+tp1Pct   = input.float(1.0, "TP1 %", minval=0.1, step=0.1, inline="tp", group=G_RISK)
+tp2Pct   = input.float(2.0, "TP2 %", minval=0.1, step=0.1, inline="tp", group=G_RISK)
+tp3Pct   = input.float(3.0, "TP3 %", minval=0.1, step=0.1, inline="tp", group=G_RISK)
+slPct    = input.float(2.0, "SL %",  minval=0.1, step=0.1, group=G_RISK)
+riskPos  = input.string("Abajo Izquierda", "Posición TP/SL", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_RISK)
+
+// ════════════════ ⑦ ESTÉTICA CYBERPUNK ════════════════
+upCol    = input.color(#00e5ff, "Alcista (cyan neón)", group=G_VIS, inline="c")
+dnCol    = input.color(#ff7a00, "Bajista (naranja neón)", group=G_VIS, inline="c")
+sigUpCol = input.color(#00e5ff, "Señal Alcista (cyan)", group=G_VIS, inline="sg")
+sigDnCol = input.color(#ff7a00, "Señal Bajista (naranja)", group=G_VIS, inline="sg")
+sqzOnCol = input.color(#ffff00, "Squeeze Compresión", group=G_VIS, inline="sq")
+glow     = input.bool(true, "Relleno Degradado (Glow)", group=G_VIS)
+shadeInt = input.int(55, "Opacidad onda superior/inferior", minval=20, maxval=90, group=G_VIS)
+showDash = input.bool(true, "Dashboard minimalista", group=G_VIS)
+dashPos  = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda","Inferior Derecha","Superior Izquierda","Superior Derecha"], group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  CÁLCULOS Y NÚCLEO MATEMÁTICO
+// ════════════════════════════════════════════════════════════════════════════
+
+// Función normalizadora a rango 0..100
+f_norm(float s, simple int len) =>
+    float lo = ta.lowest(s, len)
+    float hi = ta.highest(s, len)
+    hi - lo != 0 ? 100.0 * (s - lo) / (hi - lo) : 50.0
+
+// 1. WaveTrend
+float esaWT = ta.ema(src, chanLen)
+float deWT  = ta.ema(math.abs(src - esaWT), chanLen)
+float ciWT  = deWT == 0 ? 0.0 : (src - esaWT) / (0.015 * deWT)
+float wt1   = ta.ema(ciWT, avgLen)
+float wt2   = ta.sma(wt1, trigLen)
+
+// 2. Linear Regression Slope
+float lr    = ta.linreg(src, slopeLen, 0)
+float lr1   = ta.linreg(src, slopeLen, 1)
+float slopeRaw = lr - lr1
+
+// 3. Center of Gravity (COG)
+float cogNum = 0.0
+float cogDen = 0.0
+for i = 0 to cogLen - 1
+    float p = nz(src[i])
+    cogNum := cogNum + (1 + i) * p
+    cogDen := cogDen + p
+float cogRaw = cogDen != 0 ? -cogNum / cogDen + (cogLen + 1) / 2.0 : 0.0
+
+// Normalización e Integración Híbrida (0..100)
+float wtN    = f_norm(wt1, 100)
+float slopeN = f_norm(slopeRaw, 100)
+float cogN   = f_norm(cogRaw, 100)
+
+float osc = useCOG ? (wtN * 0.5 + slopeN * 0.3 + cogN * 0.2) : (wtN * 0.6 + slopeN * 0.4)
+float trig = f_norm(wt2, 100)
+
+bool isBull = osc >= trig
+bool waveUp = osc >= osc[1]
+
+// ── Volumen relativo (combustible para confirmar señales) ──
+float rvol = ta.sma(volume, 20) != 0 ? volume / ta.sma(volume, 20) : 1.0
+bool volOk = rvol >= volThr
+
+// ── CÚSPIDE del oscilador: validar PASADA la punta, no en ella ──
+//    pivote de fuerza cuspLen → confirma cuspLen barras después del giro ("0.1, 0.2…")
+float pvH = ta.pivothigh(osc, cuspLen, cuspLen)
+float pvL = ta.pivotlow(osc,  cuspLen, cuspLen)
+bool cuspBear = not na(pvH) and pvH > 50   // pico en la mitad alta → giro bajista confirmado
+bool cuspBull = not na(pvL) and pvL < 50   // fondo en la mitad baja → giro alcista confirmado
+
+// ── Filtro de RÉGIMEN HTF (tendencia de la temporalidad mayor) ──
+float htfEma = request.security(syminfo.tickerid, htfRes, ta.ema(close, htfEmaLen), lookahead=barmerge.lookahead_off)
+float htfPx  = request.security(syminfo.tickerid, htfRes, close, lookahead=barmerge.lookahead_off)
+bool regimeUp = htfPx >= htfEma
+bool regimeDn = htfPx <  htfEma
+
+// ── Señal VÁLIDA = cúspide (pasada la punta) + régimen + volumen ──
+bool bullOk  = cuspBull and (not useHTF or regimeUp) and volOk
+bool bearOk  = cuspBear and (not useHTF or regimeDn) and volOk
+bool bullXos = bullOk and pvL < osLvl   // refuerzo en sobreventa (OS)
+bool bearXob = bearOk and pvH > obLvl   // refuerzo en sobrecompra (OB)
+
+// Última señal + zona (para el dashboard)
+var string xTxt = "—"
+var color  xTxtCol = color.new(color.white, 35)
+if bullOk
+    xTxt := bullXos ? "BULL · OS" : "BULL"
+    xTxtCol := upCol
+if bearOk
+    xTxt := bearXob ? "BEAR · OB" : "BEAR"
+    xTxtCol := dnCol
+
+// 4. Money Flow (Flujo Institucional)
+float mfm = (high - low) != 0 ? ((close - low) - (high - close)) / (high - low) : 0.0
+float vol = nz(volume) == 0 ? 1.0 : volume
+float cmf = math.sum(mfm * vol, mfLen) / math.sum(vol, mfLen)
+float mfHist = 50 + cmf * 50 // centrado en 50
+
+// 5. Volatility Squeeze
+float basisBB = ta.sma(src, bbLen)
+float devBB   = bbMult * ta.stdev(src, bbLen)
+float bbUpper = basisBB + devBB
+float bbLower = basisBB - devBB
+
+float kcMa      = ta.sma(src, kcLen)
+float kcRange   = useTR ? ta.tr(true) : (high - low)
+float kcRangeMa = ta.sma(kcRange, kcLen)
+float kcUpper   = kcMa + kcRangeMa * kcMult
+float kcLower   = kcMa - kcRangeMa * kcMult
+bool sqzOn      = bbLower > kcLower and bbUpper < kcUpper
+
+// 6. Williams Vix Fix (Pánico)
+float hhV = ta.highest(src, vixLen)
+float vixRawV = hhV != 0 ? (hhV - low) / hhV * 100.0 : 0.0
+float vixFix  = ta.ema(vixRawV, 2)
+float bMidV   = ta.sma(vixFix, bbLenV)
+float bDevV   = bbMultV * ta.stdev(vixFix, bbLenV)
+float bUpV    = bMidV + bDevV
+float rangeHiV = ta.highest(vixFix, phLen) * phUp
+bool isPanic  = useVix and (vixFix >= bUpV or vixFix >= rangeHiV)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NIVELES FIBONACCI SUTILES (Estilo atenuado que no satura)
+// ════════════════════════════════════════════════════════════════════════════
+hline(100, "Tope", color.new(color.gray, 92), hline.style_dotted)
+hline(showFib ? 78.6 : na, "Fibo 0.786", color.new(#9d6cff, 88), hline.style_dotted)
+hline(showFib or showFib5 ? 61.8 : na, "Fibo 0.618", color.new(showFib5 ? #c39bff : #9d6cff, showFib5 ? 78 : 84), hline.style_dotted)
+hline(50, "Central · Fibo 0.5", color.new(#b06aff, 72), hline.style_solid)
+hline(showFib or showFib5 ? 38.2 : na, "Fibo 0.382", color.new(showFib5 ? #c39bff : #9d6cff, showFib5 ? 78 : 84), hline.style_dotted)
+hline(showFib ? 23.6 : na, "Fibo 0.236", color.new(#9d6cff, 88), hline.style_dotted)
+hline(0, "Piso", color.new(color.gray, 92), hline.style_dotted)
+
+// Zonas críticas de disparo
+hline(obLvl, "Sobrecompra", color.new(dnCol, 65), hline.style_dashed)
+hline(osLvl, "Sobreventa", color.new(upCol, 65), hline.style_dashed)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PLOTS (Glow + Ribbon Pulse Flow)
+// ════════════════════════════════════════════════════════════════════════════
+
+// Histograma Money Flow en el fondo (centrado en 50)
+plot(showMF ? mfHist : na, "Money Flow", color=cmf >= 0 ? color.new(upCol, 76) : color.new(dnCol, 76), style=plot.style_columns, histbase=50)
+
+// Volumen Relativo (RVOL) — más visible y teñido cuando hay volumen suficiente (combustible)
+float rvolVal = math.min(rvol * 7.5, 15.0)
+plot(rvolVal, "RVOL Bars", color=volOk ? color.new(sigUpCol, 35) : color.new(#90a4ae, 72), style=plot.style_columns, histbase=0)
+
+// Onda principal y trigger
+color waveCol = isPanic ? color.new(sigUpCol, 0) : (isBull ? upCol : dnCol)
+pTrig = plot(trig, "Trigger", color=color.new(color.white, 35), linewidth=1)
+pOsc  = plot(osc, "Oscilador Athenea", color=waveCol, linewidth=2)
+// Línea blanca núcleo — MUY BLANCA, resalta la cresta con máximo brillo
+plot(osc, "Brillo Blanco", color=color.new(color.white, 0), linewidth=2)
+pMid  = plot(50, "Mid", color=color.new(color.white, 100), display=display.none)
+
+// Relleno degradado neón hacia el eje central 50 (fading al 100% de transparencia)
+fill(pOsc, pMid, top_value=100, bottom_value=50, top_color=glow ? color.new(upCol, shadeInt) : na, bottom_color=glow ? color.new(upCol, 100) : na, title="Glow Superior")
+fill(pOsc, pMid, top_value=50, bottom_value=0,  top_color=glow ? color.new(dnCol, 100) : na, bottom_color=glow ? color.new(dnCol, shadeInt) : na, title="Glow Inferior")
+
+// Cinta/Ribbon de cruce dinámico (cuerpo entre oscilador y trigger)
+fill(pOsc, pTrig, color=isBull ? color.new(upCol, 82) : color.new(dnCol, 82), title="Ribbon Cruce")
+
+// Squeeze ON (puntos amarillos flúor sobre la línea de 50)
+plotchar(showSqz and sqzOn ? 50 : na, "Squeeze ON", "•", location.absolute, color=sqzOnCol, size=size.tiny)
+
+// Nodo Blanco Neón al cruzar la línea 50 (cambio de sesgo) — confirmado por VOLUMEN
+bool cross50 = ta.cross(osc, 50) and volOk
+plotchar(showCross50 and cross50 ? 50 : na, "Cruce 50 Glow", "•", location.absolute, color=color.new(color.white, 60), size=size.normal)
+plotchar(showCross50 and cross50 ? 50 : na, "Cruce 50 Centro", "•", location.absolute, color=color.new(color.white, 0), size=size.small)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  LÓGICA DE SEÑALES Y ENTRADAS
+// ════════════════════════════════════════════════════════════════════════════
+bool flowUp = not reqFlow or cmf > 0
+bool flowDn = not reqFlow or cmf < 0
+
+// 1. Entradas por cruce cíclico extremo
+bool entryBuy  = showSig and ta.crossover(osc, trig) and (osc < osLvl or isPanic) and flowUp and barstate.isconfirmed
+bool entrySell = showSig and ta.crossunder(osc, trig) and osc > obLvl and flowDn and barstate.isconfirmed
+
+// 2. Entradas por liberación de compresión (Squeeze release)
+bool released   = sqzOn[1] and not sqzOn
+bool sqzEntryBuy  = showSqzS and released and osc > 50 and flowUp and barstate.isconfirmed
+bool sqzEntrySell = showSqzS and released and osc < 50 and flowDn and barstate.isconfirmed
+
+// ── Punto en el cruce DIRECCIONAL: halo de color + núcleo blanco (sobre la onda) ──
+plotchar(showXcross and showSig and bullOk ? osc : na, "Cruce BULL halo",   "•", location.absolute, color=color.new(upCol, 50), size=size.small)
+plotchar(showXcross and showSig and bullOk ? osc : na, "Cruce BULL núcleo", "•", location.absolute, color=color.new(color.white, 0), size=size.tiny)
+plotchar(showXcross and showSig and bearOk ? osc : na, "Cruce BEAR halo",   "•", location.absolute, color=color.new(dnCol, 50), size=size.small)
+plotchar(showXcross and showSig and bearOk ? osc : na, "Cruce BEAR núcleo", "•", location.absolute, color=color.new(color.white, 0), size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD MINIMALISTA (Tiny Table)
+// ════════════════════════════════════════════════════════════════════════════
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+var table d = table.new(f_pos(dashPos), 2, 7, bgcolor=color.new(#0b0e16, 12), frame_color=color.new(upCol, 55), frame_width=1, border_width=1)
+f_cell(t, r, k, v, vc) =>
+    table.cell(t, 0, r, k, text_color=color.new(#90a4ae, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
+
+if showDash and barstate.islast
+    string estado  = osc >= obLvl ? "SOBRECOMPRA" : osc <= osLvl ? "SOBREVENTA" : isBull ? "Alcista" : "Bajista"
+    color  estCol  = osc >= obLvl ? dnCol : osc <= osLvl ? upCol : isBull ? upCol : dnCol
+    string sqzState = sqzOn ? "COMPRIMIENDO" : "LIBERADO"
+    color  sqzCol   = sqzOn ? sqzOnCol : color.new(#90a4ae, 0)
+    string flowTxt  = cmf > 0 ? "ACUMULACIÓN" : "DISTRIBUCIÓN"
+    color  flowCol  = cmf > 0 ? upCol : dnCol
+    string senal    = bullOk ? "▲ COMPRA" : bearOk ? "▼ VENTA" : "Ninguna"
+    color  senalCol = bullOk ? sigUpCol : bearOk ? sigDnCol : color.new(color.white, 35)
+    
+    table.cell(d, 0, 0, "Athenea Pro", text_color=color.white, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, str.tostring(osc, "#") + "/100", text_color=waveCol, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(d, 1, "Tendencia", estado, estCol)
+    f_cell(d, 2, "Volatilidad", sqzState, sqzCol)
+    f_cell(d, 3, "Flujo Vol", flowTxt, flowCol)
+    f_cell(d, 4, "Señal Activa", senal, senalCol)
+    f_cell(d, 5, "Último cruce", xTxt, xTxtCol)
+    string regTxt = not useHTF ? "Off" : (regimeUp ? "Alcista " + htfRes : "Bajista " + htfRes)
+    color  regCol = not useHTF ? color.new(#90a4ae, 0) : (regimeUp ? upCol : dnCol)
+    f_cell(d, 6, "Régimen HTF", regTxt, regCol)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD TP / SL (se fija en la última señal)
+// ════════════════════════════════════════════════════════════════════════════
+var float entryPx  = na
+var int   entryDir = 0
+if bullOk
+    entryPx  := close
+    entryDir := 1
+if bearOk
+    entryPx  := close
+    entryDir := -1
+
+f_riskPos(s) => s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left
+var table rt = table.new(f_riskPos(riskPos), 2, 6, bgcolor=color.new(#0b0e16, 8), frame_color=color.new(upCol, 50), frame_width=1, border_width=1)
+if showRisk and barstate.islast and not na(entryPx)
+    color dCol = entryDir == 1 ? upCol : dnCol
+    float tp1 = entryDir == 1 ? entryPx * (1 + tp1Pct / 100) : entryPx * (1 - tp1Pct / 100)
+    float tp2 = entryDir == 1 ? entryPx * (1 + tp2Pct / 100) : entryPx * (1 - tp2Pct / 100)
+    float tp3 = entryDir == 1 ? entryPx * (1 + tp3Pct / 100) : entryPx * (1 - tp3Pct / 100)
+    float slv = entryDir == 1 ? entryPx * (1 - slPct  / 100) : entryPx * (1 + slPct  / 100)
+    table.cell(rt, 0, 0, entryDir == 1 ? "▲ LONG" : "▼ SHORT", text_color=color.white, bgcolor=color.new(dCol, 20), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(rt, 1, 0, "Plan", text_color=color.white, bgcolor=color.new(dCol, 20), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(rt, 1, "ENTRY", str.tostring(entryPx, format.mintick), color.new(color.white, 0))
+    f_cell(rt, 2, "TP1 (" + str.tostring(tp1Pct, "#.#") + "%)", str.tostring(tp1, format.mintick), upCol)
+    f_cell(rt, 3, "TP2 (" + str.tostring(tp2Pct, "#.#") + "%)", str.tostring(tp2, format.mintick), upCol)
+    f_cell(rt, 4, "TP3 (" + str.tostring(tp3Pct, "#.#") + "%)", str.tostring(tp3, format.mintick), upCol)
+    f_cell(rt, 5, "SL ("  + str.tostring(slPct,  "#.#") + "%)", str.tostring(slv, format.mintick), dnCol)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+f_wmPos(s) => s == "Inferior Izquierda" ? position.bottom_left : s == "Inferior Derecha" ? position.bottom_right : s == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Capital®", text_color=wmCol, text_size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+// ── Señales CONSOLIDADAS para alertas limpias (cruce direccional + flujo, barra cerrada) ──
+bool sigBull       = bullOk and flowUp and barstate.isconfirmed
+bool sigBear       = bearOk and flowDn and barstate.isconfirmed
+bool sigBullStrong = bullXos and flowUp and barstate.isconfirmed   // cruce alcista en SOBREVENTA
+bool sigBearStrong = bearXob and flowDn and barstate.isconfirmed   // cruce bajista en SOBRECOMPRA
+
+alertcondition(sigBull,            "Athenea Pro · BULL",             "Athenea Pro · Cruce alcista {{ticker}} @ {{close}}")
+alertcondition(sigBear,            "Athenea Pro · BEAR",             "Athenea Pro · Cruce bajista {{ticker}} @ {{close}}")
+alertcondition(sigBullStrong,      "Athenea Pro · BULL fuerte (OS)", "Athenea Pro · Cruce alcista en SOBREVENTA {{ticker}} @ {{close}}")
+alertcondition(sigBearStrong,      "Athenea Pro · BEAR fuerte (OB)", "Athenea Pro · Cruce bajista en SOBRECOMPRA {{ticker}} @ {{close}}")
+alertcondition(sigBull or sigBear, "Athenea Pro · Cualquier señal",  "Athenea Pro · Señal {{ticker}} @ {{close}}")
+alertcondition(sqzOn and not sqzOn[1], "Athenea Pro · Squeeze",      "Athenea Pro · Compresión activada {{ticker}}")

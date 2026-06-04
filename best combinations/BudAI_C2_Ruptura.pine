@@ -1,0 +1,124 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - C2 · Ruptura (Volatilidad)
+//  COMBINACIÓN C2 = Kairos (squeeze BB/KC + Donchian) → Aether (régimen) →
+//  volumen. Lógica: compresión que estalla EN la dirección de la tendencia.
+//  Versión INDICADOR. Estrategia: Estrategias/BudAI_C2_Ruptura_strategy.pine.
+//  Indicadores usados: Kairos · Aether.
+//  (c) BudAI Capital® — Pine v6 · overlay
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - C2 · Ruptura", shorttitle="BudAI Capital® - C2 Ruptura", overlay=true, max_labels_count=300)
+
+G_KAI = "① Kairos (squeeze + ruptura)"
+G_AET = "② Aether (régimen)"
+G_FLU = "③ Volumen"
+G_VIS = "④ Estética"
+G_WM  = "✦ Marca de agua"
+
+// ① Kairos
+bbLen  = input.int(20, "Bollinger", minval=5, group=G_KAI, inline="bb")
+bbMult = input.float(2.0, "×", step=0.1, group=G_KAI, inline="bb")
+kcLen  = input.int(20, "Keltner", minval=5, group=G_KAI, inline="kc")
+kcMult = input.float(1.5, "×", step=0.1, group=G_KAI, inline="kc")
+dcLen  = input.int(20, "Canal Donchian (ruptura)", minval=5, group=G_KAI)
+armWin = input.int(6, "Ventana tras compresión (barras)", minval=1, maxval=20, group=G_KAI, tooltip="La ruptura solo vale si hubo compresión hace ≤N barras.")
+
+// ② Aether
+atCoeff = input.float(1.0, "AlphaTrend factor", minval=0.3, step=0.1, group=G_AET, inline="at")
+atLen   = input.int(14, "ATR/RSI", minval=2, group=G_AET, inline="at")
+erLen   = input.int(20, "Efficiency Ratio", minval=5, group=G_AET, inline="er")
+erThr   = input.float(0.30, "umbral", minval=0.1, maxval=0.9, step=0.05, group=G_AET, inline="er")
+useReg  = input.bool(true, "Exigir TENDENCIA y dirección", group=G_AET)
+
+// ③ Volumen
+volThr = input.float(1.2, "Volumen mínimo (RVOL ×)", minval=1.0, maxval=5.0, step=0.1, group=G_FLU)
+
+// ④ Estética
+upCol = input.color(#00e676, "Alcista", group=G_VIS, inline="c")
+dnCol = input.color(#ff1744, "Bajista", group=G_VIS, inline="c")
+sqzCol= input.color(#ffb300, "Compresión (ámbar)", group=G_VIS)
+showDC = input.bool(true, "Canal Donchian", group=G_VIS)
+showDash = input.bool(true, "Dashboard", group=G_VIS)
+
+showWM = input.bool(true, "Firma BudAI", group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 30), "Color", group=G_WM)
+
+bool conf = barstate.isconfirmed
+
+// ════════ AETHER ════════
+float atr = ta.sma(ta.tr, atLen)
+float rsi = ta.rsi(close, atLen)
+float upT = low  - atr * atCoeff
+float dnT = high + atr * atCoeff
+var float alpha = 0.0
+alpha := rsi >= 50 ? (upT < nz(alpha[1]) ? nz(alpha[1]) : upT) : (dnT > nz(alpha[1]) ? nz(alpha[1]) : dnT)
+int trendDir = alpha > alpha[2] ? 1 : alpha < alpha[2] ? -1 : 0
+float erChg = math.abs(close - close[erLen])
+float erVol = math.sum(math.abs(close - close[1]), erLen)
+float er = erVol != 0 ? erChg / erVol : 0.0
+bool trending = er >= erThr
+
+// ════════ KAIROS ════════
+float basis = ta.sma(close, bbLen)
+float dev   = bbMult * ta.stdev(close, bbLen)
+float kcMa  = ta.sma(close, kcLen)
+float kcR   = ta.sma(ta.tr(true), kcLen)
+bool sqzOn  = (basis - dev) > (kcMa - kcR * kcMult) and (basis + dev) < (kcMa + kcR * kcMult)
+bool released = sqzOn[1] and not sqzOn
+var int sinceRel = 999
+sinceRel := released ? 0 : sinceRel + 1
+bool armed = sinceRel <= armWin
+
+float dcU = ta.highest(high, dcLen)[1]
+float dcL = ta.lowest(low,  dcLen)[1]
+bool breakUp = close > dcU
+bool breakDn = close < dcL
+
+// ════════ VOLUMEN ════════
+float rvol = ta.sma(volume, 20) != 0 ? volume / ta.sma(volume, 20) : 1.0
+bool volOk = rvol >= volThr
+
+// ════════ SEÑAL C2 ════════
+bool regUpOk = not useReg or (trending and trendDir == 1)
+bool regDnOk = not useReg or (trending and trendDir == -1)
+bool longSig  = armed and breakUp and regUpOk and volOk and conf
+bool shortSig = armed and breakDn and regDnOk and volOk and conf
+
+// ════════ PLOTS ════════
+plot(showDC ? dcU : na, "Donchian Sup", color=color.new(dnCol, 55), linewidth=1)
+plot(showDC ? dcL : na, "Donchian Inf", color=color.new(upCol, 55), linewidth=1)
+plotchar(sqzOn ? high + 0.4 * ta.atr(14) : na, "Squeeze", "•", location.absolute, color=sqzCol, size=size.tiny)
+plotchar(longSig  ? low  - 0.6 * ta.atr(14) : na, "C2 LONG halo",  "●", location.absolute, color=color.new(upCol, 60), size=size.normal)
+plotchar(longSig  ? low  - 0.6 * ta.atr(14) : na, "C2 LONG core",  "•", location.absolute, color=color.new(color.white, 0), size=size.tiny)
+plotchar(shortSig ? high + 0.6 * ta.atr(14) : na, "C2 SHORT halo", "●", location.absolute, color=color.new(dnCol, 60), size=size.normal)
+plotchar(shortSig ? high + 0.6 * ta.atr(14) : na, "C2 SHORT core", "•", location.absolute, color=color.new(color.white, 0), size=size.tiny)
+plot(longSig ? 1 : shortSig ? -1 : 0, "conn_c2", display=display.none)
+
+// ════════ DASHBOARD ════════
+var table d = table.new(position.top_right, 2, 5, bgcolor=color.new(#0a0e17, 6), frame_color=color.new(#00e676, 45), frame_width=1, border_color=color.new(#1b2436, 30), border_width=1)
+f_cell(int rr, string k, string v, color vc) =>
+    table.cell(d, 0, rr, k, text_color=color.new(#8aa0b8, 0), bgcolor=color.new(#121a2a, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, rr, v, text_color=vc, bgcolor=color.new(#0d1320, 0), text_size=size.tiny, text_halign=text.align_right)
+if showDash and barstate.islast
+    string verd = longSig ? "▲ LONG" : shortSig ? "▼ SHORT" : "NO TRADE"
+    color  vCol = longSig ? upCol : shortSig ? dnCol : color.new(#90a4ae, 0)
+    table.cell(d, 0, 0, "⚡ C2 Ruptura", text_color=color.white, bgcolor=color.new(#0e3a24, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, verd, text_color=vCol, bgcolor=color.new(#0e3a24, 0), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(1, "Compresión", sqzOn ? "ACTIVA" : armed ? "Liberada" : "—", sqzOn ? sqzCol : armed ? color.white : color.new(#90a4ae, 0))
+    f_cell(2, "Régimen", trending ? "TENDENCIA" : "RANGO", trending ? upCol : sqzCol)
+    f_cell(3, "Dirección", trendDir == 1 ? "Alcista" : trendDir == -1 ? "Bajista" : "Plano", trendDir == 1 ? upCol : trendDir == -1 ? dnCol : color.new(#90a4ae, 0))
+    f_cell(4, "Volumen", str.tostring(rvol, "#.#") + "× " + (volOk ? "✓" : "·"), volOk ? upCol : color.new(#90a4ae, 0))
+
+var table wm = table.new(position.bottom_right, 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Capital®", text_color=wmCol, text_size=size.tiny)
+
+alertcondition(longSig,  "C2 · LONG",  "BudAI C2 Ruptura · LONG {{ticker}} @ {{close}}")
+alertcondition(shortSig, "C2 · SHORT", "BudAI C2 Ruptura · SHORT {{ticker}} @ {{close}}")

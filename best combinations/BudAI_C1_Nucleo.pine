@@ -1,0 +1,174 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - C1 · Núcleo (Tendencia · Gatillo · Flujo)
+//  COMBINACIÓN C1 = Aether (régimen + AlphaTrend) → Athenea (gatillo cíclico en
+//  cúspide) → Ancla (VWAP + volumen). Principio de los grandes: Filtro de
+//  tendencia + Gatillo + Confirmación. Señal SOLO cuando los 3 se alinean.
+//  Versión INDICADOR (chart definitivo). La estrategia backtesteable está en
+//  Estrategias/BudAI_C1_Nucleo_strategy.pine — MISMA lógica.
+//  Indicadores usados: Aether · Athenea · Ancla.
+//  (c) BudAI Capital® — Pine v6 · overlay
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - C1 · Núcleo", shorttitle="BudAI Capital® - C1 Núcleo", overlay=true, max_labels_count=300, max_lines_count=100)
+
+// ════════════════ GRUPOS ════════════════
+G_REG = "① Filtro · Aether (régimen + tendencia)"
+G_TRG = "② Gatillo · Athenea (cúspide)"
+G_FLU = "③ Confirmación · Ancla (VWAP + volumen)"
+G_VIS = "④ Estética"
+G_WM  = "✦ Marca de agua"
+
+// ════════════════ ① AETHER ════════════════
+atCoeff = input.float(1.0, "AlphaTrend factor", minval=0.3, step=0.1, group=G_REG, inline="at")
+atLen   = input.int(14, "ATR/RSI", minval=2, group=G_REG, inline="at")
+erLen   = input.int(20, "Efficiency Ratio (régimen)", minval=5, group=G_REG, inline="er")
+erThr   = input.float(0.30, "umbral tendencia", minval=0.1, maxval=0.9, step=0.05, group=G_REG, inline="er")
+useReg  = input.bool(true, "Exigir régimen de TENDENCIA", group=G_REG)
+
+// ════════════════ ② ATHENEA ════════════════
+src     = input.source(hlc3, "Fuente", group=G_TRG)
+chanLen = input.int(9,  "WaveTrend canal", minval=3, group=G_TRG)
+avgLen  = input.int(12, "WaveTrend promedio", minval=2, group=G_TRG)
+slopeLen= input.int(20, "Slope regresión", minval=3, group=G_TRG)
+cogLen  = input.int(9,  "COG", minval=3, group=G_TRG)
+cuspLen = input.int(2,  "Confirmar pasada la cúspide", minval=1, maxval=6, group=G_TRG)
+obLvl   = input.int(70, "Sobrecompra", minval=55, maxval=95, group=G_TRG, inline="z")
+osLvl   = input.int(30, "Sobreventa", minval=5, maxval=45, group=G_TRG, inline="z")
+
+// ════════════════ ③ ANCLA ════════════════
+useVwap = input.bool(true, "Exigir lado correcto del VWAP", group=G_FLU)
+volThr  = input.float(1.2, "Volumen mínimo (RVOL ×)", minval=1.0, maxval=5.0, step=0.1, group=G_FLU)
+
+// ════════════════ ④ ESTÉTICA ════════════════
+upCol  = input.color(#00e676, "Alcista (verde neón)", group=G_VIS, inline="c")
+dnCol  = input.color(#ff1744, "Bajista (rojo neón)", group=G_VIS, inline="c")
+amber  = input.color(#ffb300, "VWAP (ámbar)", group=G_VIS)
+showAT = input.bool(true, "Línea AlphaTrend", group=G_VIS, inline="s")
+showVW = input.bool(true, "VWAP", group=G_VIS, inline="s")
+showDash = input.bool(true, "Dashboard", group=G_VIS)
+dashPos  = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════ ✦ WM ════════════════
+showWM = input.bool(true, "Firma BudAI", group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 30), "Color", group=G_WM)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ① AETHER — AlphaTrend (tendencia) + Efficiency Ratio (régimen)
+// ════════════════════════════════════════════════════════════════════════════
+bool conf = barstate.isconfirmed
+float atr = ta.sma(ta.tr, atLen)
+float rsi = ta.rsi(close, atLen)
+float upT = low  - atr * atCoeff
+float dnT = high + atr * atCoeff
+var float alpha = 0.0
+alpha := rsi >= 50 ? (upT < nz(alpha[1]) ? nz(alpha[1]) : upT) : (dnT > nz(alpha[1]) ? nz(alpha[1]) : dnT)
+int trendDir = alpha > alpha[2] ? 1 : alpha < alpha[2] ? -1 : 0
+
+float erChg = math.abs(close - close[erLen])
+float erVol = math.sum(math.abs(close - close[1]), erLen)
+float er = erVol != 0 ? erChg / erVol : 0.0
+bool trending = not useReg or er >= erThr
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ② ATHENEA — onda híbrida (WT+Slope+COG) → cúspide direccional
+// ════════════════════════════════════════════════════════════════════════════
+f_norm(float s, simple int len) =>
+    float lo = ta.lowest(s, len)
+    float hi = ta.highest(s, len)
+    hi - lo != 0 ? 100.0 * (s - lo) / (hi - lo) : 50.0
+
+float esa = ta.ema(src, chanLen)
+float de  = ta.ema(math.abs(src - esa), chanLen)
+float ci  = de == 0 ? 0.0 : (src - esa) / (0.015 * de)
+float wt1 = ta.ema(ci, avgLen)
+float lr0 = ta.linreg(src, slopeLen, 0)
+float lr1 = ta.linreg(src, slopeLen, 1)
+float slopeRaw = lr0 - lr1
+float cogNum = 0.0
+float cogDen = 0.0
+for i = 0 to cogLen - 1
+    float p = nz(src[i])
+    cogNum += (1 + i) * p
+    cogDen += p
+float cogRaw = cogDen != 0 ? -cogNum / cogDen + (cogLen + 1) / 2.0 : 0.0
+float osc = f_norm(wt1, 100) * 0.5 + f_norm(slopeRaw, 100) * 0.3 + f_norm(cogRaw, 100) * 0.2
+
+float pvH = ta.pivothigh(osc, cuspLen, cuspLen)
+float pvL = ta.pivotlow(osc,  cuspLen, cuspLen)
+bool cuspBull = not na(pvL) and pvL < osLvl   // fondo en sobreventa (pasada la punta)
+bool cuspBear = not na(pvH) and pvH > obLvl   // pico en sobrecompra
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ③ ANCLA — VWAP + volumen relativo
+// ════════════════════════════════════════════════════════════════════════════
+float vwap = ta.vwap(hlc3)
+bool aboveVwap = not useVwap or close >= vwap
+bool belowVwap = not useVwap or close <= vwap
+float rvol = ta.sma(volume, 20) != 0 ? volume / ta.sma(volume, 20) : 1.0
+bool volOk = rvol >= volThr
+
+// ════════════════════════════════════════════════════════════════════════════
+//  CONFLUENCIA C1 — los 3 alineados
+// ════════════════════════════════════════════════════════════════════════════
+bool longSig  = trending and trendDir == 1  and cuspBull and aboveVwap and volOk and conf
+bool shortSig = trending and trendDir == -1 and cuspBear and belowVwap and volOk and conf
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PLOTS — AlphaTrend (rayo) + VWAP + nodos glow
+// ════════════════════════════════════════════════════════════════════════════
+color atCol = trendDir == 1 ? upCol : trendDir == -1 ? dnCol : color.new(color.gray, 40)
+plot(showAT ? alpha : na, "AlphaTrend halo", color=color.new(atCol, 80), linewidth=4)
+plot(showAT ? alpha : na, "AlphaTrend", color=atCol, linewidth=1)
+plot(showVW ? vwap : na, "VWAP halo", color=color.new(amber, 82), linewidth=3)
+plot(showVW ? vwap : na, "VWAP", color=color.new(amber, 0), linewidth=1)
+
+// Nodos de señal: halo de color + núcleo blanco (chart definitivo)
+plotchar(longSig  ? low  - 0.6 * ta.atr(14) : na, "C1 LONG halo",  "●", location.absolute, color=color.new(upCol, 60), size=size.normal)
+plotchar(longSig  ? low  - 0.6 * ta.atr(14) : na, "C1 LONG núcleo","•", location.absolute, color=color.new(color.white, 0), size=size.tiny)
+plotchar(shortSig ? high + 0.6 * ta.atr(14) : na, "C1 SHORT halo", "●", location.absolute, color=color.new(dnCol, 60), size=size.normal)
+plotchar(shortSig ? high + 0.6 * ta.atr(14) : na, "C1 SHORT núcleo","•", location.absolute, color=color.new(color.white, 0), size=size.tiny)
+
+// Conector para el Cónclave
+plot(longSig ? 1 : shortSig ? -1 : 0, "conn_c1", display=display.none)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD — desglose de las 3 confluencias (paleta mejorada)
+// ════════════════════════════════════════════════════════════════════════════
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+var table d = table.new(f_pos(dashPos), 2, 6, bgcolor=color.new(#0a0e17, 6), frame_color=color.new(#00e676, 45), frame_width=1, border_color=color.new(#1b2436, 30), border_width=1)
+f_cell(int rr, string k, string v, color vc) =>
+    table.cell(d, 0, rr, k, text_color=color.new(#8aa0b8, 0), bgcolor=color.new(#121a2a, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, rr, v, text_color=vc, bgcolor=color.new(#0d1320, 0), text_size=size.tiny, text_halign=text.align_right)
+
+if showDash and barstate.islast
+    string verd = longSig ? "▲ LONG" : shortSig ? "▼ SHORT" : "NO TRADE"
+    color  vCol = longSig ? upCol : shortSig ? dnCol : color.new(#90a4ae, 0)
+    string regTxt = trending ? "TENDENCIA" : "RANGO"
+    color  regCol = trending ? upCol : color.new(#ffb300, 0)
+    string trTxt = trendDir == 1 ? "Alcista" : trendDir == -1 ? "Bajista" : "Plano"
+    string vwTxt = close >= vwap ? "Sobre VWAP" : "Bajo VWAP"
+    table.cell(d, 0, 0, "⚡ C1 Núcleo", text_color=color.white, bgcolor=color.new(#0e3a24, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, verd, text_color=vCol, bgcolor=color.new(#0e3a24, 0), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(1, "Régimen",   regTxt, regCol)
+    f_cell(2, "Tendencia", trTxt, trendDir == 1 ? upCol : trendDir == -1 ? dnCol : color.new(#90a4ae, 0))
+    f_cell(3, "Gatillo",   cuspBull ? "BULL" : cuspBear ? "BEAR" : "—", cuspBull ? upCol : cuspBear ? dnCol : color.new(#90a4ae, 0))
+    f_cell(4, "VWAP",      vwTxt, close >= vwap ? upCol : dnCol)
+    f_cell(5, "Volumen",   str.tostring(rvol, "#.#") + "× " + (volOk ? "✓" : "·"), volOk ? upCol : color.new(#90a4ae, 0))
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+var table wm = table.new(position.bottom_right, 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Capital®", text_color=wmCol, text_size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(longSig,  "C1 · LONG",  "BudAI C1 Núcleo · LONG {{ticker}} @ {{close}}")
+alertcondition(shortSig, "C1 · SHORT", "BudAI C1 Núcleo · SHORT {{ticker}} @ {{close}}")

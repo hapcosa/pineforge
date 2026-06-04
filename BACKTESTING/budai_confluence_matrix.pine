@@ -1,0 +1,189 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Confluence Matrix
+//  Núcleo de confluencia: une MOMENTUM (WaveTrend) + TENDENCIA (SuperTrend/EMA)
+//  + ESTRUCTURA (BOS) + FLUJO (Money Flow) en un score 0–100. Señales A+ solo
+//  cuando todo se alinea. Estética Athenea cyberpunk neón.
+//  (c) BudAI Capital® — Pine v6 · panel inferior
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Confluence Matrix", shorttitle="BudAI Capital® - Confluence Matrix", overlay=false, precision=1, max_labels_count=300, max_lines_count=300)
+
+// ════════════════ GRUPOS ════════════════
+G_CORE = "① Motores de confluencia"
+G_SIG  = "② Señales A+"
+G_LVL  = "③ Niveles"
+G_VIS  = "④ Estética Cyberpunk"
+G_WM   = "✦ Marca de agua"
+
+// ════════════════ ① MOTORES ════════════════
+src     = input.source(hlc3, "Fuente", group=G_CORE)
+wtLen   = input.int(9,  "Momentum (WaveTrend)", minval=3, group=G_CORE)
+wtAvg   = input.int(12, "WaveTrend promedio", minval=2, group=G_CORE)
+stLen   = input.int(10, "Tendencia (SuperTrend ATR)", minval=1, group=G_CORE, inline="st")
+stMult  = input.float(3.0, "Factor", minval=0.5, step=0.1, group=G_CORE, inline="st")
+emaLen  = input.int(200, "Sesgo mayor (EMA)", minval=10, group=G_CORE)
+strLen  = input.int(5,  "Estructura (pivote BOS)", minval=2, group=G_CORE)
+mfLen   = input.int(14, "Flujo (Money Flow)", minval=2, group=G_CORE)
+
+// ════════════════ ② SEÑALES A+ ════════════════
+showSig  = input.bool(true, "Señales A+ (confluencia total)", group=G_SIG)
+minScore = input.int(75, "Score mínimo para A+ (de 100)", minval=50, maxval=100, group=G_SIG, tooltip="La onda de confluencia debe superar este umbral para disparar.")
+
+// ════════════════ ③ NIVELES ════════════════
+showFib = input.bool(true, "Niveles sutiles (Fibo)", group=G_LVL)
+obLvl   = input.int(75, "Zona alcista fuerte", minval=55, maxval=95, group=G_LVL, inline="z")
+osLvl   = input.int(25, "Zona bajista fuerte", minval=5,  maxval=45, group=G_LVL, inline="z")
+
+// ════════════════ ④ ESTÉTICA CYBERPUNK (estilo Athenea) ════════════════
+upCol    = input.color(#00e5ff, "Alcista (celeste)", group=G_VIS, inline="c")
+dnCol    = input.color(#ff1e6e, "Bajista (fucsia)", group=G_VIS, inline="c")
+sigUpCol = input.color(#ffff00, "Señal alcista (amarillo neón)", group=G_VIS, inline="sg")
+sigDnCol = input.color(#ff007f, "Señal bajista (rosa neón)", group=G_VIS, inline="sg")
+glow     = input.bool(true, "Relleno degradado (glow)", group=G_VIS)
+shadeInt = input.int(55, "Opacidad onda (difuminado)", minval=20, maxval=90, group=G_VIS)
+showDash = input.bool(true, "Dashboard minimalista", group=G_VIS)
+dashPos  = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda","Inferior Derecha","Superior Izquierda","Superior Derecha"], group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MOTORES DE CONFLUENCIA — cada uno aporta +1/-1 al score
+// ════════════════════════════════════════════════════════════════════════════
+bool conf = barstate.isconfirmed
+
+// 1. MOMENTUM (WaveTrend)
+float esa = ta.ema(src, wtLen)
+float de  = ta.ema(math.abs(src - esa), wtLen)
+float ci  = de == 0 ? 0.0 : (src - esa) / (0.015 * de)
+float wt1 = ta.ema(ci, wtAvg)
+float wt2 = ta.sma(wt1, 3)
+int mScore = wt1 > wt2 ? 1 : -1
+
+// 2. TENDENCIA (SuperTrend)
+[stLine, stDir] = ta.supertrend(stMult, stLen)
+int tScore = stDir < 0 ? 1 : -1
+
+// 3. SESGO MAYOR (EMA)
+float emaB = ta.ema(close, emaLen)
+int bScore = close > emaB ? 1 : -1
+
+// 4. ESTRUCTURA (BOS por ruptura de swing)
+float ph = ta.pivothigh(high, strLen, strLen)
+float pl = ta.pivotlow(low,  strLen, strLen)
+var float swHi = na
+var float swLo = na
+if not na(ph)
+    swHi := ph
+if not na(pl)
+    swLo := pl
+var int sScore = 0
+if not na(swHi) and close > swHi
+    sScore := 1
+if not na(swLo) and close < swLo
+    sScore := -1
+
+// 5. FLUJO (Money Flow)
+float mfm = (high - low) != 0 ? ((close - low) - (high - close)) / (high - low) : 0.0
+float vol = nz(volume) == 0 ? 1.0 : volume
+float cmf = math.sum(mfm * vol, mfLen) / math.sum(vol, mfLen)
+int fScore = cmf > 0 ? 1 : -1
+
+// ── SCORE de confluencia: suma de 5 motores → normalizado 0..100 ──
+int rawScore = mScore + tScore + bScore + sScore + fScore   // -5..+5
+float osc = (rawScore + 5) / 10.0 * 100.0                     // 0..100
+float oscS = ta.ema(osc, 2)                                   // suavizado suave
+bool isBull = oscS >= 50
+bool waveUp = oscS >= oscS[1]
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NIVELES sutiles
+// ════════════════════════════════════════════════════════════════════════════
+hline(100, "Tope", color.new(color.gray, 92), hline.style_dotted)
+hline(showFib ? 61.8 : na, "Fibo 0.618", color.new(#9d6cff, 86), hline.style_dotted)
+hline(50, "Central", color.new(#b06aff, 72), hline.style_solid)
+hline(showFib ? 38.2 : na, "Fibo 0.382", color.new(#9d6cff, 86), hline.style_dotted)
+hline(0, "Piso", color.new(color.gray, 92), hline.style_dotted)
+hline(obLvl, "Alcista fuerte", color.new(upCol, 70), hline.style_dashed)
+hline(osLvl, "Bajista fuerte", color.new(dnCol, 70), hline.style_dashed)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PLOTS — onda de confluencia + glow + barras de fondo (estilo Athenea/Nautilus)
+// ════════════════════════════════════════════════════════════════════════════
+// barras de fondo gradient (score crudo, sutil)
+plot(50 + cmf * 50, "Flujo fondo", color=cmf >= 0 ? color.new(upCol, 80) : color.new(dnCol, 80), style=plot.style_columns, histbase=50)
+
+// onda principal + línea blanca brillante
+color waveCol = isBull ? upCol : dnCol
+pOsc = plot(oscS, "Confluencia", color=waveCol, linewidth=2)
+plot(oscS, "Brillo Blanco", color=color.new(color.white, 0), linewidth=1)
+pMid = plot(50, "Mid", color=color.new(color.white, 100), display=display.none)
+
+// relleno degradado fading (difuminado hacia el centro 50)
+fill(pOsc, pMid, top_value=100, bottom_value=50, top_color=glow ? color.new(upCol, shadeInt) : na, bottom_color=glow ? color.new(upCol, 100) : na, title="Glow superior")
+fill(pOsc, pMid, top_value=50, bottom_value=0,  top_color=glow ? color.new(dnCol, 100) : na, bottom_color=glow ? color.new(dnCol, shadeInt) : na, title="Glow inferior")
+
+// ════════════════════════════════════════════════════════════════════════════
+//  SEÑALES A+ — confluencia total (score supera umbral + cruce de 50)
+// ════════════════════════════════════════════════════════════════════════════
+bool crossUp = ta.crossover(oscS, 50)
+bool crossDn = ta.crossunder(oscS, 50)
+// A+ alcista: cruza 50 al alza y el score llega a zona fuerte poco después
+bool aplusUp = showSig and oscS >= minScore and rawScore >= 3 and waveUp and conf and oscS[1] < minScore
+bool aplusDn = showSig and oscS <= (100 - minScore) and rawScore <= -3 and not waveUp and conf and oscS[1] > (100 - minScore)
+
+// señales con GLOW brillante (doble plotchar: grande transparente + pequeño sólido)
+plotchar(aplusUp, "A+ Buy Glow", "•", location.bottom, color=color.new(sigUpCol, 65), size=size.small)
+plotchar(aplusUp, "A+ Buy",      "•", location.bottom, color=sigUpCol, size=size.tiny)
+plotchar(aplusDn, "A+ Sell Glow","•", location.top,    color=color.new(sigDnCol, 65), size=size.small)
+plotchar(aplusDn, "A+ Sell",     "•", location.top,    color=sigDnCol, size=size.tiny)
+
+// nodo blanco neón al cruzar 50 (cambio de sesgo)
+plotchar(crossUp or crossDn ? 50 : na, "Cruce 50 Glow", "•", location.absolute, color=color.new(color.white, 60), size=size.small)
+plotchar(crossUp or crossDn ? 50 : na, "Cruce 50",      "•", location.absolute, color=color.new(color.white, 0), size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD minimalista (tiny) — desglose de los 5 motores
+// ════════════════════════════════════════════════════════════════════════════
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+var table d = table.new(f_pos(dashPos), 2, 7, bgcolor=color.new(#0b0e16, 12), frame_color=color.new(upCol, 55), frame_width=1, border_width=1)
+f_cell(t, r, k, v, vc) =>
+    table.cell(t, 0, r, k, text_color=color.new(#90a4ae, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
+f_chk(v) => v > 0 ? "▲" : "▼"
+f_chkC(v) => v > 0 ? upCol : dnCol
+
+if showDash and barstate.islast
+    string verdict = oscS >= minScore ? "COMPRA FUERTE" : oscS <= (100 - minScore) ? "VENTA FUERTE" : isBull ? "Alcista" : "Bajista"
+    color  vCol = oscS >= minScore ? upCol : oscS <= (100 - minScore) ? dnCol : isBull ? upCol : dnCol
+    table.cell(d, 0, 0, "Confluence", text_color=color.white, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, str.tostring(oscS, "#") + "/100", text_color=waveCol, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(d, 1, "Veredicto", verdict, vCol)
+    f_cell(d, 2, "Momentum",  f_chk(mScore), f_chkC(mScore))
+    f_cell(d, 3, "Tendencia", f_chk(tScore), f_chkC(tScore))
+    f_cell(d, 4, "Sesgo EMA", f_chk(bScore), f_chkC(bScore))
+    f_cell(d, 5, "Estructura",f_chk(sScore == 0 ? 1 : sScore), sScore < 0 ? dnCol : upCol)
+    f_cell(d, 6, "Flujo",     f_chk(fScore), f_chkC(fScore))
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MARCA DE AGUA — firma BudAI Cripto
+// ════════════════════════════════════════════════════════════════════════════
+f_wmPos(s) => s == "Inferior Izquierda" ? position.bottom_left : s == "Inferior Derecha" ? position.bottom_right : s == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Capital®", text_color=wmCol, text_size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(aplusUp, "Confluence A+ BUY",  "Confluence Matrix · COMPRA A+ {{ticker}}")
+alertcondition(aplusDn, "Confluence A+ SELL", "Confluence Matrix · VENTA A+ {{ticker}}")

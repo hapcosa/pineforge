@@ -149,7 +149,7 @@ if ready and array.size(A1) > 10
                     lastDist := array.get(dists, math.round(kNeighbors * 3 / 4))
                     array.shift(dists)
                     array.shift(preds)
-    prediction := array.size(preds) > 0 ? float(array.sum(preds)) : 0.0
+    prediction := array.size(preds) > 0 ? array.sum(preds) : 0.0
 
 // ════════════════════════════════════════════════════════════════════════════
 //  FLUJO DE CAPITAL — MFI + CMF + Delta (0..100)

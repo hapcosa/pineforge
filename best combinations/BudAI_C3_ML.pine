@@ -1,0 +1,166 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - C3 · ML (Lorentzian + contexto)
+//  COMBINACIÓN C3 = Lorentzian (clasificador kNN) → Aether (régimen) →
+//  Ancla (VWAP + volumen). El sesgo ML solo se opera a favor del contexto.
+//  Versión INDICADOR. Estrategia: Estrategias/BudAI_C3_ML_strategy.pine.
+//  Indicadores usados: Lorentzian · Aether · Ancla.
+//  (c) BudAI Capital® — Pine v6 · overlay
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - C3 · ML", shorttitle="BudAI Capital® - C3 ML", overlay=true, max_labels_count=300, max_bars_back=2500)
+
+G_ML  = "① Lorentzian (kNN)"
+G_AET = "② Aether (régimen)"
+G_FLU = "③ Ancla (VWAP + volumen)"
+G_VIS = "④ Estética"
+G_WM  = "✦ Marca de agua"
+
+// ① Lorentzian
+kNb     = input.int(8, "Vecinos (k)", minval=1, maxval=48, group=G_ML)
+maxBack = input.int(800, "Memoria (barras)", minval=100, maxval=2000, group=G_ML)
+// ② Aether
+atCoeff = input.float(1.0, "AlphaTrend factor", minval=0.3, step=0.1, group=G_AET, inline="at")
+atLen   = input.int(14, "ATR/RSI", minval=2, group=G_AET, inline="at")
+erLen   = input.int(20, "Efficiency Ratio", minval=5, group=G_AET, inline="er")
+erThr   = input.float(0.30, "umbral", minval=0.1, maxval=0.9, step=0.05, group=G_AET, inline="er")
+useReg  = input.bool(true, "Exigir TENDENCIA y dirección", group=G_AET)
+// ③ Ancla
+useVwap = input.bool(true, "Lado correcto del VWAP", group=G_FLU)
+volThr  = input.float(1.2, "Volumen mínimo (RVOL ×)", minval=1.0, maxval=5.0, step=0.1, group=G_FLU)
+// ④ Estética
+upCol = input.color(#00e676, "Alcista", group=G_VIS, inline="c")
+dnCol = input.color(#ff1744, "Bajista", group=G_VIS, inline="c")
+amber = input.color(#ffb300, "VWAP", group=G_VIS)
+showDash = input.bool(true, "Dashboard", group=G_VIS)
+showWM = input.bool(true, "Firma BudAI", group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 30), "Color", group=G_WM)
+
+bool conf = barstate.isconfirmed
+f_rescale(float x, float a, float b) => (x - a) / math.max(b - a, 1e-10)
+
+// ════════ LORENTZIAN ════════
+[diP, diM, adxv] = ta.dmi(14, 14)
+float esa = ta.ema(hlc3, 10)
+float de  = ta.ema(math.abs(hlc3 - esa), 10)
+float ci  = de == 0 ? 0.0 : (hlc3 - esa) / (0.015 * de)
+float wt  = ta.ema(ci, 11)
+float f1 = ta.rsi(close, 14) / 100.0
+float f2 = ta.rsi(close, 9) / 100.0
+float f3 = nz(adxv) / 100.0
+float f4 = f_rescale(ta.cci(close, 20), -250.0, 250.0)
+float f5 = f_rescale(wt, -60.0, 60.0)
+int yTrain = close[4] < close[0] ? -1 : close[4] > close[0] ? 1 : 0
+
+var array<float> A1 = array.new_float()
+var array<float> A2 = array.new_float()
+var array<float> A3 = array.new_float()
+var array<float> A4 = array.new_float()
+var array<float> A5 = array.new_float()
+var array<int>   AY = array.new_int()
+bool ready = bar_index > 50 and not na(f4)
+if conf and ready
+    array.push(A1, f1)
+    array.push(A2, f2)
+    array.push(A3, f3)
+    array.push(A4, f4)
+    array.push(A5, f5)
+    array.push(AY, yTrain)
+    if array.size(A1) > maxBack
+        array.shift(A1)
+        array.shift(A2)
+        array.shift(A3)
+        array.shift(A4)
+        array.shift(A5)
+        array.shift(AY)
+
+f_lor(int i) =>
+    math.log(1 + math.abs(f1 - array.get(A1, i))) + math.log(1 + math.abs(f2 - array.get(A2, i))) + math.log(1 + math.abs(f3 - array.get(A3, i))) + math.log(1 + math.abs(f4 - array.get(A4, i))) + math.log(1 + math.abs(f5 - array.get(A5, i)))
+
+float prediction = 0.0
+if ready and array.size(A1) > 10
+    array<float> dists = array.new_float()
+    array<int>   preds = array.new_int()
+    float lastD = -1.0
+    int n = array.size(A1) - 1
+    for i = 0 to n
+        if i % 4 == 0
+            float dd = f_lor(i)
+            if dd >= lastD
+                lastD := dd
+                array.push(dists, dd)
+                array.push(preds, array.get(AY, i))
+                if array.size(preds) > kNb
+                    lastD := array.get(dists, math.round(kNb * 3 / 4))
+                    array.shift(dists)
+                    array.shift(preds)
+    prediction := array.size(preds) > 0 ? float(array.sum(preds)) : 0.0
+
+// ════════ AETHER ════════
+float atr = ta.sma(ta.tr, atLen)
+float rsi = ta.rsi(close, atLen)
+float upT = low  - atr * atCoeff
+float dnT = high + atr * atCoeff
+var float alpha = 0.0
+alpha := rsi >= 50 ? (upT < nz(alpha[1]) ? nz(alpha[1]) : upT) : (dnT > nz(alpha[1]) ? nz(alpha[1]) : dnT)
+int trendDir = alpha > alpha[2] ? 1 : alpha < alpha[2] ? -1 : 0
+float erChg = math.abs(close - close[erLen])
+float erVol = math.sum(math.abs(close - close[1]), erLen)
+float er = erVol != 0 ? erChg / erVol : 0.0
+bool trending = er >= erThr
+
+// ════════ ANCLA ════════
+float vwap = ta.vwap(hlc3)
+bool aboveVwap = not useVwap or close >= vwap
+bool belowVwap = not useVwap or close <= vwap
+float rvol = ta.sma(volume, 20) != 0 ? volume / ta.sma(volume, 20) : 1.0
+bool volOk = rvol >= volThr
+
+// ════════ SEÑAL C3 (ML + contexto), en el flip del sesgo ML ════════
+var int mlSig = 0
+mlSig := prediction > 0 ? 1 : prediction < 0 ? -1 : nz(mlSig[1])
+bool mlNewLong  = mlSig == 1  and mlSig[1] != 1
+bool mlNewShort = mlSig == -1 and mlSig[1] != -1
+bool regUpOk = not useReg or (trending and trendDir == 1)
+bool regDnOk = not useReg or (trending and trendDir == -1)
+bool longSig  = mlNewLong  and regUpOk and aboveVwap and volOk and conf
+bool shortSig = mlNewShort and regDnOk and belowVwap and volOk and conf
+
+// ════════ PLOTS ════════
+color atCol = trendDir == 1 ? upCol : trendDir == -1 ? dnCol : color.new(color.gray, 40)
+plot(alpha, "AlphaTrend halo", color=color.new(atCol, 80), linewidth=4)
+plot(alpha, "AlphaTrend", color=atCol, linewidth=1)
+plot(vwap, "VWAP", color=color.new(amber, 0), linewidth=1)
+plotchar(longSig  ? low  - 0.6 * ta.atr(14) : na, "C3 LONG halo",  "●", location.absolute, color=color.new(upCol, 60), size=size.normal)
+plotchar(longSig  ? low  - 0.6 * ta.atr(14) : na, "C3 LONG core",  "•", location.absolute, color=color.new(color.white, 0), size=size.tiny)
+plotchar(shortSig ? high + 0.6 * ta.atr(14) : na, "C3 SHORT halo", "●", location.absolute, color=color.new(dnCol, 60), size=size.normal)
+plotchar(shortSig ? high + 0.6 * ta.atr(14) : na, "C3 SHORT core", "•", location.absolute, color=color.new(color.white, 0), size=size.tiny)
+plot(longSig ? 1 : shortSig ? -1 : 0, "conn_c3", display=display.none)
+
+// ════════ DASHBOARD ════════
+var table d = table.new(position.top_right, 2, 5, bgcolor=color.new(#0a0e17, 6), frame_color=color.new(#00e676, 45), frame_width=1, border_color=color.new(#1b2436, 30), border_width=1)
+f_cell(int rr, string k, string v, color vc) =>
+    table.cell(d, 0, rr, k, text_color=color.new(#8aa0b8, 0), bgcolor=color.new(#121a2a, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, rr, v, text_color=vc, bgcolor=color.new(#0d1320, 0), text_size=size.tiny, text_halign=text.align_right)
+if showDash and barstate.islast
+    string verd = longSig ? "▲ LONG" : shortSig ? "▼ SHORT" : "NO TRADE"
+    color  vCol = longSig ? upCol : shortSig ? dnCol : color.new(#90a4ae, 0)
+    table.cell(d, 0, 0, "⚡ C3 ML", text_color=color.white, bgcolor=color.new(#0e3a24, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, verd, text_color=vCol, bgcolor=color.new(#0e3a24, 0), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(1, "ML predicción", str.tostring(prediction, "#.#") + "/" + str.tostring(kNb), prediction >= 0 ? upCol : dnCol)
+    f_cell(2, "Régimen", trending ? "TENDENCIA" : "RANGO", trending ? upCol : amber)
+    f_cell(3, "VWAP", close >= vwap ? "Sobre" : "Bajo", close >= vwap ? upCol : dnCol)
+    f_cell(4, "Volumen", str.tostring(rvol, "#.#") + "× " + (volOk ? "✓" : "·"), volOk ? upCol : color.new(#90a4ae, 0))
+
+var table wm = table.new(position.bottom_right, 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Capital®", text_color=wmCol, text_size=size.tiny)
+
+alertcondition(longSig,  "C3 · LONG",  "BudAI C3 ML · LONG {{ticker}} @ {{close}}")
+alertcondition(shortSig, "C3 · SHORT", "BudAI C3 ML · SHORT {{ticker}} @ {{close}}")
