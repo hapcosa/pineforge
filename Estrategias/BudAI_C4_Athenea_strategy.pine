@@ -1,0 +1,202 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - C4 · Athenea Combo [STRATEGY]
+//  Athenea oscillator (cyclic cross + squeeze release) + Aether trend regime +
+//  Ancla VWAP/RVOL. Strict superset of BudAI Athenea.
+//  Defaults NO optimizados.
+//  (c) BudAI Capital® — Pine v6 · strategy
+// ────────────────────────────────────────────────────────────────────────────
+strategy("BudAI Capital® - C4 Athenea Combo [STRAT]", shorttitle="BudAI · C4 STRAT", overlay=true,
+     initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=10,
+     commission_type=strategy.commission.percent, commission_value=0.05, slippage=2,
+     pyramiding=0, process_orders_on_close=true, calc_on_every_tick=false, max_labels_count=300)
+
+G_OSC = "① Athenea oscillator"
+G_GAT = "② Entry toggles"
+G_AET = "③ Aether"
+G_FLU = "④ Ancla (VWAP + volumen)"
+G_RISK= "⑤ Gestión (TP/SL)"
+
+// ── Oscillator source ─────────────────────────────────────────
+srcOsc = input.source(hlc3, "Source oscillator", group=G_OSC)
+
+// ── Core hybrid ───────────────────────────────────────────────
+chanLen = input.int(9, "Channel length", minval=3, group=G_OSC, inline="wt")
+avgLen  = input.int(12, "Average length", minval=2, group=G_OSC, inline="wt")
+trigLen = input.int(3, "Trigger length", minval=1, group=G_OSC, inline="wt")
+slopeLen= input.int(20, "Slope length", minval=3, group=G_OSC)
+useCog  = input.bool(true, "Usar COG", group=G_OSC)
+cogLen  = input.int(9, "COG length", minval=3, group=G_OSC)
+normLen = input.int(100, "Normalización", minval=30, maxval=200, step=10, group=G_OSC)
+mfLen   = input.int(14, "CMF length", minval=2, group=G_OSC)
+
+// ── Zones ─────────────────────────────────────────────────────
+obLvl = input.float(80.0, "Overbought", minval=55.0, maxval=95.0, step=1.0, group=G_OSC)
+osLvl = input.float(20.0, "Oversold", minval=5.0, maxval=45.0, step=1.0, group=G_OSC)
+
+// ── Squeeze ───────────────────────────────────────────────────
+bbLen  = input.int(20, "Bollinger", minval=5, group=G_OSC, inline="bb")
+bbMult = input.float(2.0, "×", step=0.1, group=G_OSC, inline="bb")
+kcLen  = input.int(20, "Keltner", minval=5, group=G_OSC, inline="kc")
+kcMult = input.float(1.5, "×", step=0.1, group=G_OSC, inline="kc")
+useTr  = input.bool(true, "Usar true range para Keltner", group=G_OSC)
+
+// ── Vix-Fix panic ─────────────────────────────────────────────
+useVix  = input.bool(true, "Usar Vix-Fix", group=G_OSC)
+vixLen  = input.int(22, "Vix length", minval=2, group=G_OSC, inline="vix")
+bbLenV  = input.int(20, "BB Vix", minval=2, group=G_OSC, inline="vixb")
+bbMultV = input.float(2.0, "×", step=0.1, group=G_OSC, inline="vixb")
+phLen   = input.int(50, "Pivot high lookback", minval=10, maxval=100, step=5, group=G_OSC)
+phUp    = input.float(0.85, "Pivot high %", minval=0.5, maxval=0.99, step=0.01, group=G_OSC)
+
+// ── Entry toggles + flow gate ─────────────────────────────────
+useSig = input.bool(true, "Cyclic entries", group=G_GAT)
+useSqzEntry = input.bool(true, "Squeeze entries", group=G_GAT)
+reqFlow = input.bool(true, "Exigir flujo CMF", group=G_GAT)
+
+// ── Aether ────────────────────────────────────────────────────
+atCoeff = input.float(1.0, "AlphaTrend factor", minval=0.3, step=0.1, group=G_AET, inline="at")
+atLen   = input.int(14, "ATR/RSI", minval=2, group=G_AET, inline="at")
+erLen   = input.int(20, "Efficiency Ratio", minval=5, group=G_AET, inline="er")
+erThr   = input.float(0.30, "umbral", minval=0.1, maxval=0.9, step=0.05, group=G_AET, inline="er")
+useReg  = input.bool(false, "Exigir TENDENCIA y dirección", group=G_AET)
+
+// ── Ancla ─────────────────────────────────────────────────────
+useVwap = input.bool(false, "Filtrar por lado del VWAP", group=G_FLU)
+useVol  = input.bool(false, "Filtrar por RVOL", group=G_FLU)
+volThr  = input.float(1.0, "Volumen mínimo (RVOL ×)", minval=1.0, maxval=5.0, step=0.1, group=G_FLU)
+
+// ── Risk management ───────────────────────────────────────────
+allowLong  = input.bool(true,  "Largos", group=G_RISK, inline="d")
+allowShort = input.bool(true,  "Cortos", group=G_RISK, inline="d")
+tp1Pct = input.float(1.0, "TP1 %", minval=0.1, step=0.1, group=G_RISK, inline="tp")
+tp2Pct = input.float(2.0, "TP2 %", minval=0.1, step=0.1, group=G_RISK, inline="tp")
+tp3Pct = input.float(3.0, "TP3 %", minval=0.1, step=0.1, group=G_RISK, inline="tp")
+slPct  = input.float(2.0, "SL %",  minval=0.1, step=0.1, group=G_RISK)
+upCol = input.color(#00e676, "Alcista", group=G_RISK, inline="c")
+dnCol = input.color(#ff1744, "Bajista", group=G_RISK, inline="c")
+
+bool conf = barstate.isconfirmed
+
+// ── ATHENEA OSCILLATOR ────────────────────────────────────────
+float esa = ta.ema(srcOsc, chanLen)
+float de  = ta.ema(math.abs(srcOsc - esa), chanLen)
+float ci  = de != 0 ? (srcOsc - esa) / (0.015 * de) : 0.0
+float wt1 = ta.ema(ci, avgLen)
+float wt2 = ta.sma(wt1, trigLen)
+
+float slopeRaw = ta.linreg(srcOsc, slopeLen, 0) - ta.linreg(srcOsc, slopeLen, 1)
+
+float numCog = 0.0
+float denCog = 0.0
+for i = 0 to cogLen - 1
+    numCog := numCog + (1 + i) * nz(srcOsc[i])
+    denCog := denCog + nz(srcOsc[i])
+float cogRaw = denCog != 0 ? (-numCog / denCog + (cogLen + 1) / 2.0) : 0.0
+
+f_norm(s, len) =>
+    hi = ta.highest(s, len)
+    lo = ta.lowest(s, len)
+    rng = hi - lo
+    rng != 0 ? 100.0 * (s - lo) / rng : 50.0
+
+float wtN    = f_norm(wt1, normLen)
+float slopeN = f_norm(slopeRaw, normLen)
+float cogN   = f_norm(cogRaw, normLen)
+float osc    = useCog ? wtN * 0.5 + slopeN * 0.3 + cogN * 0.2 : wtN * 0.6 + slopeN * 0.4
+float trig   = f_norm(wt2, normLen)
+
+// CMF
+float hl = high - low
+float mfm = hl != 0 ? ((close - low) - (high - close)) / hl : 0.0
+float cmf = ta.sma(mfm * volume, mfLen) / ta.sma(volume, mfLen)
+
+// Squeeze
+float basisBB = ta.sma(srcOsc, bbLen)
+float devBB   = bbMult * ta.stdev(srcOsc, bbLen)
+float bbUpper = basisBB + devBB
+float bbLower = basisBB - devBB
+float kcMa    = ta.sma(srcOsc, kcLen)
+float kcRange = useTr ? ta.tr(true) : (high - low)
+float kcRangeMA = ta.sma(kcRange, kcLen)
+float kcUpper = kcMa + kcRangeMA * kcMult
+float kcLower = kcMa - kcRangeMA * kcMult
+bool sqzOn    = (bbLower > kcLower) and (bbUpper < kcUpper)
+bool released = sqzOn[1] and not sqzOn
+
+// Vix-Fix
+float hhv     = ta.highest(srcOsc, vixLen)
+float vixRaw  = hhv != 0 ? (hhv - low) / hhv * 100.0 : 0.0
+float vixFix  = ta.ema(vixRaw, 2)
+float bUpV    = ta.sma(vixFix, bbLenV) + bbMultV * ta.stdev(vixFix, bbLenV)
+float rangeHi = ta.highest(vixFix, phLen) * phUp
+bool isPanic  = useVix and ((vixFix >= bUpV) or (vixFix >= rangeHi))
+
+// Entries
+bool flowUp = not reqFlow or cmf > 0.0
+bool flowDn = not reqFlow or cmf < 0.0
+bool entryBuy  = useSig and ta.crossover(osc, trig) and (osc < osLvl or isPanic) and flowUp
+bool entrySell = useSig and ta.crossunder(osc, trig) and (osc > obLvl) and flowDn
+bool sqzBuy    = useSqzEntry and released and (osc > 50.0) and flowUp
+bool sqzSell   = useSqzEntry and released and (osc < 50.0) and flowDn
+bool buy  = entryBuy or sqzBuy
+bool sell = entrySell or sqzSell
+
+// ── AETHER ────────────────────────────────────────────────────
+float atrA = ta.sma(ta.tr, atLen)
+float rsiA = ta.rsi(close, atLen)
+float upT  = low - atrA * atCoeff
+float dnT  = high + atrA * atCoeff
+var float alpha = 0.0
+alpha := rsiA >= 50 ? (upT < nz(alpha[1]) ? nz(alpha[1]) : upT) : (dnT > nz(alpha[1]) ? nz(alpha[1]) : dnT)
+int trendDir = alpha > alpha[2] ? 1 : alpha < alpha[2] ? -1 : 0
+float erChg = math.abs(close - close[erLen])
+float erVol = math.sum(math.abs(close - close[1]), erLen)
+float er    = erVol != 0 ? erChg / erVol : 0.0
+bool trending = er >= erThr
+
+// ── ANCLA ─────────────────────────────────────────────────────
+float vwap = ta.vwap(hlc3)
+bool above = close >= vwap
+bool below = close <= vwap
+float rvol = ta.sma(volume, 20) != 0 ? volume / ta.sma(volume, 20) : 1.0
+bool volOk = not useVol or rvol >= volThr
+
+// ── SIGNAL ────────────────────────────────────────────────────
+bool regUpOk = not useReg or (trending and trendDir == 1)
+bool regDnOk = not useReg or (trending and trendDir == -1)
+bool aboveEff = not useVwap or above
+bool belowEff = not useVwap or below
+bool longSig  = buy and regUpOk and aboveEff and volOk and conf and allowLong
+bool shortSig = sell and regDnOk and belowEff and volOk and conf and allowShort
+
+if longSig
+    strategy.entry("L", strategy.long)
+if shortSig
+    strategy.entry("S", strategy.short)
+if strategy.position_size > 0
+    float e = strategy.position_avg_price
+    strategy.exit("L1", "L", qty_percent=33, limit=e * (1 + tp1Pct / 100), stop=e * (1 - slPct / 100))
+    strategy.exit("L2", "L", qty_percent=33, limit=e * (1 + tp2Pct / 100), stop=e * (1 - slPct / 100))
+    strategy.exit("L3", "L",                 limit=e * (1 + tp3Pct / 100), stop=e * (1 - slPct / 100))
+if strategy.position_size < 0
+    float e = strategy.position_avg_price
+    strategy.exit("S1", "S", qty_percent=33, limit=e * (1 - tp1Pct / 100), stop=e * (1 + slPct / 100))
+    strategy.exit("S2", "S", qty_percent=33, limit=e * (1 - tp2Pct / 100), stop=e * (1 + slPct / 100))
+    strategy.exit("S3", "S",                 limit=e * (1 - tp3Pct / 100), stop=e * (1 + slPct / 100))
+
+color atCol = trendDir == 1 ? upCol : trendDir == -1 ? dnCol : color.new(color.gray, 40)
+plot(alpha, "AlphaTrend", color=atCol, linewidth=1)
+plot(vwap, "VWAP", color=color.new(color.gray, 50), linewidth=1)
+plotshape(longSig,  "LONG",  shape.triangleup,   location.belowbar, upCol, size=size.tiny)
+plotshape(shortSig, "SHORT", shape.triangledown, location.abovebar, dnCol, size=size.tiny)
+var table wm = table.new(position.bottom_right, 1, 1, bgcolor=color.new(color.black, 100))
+if barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Capital®", text_color=color.new(#b6f400, 30), text_size=size.tiny)

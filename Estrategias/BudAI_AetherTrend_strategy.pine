@@ -7,84 +7,78 @@
 // ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
 //         C R I P T O   ·   T R A D I N G   C A P I T A L
 // ────────────────────────────────────────────────────────────────────────────
-//  BudAI Capital® - C2 · Ruptura [STRATEGY]
-//  Versión BACKTESTEABLE de C2 (Kairos + Aether + volumen). Misma lógica que
-//  best combinations/BudAI_C2_Ruptura.pine. Defaults NO optimizados.
+//  BudAI Capital® - Aether Trend [STRATEGY]
+//  Gatillo: flip de dirección AlphaTrend. Filtros opcionales: régimen ER,
+//  lado VWAP, RVOL. Bar-close, entrada = close.
+//  Defaults NO optimizados.
 //  (c) BudAI Capital® — Pine v6 · strategy
 // ────────────────────────────────────────────────────────────────────────────
-strategy("BudAI Capital® - C2 Ruptura [STRAT]", shorttitle="BudAI · C2 STRAT", overlay=true,
+strategy("BudAI Capital® - Aether Trend [STRAT]", shorttitle="BudAI · Aether STRAT", overlay=true,
      initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=10,
      commission_type=strategy.commission.percent, commission_value=0.05, slippage=2,
      pyramiding=0, process_orders_on_close=true, calc_on_every_tick=false, max_labels_count=300)
 
-G_KAI = "① Kairos"
-G_AET = "② Aether"
-G_FLU = "③ Volumen"
-G_RISK= "④ Gestión (TP/SL)"
-G_DATE= "⑤ Rango de backtest"
+G_AET = "① Aether"
+G_FLU = "② Ancla (VWAP + volumen)"
+G_RISK= "③ Gestión (TP/SL)"
 
-bbLen  = input.int(20, "Bollinger", minval=5, group=G_KAI, inline="bb")
-bbMult = input.float(2.0, "×", step=0.1, group=G_KAI, inline="bb")
-kcLen  = input.int(20, "Keltner", minval=5, group=G_KAI, inline="kc")
-kcMult = input.float(1.5, "×", step=0.1, group=G_KAI, inline="kc")
-dcLen  = input.int(20, "Donchian", minval=5, group=G_KAI)
-armWin = input.int(6, "Ventana tras compresión", minval=1, maxval=20, group=G_KAI)
-useSqueeze = input.bool(true, "Exigir squeeze previo", group=G_KAI)
 atCoeff = input.float(1.0, "AlphaTrend factor", minval=0.3, step=0.1, group=G_AET, inline="at")
 atLen   = input.int(14, "ATR/RSI", minval=2, group=G_AET, inline="at")
 erLen   = input.int(20, "Efficiency Ratio", minval=5, group=G_AET, inline="er")
-erThr   = input.float(0.30, "umbral", minval=0.1, maxval=0.9, step=0.05, group=G_AET, inline="er")
-useReg  = input.bool(true, "Exigir TENDENCIA y dirección", group=G_AET)
-volThr = input.float(1.2, "Volumen mínimo (RVOL ×)", minval=1.0, maxval=5.0, step=0.1, group=G_FLU)
+erThr   = input.float(0.30, "umbral ER", minval=0.1, maxval=0.9, step=0.05, group=G_AET, inline="er")
+useReg  = input.bool(true, "Exigir régimen de tendencia (ER)", group=G_AET)
+confirmBars = input.int(1, "Barras de confirmación del flip", minval=1, maxval=5, step=1, group=G_AET)
+useVwap = input.bool(false, "Filtrar por lado del VWAP", group=G_FLU)
+volThr  = input.float(1.0, "Volumen mínimo (RVOL ×)", minval=1.0, maxval=5.0, step=0.1, group=G_FLU)
 allowLong  = input.bool(true,  "Largos", group=G_RISK, inline="d")
 allowShort = input.bool(true,  "Cortos", group=G_RISK, inline="d")
 tp1Pct = input.float(1.0, "TP1 %", minval=0.1, step=0.1, group=G_RISK, inline="tp")
 tp2Pct = input.float(2.0, "TP2 %", minval=0.1, step=0.1, group=G_RISK, inline="tp")
 tp3Pct = input.float(3.0, "TP3 %", minval=0.1, step=0.1, group=G_RISK, inline="tp")
 slPct  = input.float(2.0, "SL %",  minval=0.1, step=0.1, group=G_RISK)
-useDate = input.bool(false, "Limitar rango", group=G_DATE)
-dFrom   = input.time(timestamp("2023-01-01"), "Desde", group=G_DATE)
-dTo     = input.time(timestamp("2026-12-31"), "Hasta", group=G_DATE)
-upCol = input.color(#00e676, "Alcista", group=G_DATE, inline="c")
-dnCol = input.color(#ff1744, "Bajista", group=G_DATE, inline="c")
+upCol = input.color(#00e676, "Alcista", group=G_RISK, inline="c")
+dnCol = input.color(#ff1744, "Bajista", group=G_RISK, inline="c")
 
 bool conf = barstate.isconfirmed
-// AETHER
-float atr = ta.sma(ta.tr, atLen)
-float rsi = ta.rsi(close, atLen)
-float upT = low  - atr * atCoeff
-float dnT = high + atr * atCoeff
+
+// ── AETHER ────────────────────────────────────────────────────
+float atrA = ta.sma(ta.tr(true), atLen)
+float rsiA = ta.rsi(close, atLen)
+float upT  = low - atrA * atCoeff
+float dnT  = high + atrA * atCoeff
 var float alpha = 0.0
-alpha := rsi >= 50 ? (upT < nz(alpha[1]) ? nz(alpha[1]) : upT) : (dnT > nz(alpha[1]) ? nz(alpha[1]) : dnT)
+alpha := rsiA >= 50 ? (upT < nz(alpha[1]) ? nz(alpha[1]) : upT) : (dnT > nz(alpha[1]) ? nz(alpha[1]) : dnT)
 int trendDir = alpha > alpha[2] ? 1 : alpha < alpha[2] ? -1 : 0
 float erChg = math.abs(close - close[erLen])
 float erVol = math.sum(math.abs(close - close[1]), erLen)
-float er = erVol != 0 ? erChg / erVol : 0.0
+float er    = erVol != 0 ? erChg / erVol : 0.0
 bool trending = er >= erThr
-// KAIROS
-float basis = ta.sma(close, bbLen)
-float dev   = bbMult * ta.stdev(close, bbLen)
-float kcMa  = ta.sma(close, kcLen)
-float kcR   = ta.sma(ta.tr(true), kcLen)
-bool sqzOn  = (basis - dev) > (kcMa - kcR * kcMult) and (basis + dev) < (kcMa + kcR * kcMult)
-bool released = sqzOn[1] and not sqzOn
-var int sinceRel = 999
-sinceRel := released ? 0 : sinceRel + 1
-bool armed = sinceRel <= armWin
-bool armedEff = useSqueeze ? armed : true
-float dcU = ta.highest(high, dcLen)[1]
-float dcL = ta.lowest(low,  dcLen)[1]
-bool breakUp = close > dcU
-bool breakDn = close < dcL
-// VOLUMEN
+
+// ── FLIP + CONFIRMATION ───────────────────────────────────────
+bool flipUp = trendDir == 1 and trendDir[1] != 1
+bool flipDn = trendDir == -1 and trendDir[1] != -1
+bool confUp = flipUp
+bool confDn = flipDn
+if confirmBars > 1
+    for i = 0 to confirmBars - 1
+        confUp := confUp and trendDir[i] == 1
+    for i = 0 to confirmBars - 1
+        confDn := confDn and trendDir[i] == -1
+
+// ── ANCLA ─────────────────────────────────────────────────────
+float vwap = ta.vwap(hlc3)
+bool above = close >= vwap
+bool below = close <= vwap
 float rvol = ta.sma(volume, 20) != 0 ? volume / ta.sma(volume, 20) : 1.0
 bool volOk = rvol >= volThr
-// SEÑAL
-bool regUpOk = not useReg or (trending and trendDir == 1)
-bool regDnOk = not useReg or (trending and trendDir == -1)
-bool inWindow = not useDate or (time >= dFrom and time <= dTo)
-bool longSig  = armedEff and breakUp and regUpOk and volOk and conf and inWindow and allowLong
-bool shortSig = armedEff and breakDn and regDnOk and volOk and conf and inWindow and allowShort
+
+// ── SIGNAL ────────────────────────────────────────────────────
+bool regUpOk = not useReg or trending
+bool regDnOk = not useReg or trending
+bool aboveEff = not useVwap or above
+bool belowEff = not useVwap or below
+bool longSig  = confUp and regUpOk and aboveEff and volOk and conf and allowLong
+bool shortSig = confDn and regDnOk and belowEff and volOk and conf and allowShort
 
 if longSig
     strategy.entry("L", strategy.long)
@@ -103,10 +97,9 @@ if strategy.position_size < 0
 
 color atCol = trendDir == 1 ? upCol : trendDir == -1 ? dnCol : color.new(color.gray, 40)
 plot(alpha, "AlphaTrend", color=atCol, linewidth=1)
-plot(dcU, "Donchian Sup", color=color.new(dnCol, 60), linewidth=1)
-plot(dcL, "Donchian Inf", color=color.new(upCol, 60), linewidth=1)
-plotchar(longSig  ? low  - 0.6 * ta.atr(14) : na, "LONG",  "▲", location.absolute, color=upCol, size=size.tiny)
-plotchar(shortSig ? high + 0.6 * ta.atr(14) : na, "SHORT", "▼", location.absolute, color=dnCol, size=size.tiny)
+plot(vwap, "VWAP", color=color.new(color.gray, 50), linewidth=1)
+plotshape(longSig,  "LONG",  shape.triangleup,   location.belowbar, upCol, size=size.tiny)
+plotshape(shortSig, "SHORT", shape.triangledown, location.abovebar, dnCol, size=size.tiny)
 var table wm = table.new(position.bottom_right, 1, 1, bgcolor=color.new(color.black, 100))
 if barstate.islast
     table.cell(wm, 0, 0, "₿ BudAI Capital®", text_color=color.new(#b6f400, 30), text_size=size.tiny)

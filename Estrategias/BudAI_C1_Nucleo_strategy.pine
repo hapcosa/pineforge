@@ -41,6 +41,7 @@ cogLen  = input.int(9,  "COG", minval=3, group=G_TRG)
 cuspLen = input.int(2,  "Confirmar cúspide", minval=1, maxval=6, group=G_TRG)
 obLvl   = input.int(70, "Sobrecompra", minval=55, maxval=95, group=G_TRG, inline="z")
 osLvl   = input.int(30, "Sobreventa", minval=5, maxval=45, group=G_TRG, inline="z")
+triggerMode = input.string("cusp", "Modo gatillo", options=["cusp", "cross50"], group=G_TRG)
 // ③ Ancla
 useVwap = input.bool(true, "Lado correcto del VWAP", group=G_FLU)
 volThr  = input.float(1.2, "Volumen mínimo (RVOL ×)", minval=1.0, maxval=5.0, step=0.1, group=G_FLU)
@@ -100,8 +101,8 @@ float cogRaw = cogDen != 0 ? -cogNum / cogDen + (cogLen + 1) / 2.0 : 0.0
 float osc = f_norm(wt1, 100) * 0.5 + f_norm(slopeRaw, 100) * 0.3 + f_norm(cogRaw, 100) * 0.2
 float pvH = ta.pivothigh(osc, cuspLen, cuspLen)
 float pvL = ta.pivotlow(osc,  cuspLen, cuspLen)
-bool cuspBull = not na(pvL) and pvL < osLvl
-bool cuspBear = not na(pvH) and pvH > obLvl
+bool cuspBull = triggerMode == "cross50" ? ta.crossover(osc, 50.0) : (not na(pvL) and pvL < osLvl)
+bool cuspBear = triggerMode == "cross50" ? ta.crossunder(osc, 50.0) : (not na(pvH) and pvH > obLvl)
 
 // ════════════════════════════════════════════════════════════════════════════
 //  ③ ANCLA
