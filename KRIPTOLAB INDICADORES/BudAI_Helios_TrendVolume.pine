@@ -1,0 +1,196 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - HELIOS · Trend·Volume
+//  HUECO (a) tapado: motor de TENDENCIA limpio que sí confirma con VOLUMEN.
+//  Contiene: ① SuperTrend (ATR trailing) · ② EMA Ribbon (5 EMAs apiladas) ·
+//  ③ Volumen relativo (RVOL) · ④ Filtro de régimen ADX/DI (no operar rango).
+//  Señal DISCRETA LONG/SHORT en el flip del SuperTrend, alineado con ribbon +
+//  volumen + ADX a favor → backtesteable. Emite alert() JSON canónico (webhook).
+//  Defaults NO optimizados: el backtest de KryptoLab dirá los buenos parámetros.
+//  (c) BudAI Capital® — código propio · Pine v6 · overlay
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - HELIOS Trend·Volume", shorttitle="BudAI · HELIOS", overlay=true, max_labels_count=300, max_lines_count=100)
+
+// ════════════════ GRUPOS ════════════════
+G_ST  = "① SuperTrend (tendencia base)"
+G_RIB = "② EMA Ribbon (alineación)"
+G_VOL = "③ Volumen (confirmación)"
+G_REG = "④ Régimen (ADX / DI)"
+G_VIS = "⑤ Estética"
+G_RM  = "⑥ Plan de riesgo (alertas)"
+G_WM  = "✦ Marca de agua"
+
+// ════════════════ ① SUPERTREND ════════════════
+stLen  = input.int(10, "ATR período", minval=2, maxval=50, step=1, group=G_ST, inline="s")
+stMult = input.float(3.0, "Factor", minval=1.0, maxval=8.0, step=0.1, group=G_ST, inline="s")
+showST = input.bool(true, "Mostrar línea", group=G_ST)
+
+// ════════════════ ② EMA RIBBON ════════════════
+r1Len = input.int(8,  "EMA 1", minval=2, group=G_RIB, inline="r1")
+r2Len = input.int(13, "EMA 2", minval=2, group=G_RIB, inline="r1")
+r3Len = input.int(21, "EMA 3", minval=2, group=G_RIB, inline="r2")
+r4Len = input.int(34, "EMA 4", minval=2, group=G_RIB, inline="r2")
+r5Len = input.int(55, "EMA 5", minval=2, group=G_RIB, inline="r3")
+useMacro = input.bool(true, "Sesgo macro EMA 200", group=G_RIB, inline="r3")
+macroLen = input.int(200, "len", minval=20, group=G_RIB, inline="r3")
+reqStack = input.bool(false, "Exigir ribbon perfectamente apilada", group=G_RIB, tooltip="ON = más estricto (menos señales, más calidad).")
+showRib  = input.bool(true, "Mostrar ribbon + nube", group=G_RIB)
+
+// ════════════════ ③ VOLUMEN ════════════════
+volMaLen = input.int(20, "Media de volumen", minval=2, group=G_VOL, inline="v")
+volThr   = input.float(1.2, "RVOL mínimo ×", minval=1.0, maxval=5.0, step=0.1, group=G_VOL, inline="v")
+useVol   = input.bool(true, "Exigir volumen", group=G_VOL)
+
+// ════════════════ ④ RÉGIMEN ════════════════
+adxLen  = input.int(14, "ADX/DI período", minval=2, group=G_REG, inline="a")
+adxThr  = input.float(20, "ADX umbral", minval=5, maxval=60, step=1, group=G_REG, inline="a")
+useAdx  = input.bool(true, "Exigir tendencia (ADX) y DI a favor", group=G_REG)
+markRng = input.bool(true, "Marcar zona de rango (fondo)", group=G_REG)
+
+// ════════════════ ⑤ ESTÉTICA ════════════════
+upCol  = input.color(#00e676, "Alcista (verde neón)", group=G_VIS, inline="c")
+dnCol  = input.color(#ff1744, "Bajista (rojo neón)", group=G_VIS, inline="c")
+rngCol = input.color(color.new(#ffea00, 90), "Rango", group=G_VIS)
+showDash = input.bool(true, "Dashboard", group=G_VIS)
+dashPos  = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════ ⑥ PLAN DE RIESGO (alert JSON canónico) ════════════════
+alertSym = input.symbol("", "Símbolo alerta (vacío = base+USDT)", group=G_RM)
+sl_pct   = input.float(2.0, "SL %",  minval=0.1, step=0.1, group=G_RM)
+tp1_pct  = input.float(1.0, "TP1 %", minval=0.1, step=0.1, group=G_RM, inline="tp1")
+tp1_q    = input.float(40,  "qty%",  minval=0, maxval=100, step=5, group=G_RM, inline="tp1")
+tp2_pct  = input.float(2.0, "TP2 %", minval=0.1, step=0.1, group=G_RM, inline="tp2")
+tp2_q    = input.float(30,  "qty%",  minval=0, maxval=100, step=5, group=G_RM, inline="tp2")
+tp3_pct  = input.float(4.0, "TP3 %", minval=0.1, step=0.1, group=G_RM, inline="tp3")
+tp3_q    = input.float(30,  "qty%",  minval=0, maxval=100, step=5, group=G_RM, inline="tp3")
+trail_act= input.float(2.0, "Trailing activación %", minval=0, step=0.1, group=G_RM, inline="tr")
+trail_cb = input.float(0.8, "callback %", minval=0, step=0.1, group=G_RM, inline="tr")
+be_trig  = input.float(1.0, "Break-even trigger %", minval=0, step=0.1, group=G_RM, inline="be")
+be_off   = input.float(0.1, "offset %", minval=0, step=0.1, group=G_RM, inline="be")
+
+// ════════════════ ✦ WM ════════════════
+showWM = input.bool(true, "Firma BudAI", group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 30), "Color", group=G_WM)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PRECÁLCULOS (una vez)
+// ════════════════════════════════════════════════════════════════════════════
+bool  conf  = barstate.isconfirmed
+float atr14 = ta.atr(14)
+
+// ── ① SuperTrend ──
+[stLine, stDir] = ta.supertrend(stMult, stLen)
+bool stBull = stDir < 0
+bool flipUp = stDir < 0 and stDir[1] > 0
+bool flipDn = stDir > 0 and stDir[1] < 0
+
+// ── ② EMA Ribbon ──
+float e1 = ta.ema(close, r1Len)
+float e2 = ta.ema(close, r2Len)
+float e3 = ta.ema(close, r3Len)
+float e4 = ta.ema(close, r4Len)
+float e5 = ta.ema(close, r5Len)
+float eMacro = ta.ema(close, macroLen)
+bool stackBull = e1 > e2 and e2 > e3 and e3 > e4 and e4 > e5
+bool stackBear = e1 < e2 and e2 < e3 and e3 < e4 and e4 < e5
+bool ribBull = (reqStack ? stackBull : (e1 > e5 and close > e1)) and (not useMacro or close > eMacro)
+bool ribBear = (reqStack ? stackBear : (e1 < e5 and close < e1)) and (not useMacro or close < eMacro)
+
+// ── ③ Volumen relativo ──
+float volMa = ta.sma(nz(volume), volMaLen)
+float rvol  = volMa != 0 ? nz(volume) / volMa : 1.0
+bool volOk  = not useVol or rvol >= volThr
+
+// ── ④ Régimen ADX/DI ──
+[diP, diM, adx] = ta.dmi(adxLen, adxLen)
+bool trending = adx >= adxThr
+bool isRange  = not trending
+bool adxUpOk  = not useAdx or (trending and diP > diM)
+bool adxDnOk  = not useAdx or (trending and diM > diP)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  SEÑAL DISCRETA — flip SuperTrend alineado con ribbon + volumen + régimen
+// ════════════════════════════════════════════════════════════════════════════
+bool longSig  = flipUp and ribBull and volOk and adxUpOk and conf
+bool shortSig = flipDn and ribBear and volOk and adxDnOk and conf
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PLOTS — SuperTrend (rayo) + Ribbon (nube) + nodos glow
+// ════════════════════════════════════════════════════════════════════════════
+color stCol = stBull ? upCol : dnCol
+plot(showST ? stLine : na, "ST glow", color=color.new(stCol, 78), linewidth=5, style=plot.style_linebr)
+plot(showST ? stLine : na, "SuperTrend", color=color.new(stCol, 0), linewidth=2, style=plot.style_linebr)
+
+color ribCol = ribBull ? upCol : ribBear ? dnCol : color.new(color.gray, 40)
+p1 = plot(showRib ? e1 : na, "EMA1", color=color.new(ribCol, 35), linewidth=1)
+plot(showRib ? e2 : na, "EMA2", color=color.new(ribCol, 55), linewidth=1)
+plot(showRib ? e3 : na, "EMA3", color=color.new(ribCol, 65), linewidth=1)
+plot(showRib ? e4 : na, "EMA4", color=color.new(ribCol, 75), linewidth=1)
+p5 = plot(showRib ? e5 : na, "EMA5", color=color.new(ribCol, 85), linewidth=1)
+fill(p1, p5, color=showRib ? color.new(ribCol, 90) : na, title="Ribbon cloud")
+
+bgcolor(markRng and isRange ? rngCol : na, title="Zona de rango")
+
+// Nodos: halo color + núcleo blanco
+plotchar(longSig  ? low  - 0.7 * atr14 : na, "LONG halo",  "●", location.absolute, color=color.new(upCol, 60), size=size.normal)
+plotchar(longSig  ? low  - 0.7 * atr14 : na, "LONG núcleo","•", location.absolute, color=color.new(color.white, 0), size=size.tiny)
+plotchar(shortSig ? high + 0.7 * atr14 : na, "SHORT halo", "●", location.absolute, color=color.new(dnCol, 60), size=size.normal)
+plotchar(shortSig ? high + 0.7 * atr14 : na, "SHORT núcleo","•", location.absolute, color=color.new(color.white, 0), size=size.tiny)
+
+// Conector para el Cónclave
+plot(longSig ? 1 : shortSig ? -1 : 0, "conn_helios", display=display.none)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD
+// ════════════════════════════════════════════════════════════════════════════
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+var table d = table.new(f_pos(dashPos), 2, 6, bgcolor=color.new(#0a0e17, 6), frame_color=color.new(#00e676, 45), frame_width=1, border_color=color.new(#1b2436, 30), border_width=1)
+f_cell(int rr, string k, string v, color vc) =>
+    table.cell(d, 0, rr, k, text_color=color.new(#8aa0b8, 0), bgcolor=color.new(#121a2a, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, rr, v, text_color=vc, bgcolor=color.new(#0d1320, 0), text_size=size.tiny, text_halign=text.align_right)
+
+if showDash and barstate.islast
+    string verd = longSig ? "▲ LONG" : shortSig ? "▼ SHORT" : "NO TRADE"
+    color  vCol = longSig ? upCol : shortSig ? dnCol : color.new(#90a4ae, 0)
+    table.cell(d, 0, 0, "☀ HELIOS", text_color=color.white, bgcolor=color.new(#0e3a24, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, verd, text_color=vCol, bgcolor=color.new(#0e3a24, 0), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(1, "SuperTrend", stBull ? "Alcista" : "Bajista", stBull ? upCol : dnCol)
+    f_cell(2, "Ribbon", ribBull ? "Apilada ▲" : ribBear ? "Apilada ▼" : "Mixta", ribBull ? upCol : ribBear ? dnCol : color.new(#90a4ae, 0))
+    f_cell(3, "Régimen", trending ? "TENDENCIA " + str.tostring(adx, "#") : "RANGO " + str.tostring(adx, "#"), trending ? upCol : rngCol)
+    f_cell(4, "DI+/DI−", str.tostring(diP, "#") + " / " + str.tostring(diM, "#"), diP > diM ? upCol : dnCol)
+    f_cell(5, "Volumen", str.tostring(rvol, "#.#") + "× " + (volOk ? "✓" : "·"), volOk ? upCol : color.new(#90a4ae, 0))
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+var table wm = table.new(position.bottom_right, 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Capital®", text_color=wmCol, text_size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS — JSON canónico (webhook) + alertcondition (manual TV)
+// ════════════════════════════════════════════════════════════════════════════
+f_sym() => alertSym != "" ? alertSym : syminfo.basecurrency + "USDT"
+f_alertJson(string side) =>
+    '{"side":"' + side + '","symbol":"' + f_sym() + '"' +
+      ',"timeframe":"' + timeframe.period + '"' +
+      ',"price":' + str.tostring(close) +
+      ',"risk":{"sl_pct":' + str.tostring(sl_pct) +
+        ',"tp":[{"pct":' + str.tostring(tp1_pct) + ',"qty_pct":' + str.tostring(tp1_q) + '},' +
+              '{"pct":' + str.tostring(tp2_pct) + ',"qty_pct":' + str.tostring(tp2_q) + '},' +
+              '{"pct":' + str.tostring(tp3_pct) + ',"qty_pct":' + str.tostring(tp3_q) + '}]' +
+        ',"trailing":{"activation_pct":' + str.tostring(trail_act) + ',"callback_pct":' + str.tostring(trail_cb) + '}' +
+        ',"breakeven":{"trigger_pct":' + str.tostring(be_trig) + ',"offset_pct":' + str.tostring(be_off) + '}}}'
+
+if longSig
+    alert(f_alertJson("buy"),  alert.freq_once_per_bar_close)
+if shortSig
+    alert(f_alertJson("sell"), alert.freq_once_per_bar_close)
+
+alertcondition(longSig,  "HELIOS · LONG",  "BudAI HELIOS · LONG {{ticker}} @ {{close}}")
+alertcondition(shortSig, "HELIOS · SHORT", "BudAI HELIOS · SHORT {{ticker}} @ {{close}}")

@@ -1,0 +1,331 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Lorentzian Flow
+//  Clasificador de Machine Learning por distancia de Lorentzian (kNN) sobre un
+//  espacio de 5 features (RSI×2, ADX, CCI, WaveTrend). Predice el sesgo del
+//  próximo tramo y lo CONFIRMA con flujo de capital (MFI+CMF+Delta) y filtros de
+//  volatilidad/régimen. Niveles S/R adaptativos teñidos por el sesgo ML.
+//  Honestidad: es clasificación por vecinos cercanos, NO IA mágica ni winrate.
+//  (c) BudAI Capital® — código propio · Pine v6 · overlay
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Lorentzian Flow", shorttitle="BudAI Capital® - Lorentzian Flow", overlay=true, max_lines_count=500, max_labels_count=300, max_bars_back=3000)
+
+// ════════════════ GRUPOS ════════════════
+G_ML  = "① Núcleo ML (Lorentzian kNN)"
+G_FLT = "② Filtros"
+G_KER = "②·b Filtro Kernel (Nadaraya-Watson)"
+G_MF  = "③ Flujo de capital"
+G_SR  = "④ Niveles S/R adaptativos"
+G_VIS = "⑤ Estética / Señales"
+G_COL = "⑥ Paleta"
+G_WM  = "✦ Marca de agua"
+
+// ════════════════ ① ML ════════════════
+src        = input.source(close, "Fuente", group=G_ML)
+kNeighbors = input.int(8, "Vecinos (k)", minval=1, maxval=64, group=G_ML, tooltip="Cuántos vecinos cercanos votan la predicción.")
+maxBack    = input.int(1000, "Memoria de entrenamiento (barras)", minval=100, maxval=3000, group=G_ML, tooltip="Cuánta historia escanea el kNN. Más = más lento.")
+rsiLenA    = input.int(14, "RSI A", minval=2, group=G_ML, inline="r")
+rsiLenB    = input.int(9,  "RSI B", minval=2, group=G_ML, inline="r")
+cciLen     = input.int(20, "CCI", minval=2, group=G_ML, inline="c")
+adxLen     = input.int(14, "ADX", minval=2, group=G_ML, inline="c")
+wtLen      = input.int(10, "WaveTrend", minval=2, group=G_ML)
+
+// ════════════════ ② FILTROS ════════════════
+useVol  = input.bool(true,  "Filtro de volatilidad", group=G_FLT)
+useReg  = input.bool(true,  "Filtro de régimen (EMA 200)", group=G_FLT)
+useAdxF = input.bool(false, "Filtro ADX", inline="a", group=G_FLT)
+adxThr  = input.int(20, "umbral", inline="a", minval=5, maxval=60, group=G_FLT)
+
+// ════════════════ ②·b KERNEL ════════════════
+useKernel = input.bool(true,  "Filtrar con regresión kernel", group=G_KER)
+kSmooth   = input.bool(false, "Modo suavizado (cruce yhat2/yhat1)", group=G_KER)
+kH        = input.int(8, "Ventana (lookback)", minval=3, maxval=50, group=G_KER, inline="k")
+kR        = input.float(8.0, "Peso relativo", minval=0.5, step=0.5, group=G_KER, inline="k")
+kX        = input.int(25, "Inicio regresión (barras)", minval=2, maxval=60, group=G_KER)
+kLag      = input.int(2, "Lag suavizado", minval=1, maxval=10, group=G_KER)
+
+// ════════════════ ③ FLUJO ════════════════
+reqFlow = input.bool(true, "Exigir Money Flow a favor", group=G_MF)
+mfiLen  = input.int(14, "MFI", minval=2, group=G_MF, inline="mf")
+cmfLen  = input.int(20, "CMF", minval=2, group=G_MF, inline="mf")
+delLen  = input.int(14, "Delta vol", minval=2, group=G_MF)
+
+// ════════════════ ④ S/R ════════════════
+showSR = input.bool(true, "Niveles S/R adaptativos", group=G_SR)
+srPiv  = input.int(8, "Fuerza del pivote", minval=2, maxval=30, group=G_SR)
+
+// ════════════════ ⑤ ESTÉTICA ════════════════
+showBase = input.bool(true,  "Línea base ML (EMA teñida)", group=G_VIS)
+baseLen  = input.int(20, "EMA base", minval=2, group=G_VIS)
+colorBars= input.bool(false, "Pintar velas por sesgo ML", group=G_VIS)
+showDash = input.bool(true,  "Dashboard", group=G_VIS)
+
+// ════════════════ ⑥ PALETA ════════════════
+palette = input.string("Verde vs Rojo (neón)", "Paleta Bull/Bear", options=["Verde vs Rojo (neón)","Cyan vs Magenta","Oro vs Violeta","Aqua vs Rubí"], group=G_COL)
+cWhite  = input.color(#ffffff, "Núcleo (blanco)", group=G_COL)
+color upCol = palette == "Cyan vs Magenta" ? #00f0ff : palette == "Oro vs Violeta" ? #ffe600 : palette == "Aqua vs Rubí" ? #18ffff : #00e676
+color dnCol = palette == "Cyan vs Magenta" ? #ff007a : palette == "Oro vs Violeta" ? #9d00ff : palette == "Aqua vs Rubí" ? #ff1744 : #ff1744
+
+// ════════════════ ⑦ PLAN DE RIESGO (alert JSON canónico) ════════════════
+G_RM = "⑦ Plan de riesgo (alertas)"
+alertSym = input.symbol("", "Símbolo alerta (vacío = base+USDT)", group=G_RM)
+sl_pct   = input.float(2.0, "SL %",  minval=0.1, step=0.1, group=G_RM)
+tp1_pct  = input.float(1.0, "TP1 %", minval=0.1, step=0.1, group=G_RM, inline="tp1")
+tp1_q    = input.float(40,  "qty%",  minval=0, maxval=100, step=5, group=G_RM, inline="tp1")
+tp2_pct  = input.float(2.0, "TP2 %", minval=0.1, step=0.1, group=G_RM, inline="tp2")
+tp2_q    = input.float(30,  "qty%",  minval=0, maxval=100, step=5, group=G_RM, inline="tp2")
+tp3_pct  = input.float(4.0, "TP3 %", minval=0.1, step=0.1, group=G_RM, inline="tp3")
+tp3_q    = input.float(30,  "qty%",  minval=0, maxval=100, step=5, group=G_RM, inline="tp3")
+trail_act= input.float(2.0, "Trailing activación %", minval=0, step=0.1, group=G_RM, inline="tr")
+trail_cb = input.float(0.8, "callback %", minval=0, step=0.1, group=G_RM, inline="tr")
+be_trig  = input.float(1.0, "Break-even trigger %", minval=0, step=0.1, group=G_RM, inline="be")
+be_off   = input.float(0.1, "offset %", minval=0, step=0.1, group=G_RM, inline="be")
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Firma BudAI", group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 30), "Color firma", group=G_WM)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  FEATURES — normalizadas a una escala comparable
+// ════════════════════════════════════════════════════════════════════════════
+f_rescale(float x, float oldMin, float oldMax) =>
+    (x - oldMin) / math.max(oldMax - oldMin, 1e-10)
+
+float atr = ta.atr(14)
+[diP, diM, adxv] = ta.dmi(adxLen, adxLen)
+
+float esa = ta.ema(hlc3, wtLen)
+float de  = ta.ema(math.abs(hlc3 - esa), wtLen)
+float ci  = de == 0 ? 0.0 : (hlc3 - esa) / (0.015 * de)
+float wt  = ta.ema(ci, wtLen + 1)
+
+float f1 = ta.rsi(src, rsiLenA) / 100.0
+float f2 = ta.rsi(src, rsiLenB) / 100.0
+float f3 = nz(adxv) / 100.0
+float f4 = f_rescale(ta.cci(src, cciLen), -250.0, 250.0)
+float f5 = f_rescale(wt, -60.0, 60.0)
+
+// Etiqueta de entrenamiento (método Lorentzian clásico: mira 4 barras)
+int yTrain = src[4] < src[0] ? -1 : src[4] > src[0] ? 1 : 0
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MEMORIA — arrays de features + etiquetas (ventana acotada)
+// ════════════════════════════════════════════════════════════════════════════
+var array<float> A1 = array.new_float()
+var array<float> A2 = array.new_float()
+var array<float> A3 = array.new_float()
+var array<float> A4 = array.new_float()
+var array<float> A5 = array.new_float()
+var array<int>   AY = array.new_int()
+
+bool ready = bar_index > 50 and not na(f4) and not na(f5)
+if barstate.isconfirmed and ready
+    array.push(A1, f1)
+    array.push(A2, f2)
+    array.push(A3, f3)
+    array.push(A4, f4)
+    array.push(A5, f5)
+    array.push(AY, yTrain)
+    if array.size(A1) > maxBack
+        array.shift(A1)
+        array.shift(A2)
+        array.shift(A3)
+        array.shift(A4)
+        array.shift(A5)
+        array.shift(AY)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  CLASIFICADOR kNN — distancia de Lorentzian
+// ════════════════════════════════════════════════════════════════════════════
+f_lorentz(int i) =>
+    math.log(1 + math.abs(f1 - array.get(A1, i))) + math.log(1 + math.abs(f2 - array.get(A2, i))) + math.log(1 + math.abs(f3 - array.get(A3, i))) + math.log(1 + math.abs(f4 - array.get(A4, i))) + math.log(1 + math.abs(f5 - array.get(A5, i)))
+
+float prediction = 0.0
+if ready and array.size(A1) > 10
+    array<float> dists = array.new_float()
+    array<int>   preds = array.new_int()
+    float lastDist = -1.0
+    int n = array.size(A1) - 1
+    for i = 0 to n
+        if i % 4 == 0
+            float d = f_lorentz(i)
+            if d >= lastDist
+                lastDist := d
+                array.push(dists, d)
+                array.push(preds, array.get(AY, i))
+                if array.size(preds) > kNeighbors
+                    lastDist := array.get(dists, math.round(kNeighbors * 3 / 4))
+                    array.shift(dists)
+                    array.shift(preds)
+    prediction := array.size(preds) > 0 ? float(array.sum(preds)) : 0.0
+
+// ════════════════════════════════════════════════════════════════════════════
+//  FLUJO DE CAPITAL — MFI + CMF + Delta (0..100)
+// ════════════════════════════════════════════════════════════════════════════
+float vol  = nz(volume) == 0 ? 1.0 : volume
+float mfi  = ta.mfi(hlc3, mfiLen)
+float mfm  = (high - low) != 0 ? ((close - low) - (high - close)) / (high - low) : 0.0
+float cmf  = math.sum(mfm * vol, cmfLen) / math.max(math.sum(vol, cmfLen), 1e-10)
+float cmfN = (cmf + 1.0) / 2.0 * 100.0
+float buyV = vol * (close - low)  / math.max(high - low, syminfo.mintick)
+float selV = vol * (high - close) / math.max(high - low, syminfo.mintick)
+float delR = math.sum(buyV - selV, delLen)
+float delT = math.sum(buyV + selV, delLen)
+float delN = delT != 0 ? (delR / delT + 1.0) / 2.0 * 100.0 : 50.0
+float mFlow = ta.ema(mfi * 0.4 + cmfN * 0.3 + delN * 0.3, 3)
+
+bool flowUp = not reqFlow or mFlow >= 50
+bool flowDn = not reqFlow or mFlow <= 50
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ②·b FILTRO KERNEL — Nadaraya-Watson (rational quadratic + gaussian)
+// ════════════════════════════════════════════════════════════════════════════
+f_rq(float _s, int _lb, float _rw, int _start) =>
+    float cw = 0.0
+    float tw = 0.0
+    for i = 0 to _start + 1
+        float w = math.pow(1.0 + (i * i) / (_lb * _lb * 2.0 * _rw), -_rw)
+        cw += _s[i] * w
+        tw += w
+    tw != 0 ? cw / tw : _s
+
+f_g(float _s, int _lb, int _start) =>
+    float cw = 0.0
+    float tw = 0.0
+    for i = 0 to _start + 1
+        float w = math.exp(-(i * i) / (2.0 * _lb * _lb))
+        cw += _s[i] * w
+        tw += w
+    tw != 0 ? cw / tw : _s
+
+float yhat1 = f_rq(close, kH, kR, kX)
+float yhat2 = f_g(close, math.max(kH - kLag, 2), kX)
+
+bool kBullRate   = yhat1 >= yhat1[1]
+bool kBearRate   = yhat1 <= yhat1[1]
+bool kBullSmooth = yhat2 >= yhat1
+bool kBearSmooth = yhat2 <= yhat1
+bool kLongOk  = not useKernel or (kSmooth ? kBullSmooth : kBullRate)
+bool kShortOk = not useKernel or (kSmooth ? kBearSmooth : kBearRate)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  FILTROS
+// ════════════════════════════════════════════════════════════════════════════
+bool fVol = not useVol or ta.atr(10) > ta.sma(ta.atr(10), 30) * 0.85
+float ema200 = ta.ema(close, 200)
+bool fRegUp = not useReg or close > ema200
+bool fRegDn = not useReg or close < ema200
+bool fAdx = not useAdxF or nz(adxv) > adxThr
+
+bool longOk  = prediction > 0 and fVol and fAdx and fRegUp and flowUp and kLongOk
+bool shortOk = prediction < 0 and fVol and fAdx and fRegDn and flowDn and kShortOk
+
+// ════════════════════════════════════════════════════════════════════════════
+//  SEÑAL (con persistencia)
+// ════════════════════════════════════════════════════════════════════════════
+var int sig = 0
+sig := longOk ? 1 : shortOk ? -1 : nz(sig[1])
+bool newLong  = sig == 1  and sig[1] != 1
+bool newShort = sig == -1 and sig[1] != -1
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ④ NIVELES S/R ADAPTATIVOS — teñidos por el sesgo ML
+// ════════════════════════════════════════════════════════════════════════════
+float ph = ta.pivothigh(high, srPiv, srPiv)
+float pl = ta.pivotlow(low,  srPiv, srPiv)
+var line srH = na
+var line srL = na
+if showSR and not na(ph)
+    if not na(srH)
+        line.delete(srH)
+    srH := line.new(bar_index - srPiv, ph, bar_index + 8, ph, color=color.new(dnCol, 45), width=1, style=line.style_dotted)
+if showSR and not na(pl)
+    if not na(srL)
+        line.delete(srL)
+    srL := line.new(bar_index - srPiv, pl, bar_index + 8, pl, color=color.new(upCol, 45), width=1, style=line.style_dotted)
+if showSR and barstate.islast
+    if not na(srH)
+        line.set_x2(srH, bar_index + 8)
+    if not na(srL)
+        line.set_x2(srL, bar_index + 8)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  VISUAL — línea base teñida (rayo) + nodos glow + velas
+// ════════════════════════════════════════════════════════════════════════════
+color sc = sig == 1 ? upCol : sig == -1 ? dnCol : color.new(color.gray, 35)
+float baseV = ta.ema(close, baseLen)
+plot(showBase ? baseV : na, "ML base halo", color=color.new(sc, 82), linewidth=3)
+plot(showBase ? baseV : na, "ML base", color=sc, linewidth=1)
+
+// Línea kernel (Nadaraya-Watson) teñida por su pendiente — finísima + glow
+color kCol = kBullRate ? upCol : dnCol
+plot(useKernel ? yhat1 : na, "Kernel halo", color=color.new(kCol, 80), linewidth=3)
+plot(useKernel ? yhat1 : na, "Kernel", color=kCol, linewidth=2)
+
+barcolor(colorBars ? color.new(sc, 35) : na)
+
+// Nodos glow en cambio de señal (alineados por location.absolute)
+float ny = newLong ? low - 0.6 * atr : newShort ? high + 0.6 * atr : na
+color nc = newLong ? upCol : dnCol
+plotchar(na(ny) ? na : ny, "Entrada halo",  "●", location.absolute, color=color.new(nc, 65), size=size.large)
+plotchar(na(ny) ? na : ny, "Entrada mid",   "●", location.absolute, color=color.new(nc, 25), size=size.normal)
+plotchar(na(ny) ? na : ny, "Entrada núcleo","•", location.absolute, color=color.new(cWhite, 0), size=size.tiny)
+
+// Conector para el Cónclave
+plot(sig, "conn_ml", display=display.none)
+plot(prediction, "conn_ml_strength", display=display.none)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD
+// ════════════════════════════════════════════════════════════════════════════
+var table d = table.new(position.top_right, 2, 5, bgcolor=color.new(#0b0e16, 12), frame_color=color.new(upCol, 55), frame_width=1, border_width=1)
+f_cell(int rw, string k, string v, color vc) =>
+    table.cell(d, 0, rw, k, text_color=color.new(#90a4ae, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, rw, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
+
+if showDash and barstate.islast
+    float confidence = math.abs(prediction) / kNeighbors * 100.0
+    string verd = sig == 1 ? "▲ LONG" : sig == -1 ? "▼ SHORT" : "NO TRADE"
+    color  vCol = sig == 1 ? upCol : sig == -1 ? dnCol : color.new(#90a4ae, 0)
+    string flowTxt = mFlow > 50 ? "ACUMULACIÓN" : "DISTRIBUCIÓN"
+    table.cell(d, 0, 0, "Lorentzian", text_color=color.white, bgcolor=color.new(#1b2030, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, verd, text_color=vCol, bgcolor=color.new(#1b2030, 0), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(1, "Predicción", str.tostring(prediction, "#.#") + " / " + str.tostring(kNeighbors), prediction >= 0 ? upCol : dnCol)
+    f_cell(2, "Confianza", str.tostring(confidence, "#") + "%", confidence >= 60 ? upCol : color.new(#90a4ae, 0))
+    f_cell(3, "Flujo", flowTxt, mFlow > 50 ? upCol : dnCol)
+    f_cell(4, "Régimen", close > ema200 ? "Alcista" : "Bajista", close > ema200 ? upCol : dnCol)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+var table wm = table.new(position.bottom_right, 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Capital®", text_color=wmCol, text_size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS — JSON canónico (webhook) + alertcondition (manual TV)
+// ════════════════════════════════════════════════════════════════════════════
+f_sym() => alertSym != "" ? alertSym : syminfo.basecurrency + "USDT"
+f_alertJson(string side) =>
+    '{"side":"' + side + '","symbol":"' + f_sym() + '"' +
+      ',"timeframe":"' + timeframe.period + '"' +
+      ',"price":' + str.tostring(close) +
+      ',"risk":{"sl_pct":' + str.tostring(sl_pct) +
+        ',"tp":[{"pct":' + str.tostring(tp1_pct) + ',"qty_pct":' + str.tostring(tp1_q) + '},' +
+              '{"pct":' + str.tostring(tp2_pct) + ',"qty_pct":' + str.tostring(tp2_q) + '},' +
+              '{"pct":' + str.tostring(tp3_pct) + ',"qty_pct":' + str.tostring(tp3_q) + '}]' +
+        ',"trailing":{"activation_pct":' + str.tostring(trail_act) + ',"callback_pct":' + str.tostring(trail_cb) + '}' +
+        ',"breakeven":{"trigger_pct":' + str.tostring(be_trig) + ',"offset_pct":' + str.tostring(be_off) + '}}}'
+
+if newLong
+    alert(f_alertJson("buy"),  alert.freq_once_per_bar_close)
+if newShort
+    alert(f_alertJson("sell"), alert.freq_once_per_bar_close)
+
+alertcondition(newLong,  "Lorentzian LONG",  "BudAI Lorentzian · LONG {{ticker}}")
+alertcondition(newShort, "Lorentzian SHORT", "BudAI Lorentzian · SHORT {{ticker}}")
