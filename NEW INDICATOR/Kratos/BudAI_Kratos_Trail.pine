@@ -35,7 +35,8 @@ float  cloudW = input.float(1.5, "Grosor de la nube (mult ATR)", minval=0.0, max
 color C_BULL   = input.color(#00e5ff, "Alcista (celeste)", group=G_S, inline="c")
 color C_BEAR   = input.color(#ff1e6e, "Bajista (fucsia)", group=G_S, inline="c")
 bool  glow     = input.bool(true, "Glow (capa de brillo)", group=G_S)
-int   fillT    = input.int(80, "Transparencia nube", minval=0, maxval=100, group=G_S)
+int   fillT    = input.int(55, "Opacidad nube (núcleo)", minval=0, maxval=100, group=G_S)
+int   fadeT    = input.int(90, "Opacidad nube (fade)", minval=0, maxval=100, group=G_S)
 bool  cloudPx  = input.bool(true, "Nube hacia el precio", group=G_S, tooltip="ON = nube entre la línea y el precio (como la referencia). OFF = hacia afuera.")
 bool  showFlip = input.bool(true, "Marcar flips", group=G_S)
 
@@ -73,11 +74,15 @@ color trailCol   = isBull ? C_BULL : C_BEAR
 float cwS        = cloudPx ? cloudW : -cloudW
 float cloudEdge  = isBull ? trailLine + cwS * trailAtr : trailLine - cwS * trailAtr
 
-// ════════════════ PLOTS (glow + onda + nube) ════════════════
-plot(glow ? trailLine : na, "Glow", color=color.new(trailCol, 82), linewidth=3)
+// ════════════════ PLOTS (glow multicapa + onda + nube en degradado) ════════════════
+float hiE    = math.max(trailLine, cloudEdge)
+float loE    = math.min(trailLine, cloudEdge)
+bool  lineHi = trailLine >= cloudEdge
+plot(glow ? trailLine : na, "Glow ext", color=color.new(trailCol, 92), linewidth=6)
+plot(glow ? trailLine : na, "Glow",     color=color.new(trailCol, 80), linewidth=3)
 pMain  = plot(trailLine, "Trail", color=trailCol, linewidth=2)
 pCloud = plot(cloudEdge, "Nube (borde)", color=color.new(trailCol, 100))
-fill(pMain, pCloud, color=color.new(trailCol, fillT), title="Nube Trail")
+fill(pMain, pCloud, top_value=hiE, bottom_value=loE, top_color=color.new(trailCol, lineHi ? fillT : fadeT), bottom_color=color.new(trailCol, lineHi ? fadeT : fillT), title="Nube Trail")
 
 // ════════════════ FLIPS ════════════════
 bool flipUp   = isBull and not isBull[1]

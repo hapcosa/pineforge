@@ -1,0 +1,104 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Kratos (Signals)
+//  Motor de señales: oscilador WaveTrend interno → flechas de entrada/salida.
+//  Modos: Oscillator Signals (osc puro) / Confirmation+Exits (trend-gate + salidas).
+//  Sensitivity = profundidad OB/OS · Signal Tuner = suavizado. Núcleo del pack.
+//  Estudio de emulación por piezas — pieza «Signals» (7a: oscilador + señales).
+//  Gemelo Python (futuro): KryptoLab/indicators/kratos.py
+//  (c) BudAI Capital® — Pine v6
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Kratos (Signals)", shorttitle="BudAI Capital® - Kratos · Signals", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// ════════════════ GRUPOS ════════════════
+G_S  = "① Kratos Signals"
+G_O  = "② Oscilador (WaveTrend)"
+G_V  = "③ Estética"
+G_WM = "✦ Marca de agua"
+
+// ════════════════ ① SEÑALES ════════════════
+string sigMode = input.string("Confirmation + Exits", "Signal Mode", options=["Oscillator Signals", "Confirmation + Exits", "Ninguno"], group=G_S, tooltip="Oscillator = cruces del oscilador en OB/OS. Confirmation+Exits = además filtra por tendencia y dibuja salidas.")
+float sens     = input.float(2.1, "Sensitivity", minval=0.3, maxval=5.0, step=0.1, group=G_S, tooltip="Profundidad OB/OS exigida. ↑ = señales más extremas / largo plazo (menos señales).")
+int   tuner    = input.int(10, "Signal Tuner", minval=2, maxval=50, group=G_S, tooltip="Suavizado del oscilador (longitud del promedio WaveTrend).")
+int   trendLen = input.int(50, "Filtro de tendencia (EMA)", minval=2, maxval=400, group=G_S, tooltip="Solo en Confirmation+Exits: largos sobre la EMA, cortos debajo.")
+
+// ════════════════ ② OSCILADOR (WaveTrend) ════════════════
+float oscSrc  = input.source(hlc3, "Fuente", group=G_O)
+int   chanLen = input.int(9, "Canal (esa/de)", minval=2, maxval=50, group=G_O)
+int   trigLen = input.int(3, "Trigger (señal)", minval=1, maxval=20, group=G_O)
+
+// ════════════════ ③ ESTÉTICA (paleta Athenea) ════════════════
+color C_BUY  = input.color(#00e676, "Compra (verde)",  group=G_V, inline="s")
+color C_SELL = input.color(#ff1744, "Venta (rojo)",    group=G_V, inline="s")
+color C_XL   = input.color(#2962ff, "Salida largo (azul)",   group=G_V, inline="x")
+color C_XS   = input.color(#ff9100, "Salida corto (naranja)", group=G_V, inline="x")
+string candleMode = input.string("Ninguno", "Coloreado de velas", options=["Ninguno", "Tendencia", "Oscilador"], group=G_V)
+color C_CUP  = input.color(#00e676, "Vela alcista", group=G_V, inline="cc")
+color C_CDN  = input.color(#ff1744, "Vela bajista", group=G_V, inline="cc")
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+bool   showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+string wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda", "Inferior Derecha", "Superior Izquierda", "Superior Derecha"], group=G_WM)
+color  wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+// ════════════════ OSCILADOR WAVETREND ════════════════
+float esa = ta.ema(oscSrc, chanLen)
+float de  = ta.ema(math.abs(oscSrc - esa), chanLen)
+float ci  = de == 0.0 ? 0.0 : (oscSrc - esa) / (0.015 * de)
+float wt1 = ta.ema(ci, tuner)
+float wt2 = ta.sma(wt1, trigLen)
+
+// OB/OS escalado por Sensitivity (↑ sens = umbral más profundo = menos señales)
+float obLvl = 25.0 * sens
+float osLvl = -25.0 * sens
+
+// ════════════════ LÓGICA DE SEÑAL ════════════════
+bool crossUp = ta.crossover(wt1, wt2)
+bool crossDn = ta.crossunder(wt1, wt2)
+bool osZone  = wt2 <= osLvl
+bool obZone  = wt2 >= obLvl
+
+bool trendUp = close > ta.ema(close, trendLen)
+
+bool buyOsc  = crossUp and osZone
+bool sellOsc = crossDn and obZone
+
+bool isConf  = sigMode == "Confirmation + Exits"
+bool isOsc   = sigMode == "Oscillator Signals"
+
+bool buySig  = (isOsc and buyOsc) or (isConf and buyOsc and trendUp)
+bool sellSig = (isOsc and sellOsc) or (isConf and sellOsc and not trendUp)
+
+// Salidas (solo en Confirmation+Exits): cierre por cruce opuesto
+bool exitLong  = isConf and crossDn and not osZone
+bool exitShort = isConf and crossUp and not obZone
+
+// ════════════════ PLOTS — SEÑALES ════════════════
+plotshape(buySig,  title="Compra", style=shape.triangleup,   location=location.belowbar, color=C_BUY,  size=size.small, text="▲")
+plotshape(sellSig, title="Venta",  style=shape.triangledown, location=location.abovebar, color=C_SELL, size=size.small, text="▼")
+plotshape(exitLong,  title="Salida largo", style=shape.xcross, location=location.abovebar, color=C_XL, size=size.tiny)
+plotshape(exitShort, title="Salida corto", style=shape.xcross, location=location.belowbar, color=C_XS, size=size.tiny)
+
+// ════════════════ COLOREADO DE VELAS ════════════════
+color barCol = candleMode == "Tendencia" ? (trendUp ? C_CUP : C_CDN) : candleMode == "Oscilador" ? (wt1 >= wt2 ? C_CUP : C_CDN) : na
+barcolor(barCol)
+
+// ════════════════ MARCA DE AGUA (tabla 1×1) ════════════════
+f_wmPos(p) =>
+    p == "Inferior Izquierda" ? position.bottom_left : p == "Inferior Derecha" ? position.bottom_right : p == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1)
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.normal, bgcolor=color.new(#0b0e16, 100))
+
+// ════════════════ ALERTAS (placeholder; JSON canónico BudAI al ensamblar) ════════════════
+alertcondition(buySig,  title="Kratos Signals · Compra", message="Kratos BUY")
+alertcondition(sellSig, title="Kratos Signals · Venta",  message="Kratos SELL")
+alertcondition(exitLong,  title="Kratos Signals · Salida largo", message="Kratos EXIT LONG")
+alertcondition(exitShort, title="Kratos Signals · Salida corto", message="Kratos EXIT SHORT")

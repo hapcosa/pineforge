@@ -9,9 +9,23 @@ pieza. Aquí solo vive el estudio/emulación; el ensamblaje final llega al cierr
 
 ## Estado
 
+Orden de trabajo (alfabético, overlays): **Kumo → Line → Reversal Zones → Trend Catcher
+→ Trend Tracer** → luego motor de señales, TP/SL, dashboard → ensamblaje final.
+
 | Pieza | Archivo | Estado |
 |---|---|---|
-| 1 · Trail | `BudAI_Kratos_Trail.pine` | **v0.3 — hipótesis** (kernel rational-quadratic + banda ATR + glow Athenea). Descartados SuperTrend (escalonado) y MA simple (no cuadró). Pendiente: igualar bandwidth `h`. |
+| 1 · Trail | `BudAI_Kratos_Trail.pine` | **CERRADA** ✅ — kernel rational-quadratic + banda ATR + glow Athenea. Match visual en 15m y 1h. Params: h15 · r1 · win50 · atr9 · bMult1.5 · cloudW1.2 · nube al precio. |
+| 2 · Kumo | `BudAI_Kratos_Kumo.pine` | **v0.2 — casi cerrado** (nube entre 2 MAs suaves; Ichimoku clásico DESCARTADO). Familia correcta, cerca. EMA·fast7·slow21. Overlay opcional. |
+| 3 · Line | `BudAI_Kratos_Line.pine` | **v0.1 — en cotejo** (MA suave + MTF). Hipótesis "centro del kernel" DESCARTADA: Neptune Line es MA lenta/laggy (probar EMA·~50+). Pendiente length final. |
+| 4 · Reversal Zones | `BudAI_Kratos_ReversalZones.pine` | **CERRADA** ✅ — bandas de volatilidad onduladas + borde brillante + degradado glow. Bollinger-extreme: StdDev·100·**factor 2.3** (= "1.4" de la referencia)·SMA20·zoneW1. Overlay opcional. |
+
+| 5 · Trend Catcher | `BudAI_Kratos_TrendCatcher.pine` | **CERRADA** ✅ — SuperTrend ATR verde/rojo (escalonado confirmado) + región en degradado. factor 5. Overlay opcional. |
+| 6 · Trend Tracer | `BudAI_Kratos_TrendTracer.pine` | **CERRADA** ✅ — mismo SuperTrend que el Catcher, azul/naranja, factor 3.1. Overlay opcional. |
+| 7 · Motor de señales | `BudAI_Kratos_Signals.pine` | **v0.1 — en construcción** (oscilador WaveTrend → flechas entrada/salida; modos Oscillator / Confirmation+Exits; Sensitivity/Tuner). El núcleo del pack. |
+
+> **Estándar estético (v glow-fading):** todas las piezas usan ahora relleno en **degradado**
+> (`fill` con top_value/bottom_value, núcleo opaco → fade) + **glow multicapa**. Aplicado a
+> Trail, Kumo, Line y Reversal Zones.
 
 > **Estética/regla #6:** el `.pine` lleva header ASCII BudAI + legend `BudAI Capital® - Kratos`
 > + paleta Athenea + marca de agua. El nombre del producto de referencia **NO** aparece en

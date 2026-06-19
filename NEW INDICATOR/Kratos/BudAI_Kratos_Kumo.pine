@@ -1,0 +1,73 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Kratos (Kumo)
+//  Nube de equilibrio SUAVE: relleno entre 2 medias (rápida/lenta), coloreada
+//  por cruce. NO es Ichimoku clásico (la referencia es curva, no escalonada).
+//  Estudio de emulación por piezas — pieza «Kumo» (overlay opcional del pack).
+//  Gemelo Python (futuro): KryptoLab/indicators/kratos.py
+//  (c) BudAI Capital® — Pine v6
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Kratos (Kumo)", shorttitle="BudAI Capital® - Kratos · Kumo", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// ════════════════ GRUPOS ════════════════
+G_K  = "① Kratos Kumo"
+G_S  = "② Estética"
+G_WM = "✦ Marca de agua"
+
+// ════════════════ ① KRATOS KUMO (nube entre 2 MAs suaves) ════════════════
+string maType    = input.string("EMA", "Suavizado (tipo MA)", options=["EMA", "RMA", "SMA", "WMA", "HMA"], group=G_K, tooltip="El Kumo de la referencia es CURVO, no el Ichimoku escalonado. Es una nube entre 2 medias.")
+int    fastLen   = input.int(7,  "Media rápida", minval=1, maxval=200, group=G_K, tooltip="El '7' de la referencia probablemente es esta.")
+int    slowLen   = input.int(21, "Media lenta",  minval=1, maxval=400, group=G_K)
+int    disp      = input.int(0,  "Desplazamiento", minval=0, maxval=100, group=G_K, tooltip="Barras de proyección. La referencia parece ir en 0 (pegado al precio).")
+bool   showEdges = input.bool(false, "Mostrar bordes de la nube", group=G_K)
+
+// ════════════════ ② ESTÉTICA (paleta Athenea) ════════════════
+color C_BULL = input.color(#00e5ff, "Nube alcista (celeste)", group=G_S, inline="c")
+color C_BEAR = input.color(#ff1744, "Nube bajista (rojo)",    group=G_S, inline="c")
+int   fillT  = input.int(70, "Opacidad nube (núcleo)", minval=0, maxval=100, group=G_S)
+int   fadeT  = input.int(92, "Opacidad nube (fade)", minval=0, maxval=100, group=G_S)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+bool   showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+string wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda", "Inferior Derecha", "Superior Izquierda", "Superior Derecha"], group=G_WM)
+color  wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+// ════════════════ CÁLCULO ════════════════
+f_ma(float src, int l, string t) =>
+    float m = t == "SMA" ? ta.sma(src, l) : t == "WMA" ? ta.wma(src, l) : t == "RMA" ? ta.rma(src, l) : t == "HMA" ? ta.hma(src, l) : ta.ema(src, l)
+    m
+
+float fast = f_ma(close, fastLen, maType)
+float slow = f_ma(close, slowLen, maType)
+bool  bull = fast >= slow
+
+// ════════════════ PLOTS (nube entre las 2 MAs) ════════════════
+color edgeBull = showEdges ? color.new(C_BULL, 0) : color.new(C_BULL, 100)
+color edgeBear = showEdges ? color.new(C_BEAR, 0) : color.new(C_BEAR, 100)
+color zCol     = bull ? C_BULL : C_BEAR
+float hiK      = math.max(fast, slow)
+float loK      = math.min(fast, slow)
+bool  fastHi   = fast >= slow
+pF = plot(fast, "Media rápida", color=(bull ? edgeBull : edgeBear), offset=disp)
+pS = plot(slow, "Media lenta",  color=(bull ? edgeBull : edgeBear), offset=disp)
+fill(pF, pS, top_value=hiK, bottom_value=loK, top_color=color.new(zCol, fastHi ? fillT : fadeT), bottom_color=color.new(zCol, fastHi ? fadeT : fillT), title="Kumo")
+
+// ════════════════ MARCA DE AGUA (tabla 1×1) ════════════════
+f_wmPos(p) =>
+    p == "Inferior Izquierda" ? position.bottom_left : p == "Inferior Derecha" ? position.bottom_right : p == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1)
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.normal, bgcolor=color.new(#0b0e16, 100))
+
+// ════════════════ ALERTAS (placeholder; JSON canónico BudAI al ensamblar) ════════════════
+bool kumoFlipUp = bull and not bull[1]
+bool kumoFlipDn = not bull and bull[1]
+alertcondition(kumoFlipUp, title="Kratos Kumo · giro alcista", message="Kratos Kumo BULL")
+alertcondition(kumoFlipDn, title="Kratos Kumo · giro bajista", message="Kratos Kumo BEAR")
