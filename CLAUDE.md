@@ -588,6 +588,14 @@ Este protocolo asegura que cada error encontrado en producción se convierte en 
   "symbol": "BTCUSDT",        // símbolo del exchange, limpio    (OBLIGATORIO)
   "timeframe": "60",          // opcional (la estrategia tiene default)
   "price": 67234.5,           // opcional (close de la vela)
+
+  // ── Entrada limit/trigger (opcional — default market) ──────────────
+  // Omitir todo esto = entrada a mercado (comportamiento de siempre).
+  "entry_type": "limit",      // market|limit|trigger  (alias: order_type)
+  "limit_price": 66800.0,     // precio maker (limit, o leg limit de un trigger)
+  "trigger_price": 67500.0,   // precio de activación (trigger; alias: stop_price)
+  "expires_in": 1440,         // minutos hasta cancelar si no llena (default 1440)
+
   "risk": {                   // opcional — plan de risk management
     "sl_pct": 1.5,
     "tp": [                   // máx 3 (TP1/TP2/TP3); el resto se descarta
@@ -619,6 +627,14 @@ Este protocolo asegura que cada error encontrado en producción se convierte en 
 6. Si el script no calcula un plan de RM propio, emitir solo `{side, symbol,
    timeframe}` y dejar que el cascade (strategy default / sub override) complete.
    **Preferible** emitir el plan completo para paridad con el backtest de KryptoLab.
+7. **Entrada limit/trigger (opcional).** Omitir `entry_type` = market (default).
+   `limit` requiere `limit_price`; `trigger` requiere `trigger_price` (combo
+   inválido degrada a market). El SL se preset en la orden donde el exchange lo
+   permite (Bitget/BingX); los TP parciales + trailing se adjuntan al fillear.
+   **Bitunix: solo `limit`** (no soporta trigger de entrada). Una orden sin fill
+   se cancela al vencer `expires_in`. **Paper**: las entradas limit/trigger aún
+   no abren paper trade (la simulación de fill diferido es follow-up) — solo el
+   path live las ejecuta por ahora.
 
 ## Patrón canónico
 
