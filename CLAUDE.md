@@ -588,6 +588,14 @@ Este protocolo asegura que cada error encontrado en producción se convierte en 
   "symbol": "BTCUSDT",        // símbolo del exchange, limpio    (OBLIGATORIO)
   "timeframe": "60",          // opcional (la estrategia tiene default)
   "price": 67234.5,           // opcional (close de la vela)
+
+  // ── Entrada limit/trigger (opcional — default market) ──────────────
+  // Omitir todo esto = entrada a mercado (comportamiento de siempre).gggggg
+  "entry_type": "limit",      // market|limit|trigger  (alias: order_type)
+  "limit_price": 66800.0,     // precio maker (limit, o leg limit de un trigger)
+  "trigger_price": 67500.0,   // precio de activación (trigger; alias: stop_price)
+  "expires_in": 1440,         // minutos hasta cancelar si no llena (default 1440)
+
   "risk": {                   // opcional — plan de risk management
     "sl_pct": 1.5,
     "tp": [                   // máx 3 (TP1/TP2/TP3); el resto se descarta
@@ -619,6 +627,14 @@ Este protocolo asegura que cada error encontrado en producción se convierte en 
 6. Si el script no calcula un plan de RM propio, emitir solo `{side, symbol,
    timeframe}` y dejar que el cascade (strategy default / sub override) complete.
    **Preferible** emitir el plan completo para paridad con el backtest de KryptoLab.
+7. **Entrada limit/trigger (opcional).** Omitir `entry_type` = market (default).
+   `limit` requiere `limit_price`; `trigger` requiere `trigger_price` (combo
+   inválido degrada a market). El SL se preset en la orden donde el exchange lo
+   permite (Bitget/BingX); los TP parciales + trailing se adjuntan al fillear.
+   **Bitunix: solo `limit`** (no soporta trigger de entrada). Una orden sin fill
+   se cancela al vencer `expires_in`. **Paper**: las entradas limit/trigger aún
+   no abren paper trade (la simulación de fill diferido es follow-up) — solo el
+   path live las ejecuta por ahora.
 
 ## Patrón canónico
 
@@ -658,75 +674,6 @@ con el `alert()` JSON; **no** son sustituto del webhook.
 > Implementación de referencia (los 7 scripts ya migrados): `Osciladores/budai_pulse.pine`,
 > `budai_abyss`, `budai_athenea_oscillator`, `budai_moneyflow_tide`, `cybercyclev3`,
 > y los sistemas `budai_confluence.pine`, `budai_signals.pine`.
-
----
-
-# Doble Destino: TradingView + KryptoLab (OBLIGATORIO)
-
-> Cada **estrategia** de pineforge vive en **dos sitios a la vez** y debe
-> comportarse igual en ambos. No es un indicador "solo para el gráfico": es la
-> mitad visible de un par Pine↔Python.
-
-```
-pineforge/*.pine  ◄──── 1:1 ────►  KryptoLab/strategies/*.py
-   (TradingView:                        (Python:
-    opera + alerta)                      backtest / validate / OPTIMIZE)
-        ▲                                          │
-        │   los mejores params (output/params_*.json)
-        └──────────────────────────────────────────┘
-              se copian a los input.* del .pine
-```
-
-## 1. Las dos finalidades de cada estrategia
-
-1. **TradingView (este repo, Pine v6):** el indicador/estrategia que el operador
-   ve en el gráfico y que emite el JSON de alerta (sección "Estructura de Alertas").
-2. **KryptoLab (repo Python hermano):** donde la **misma** estrategia se
-   **backtestea, valida (anti-overfit) y optimiza** con rigor que TradingView no da.
-
-> La familia `budai_*` de `KryptoLab/strategies/` son **ports directos** de
-> `01_BudAI/Osciladores/*.pine`. Confirmado en `KryptoLab/cli.py:get_strategy`.
-
-## 2. KryptoLab optimiza → los parámetros mejoran el indicador Pine
-
-El objetivo de optimizar en KryptoLab **no es solo el backtest**: es **producir los
-parámetros** que luego se cargan en los `input.*` del `.pine` para mejorarlo en TV.
-
-```
-optimize (KryptoLab) → output/params_*.json (top 10 trials)
-        → validar OOS → copiar valores ganadores a los input.* del .pine
-        → indicador Pine mejorado en TradingView
-```
-
-Esto **solo funciona si hay paridad numérica**: el `.py` debe calcular los mismos
-números que el `.pine`. KryptoLab lo verifica con `tests/test_*_parity.py`
-(transcripción línea-por-línea del `.pine`, tolerancia 1e-9). Si rompes la paridad,
-los parámetros optimizados **no transfieren** y la "mejora" es falsa.
-
-## 3. Reglas duras de paridad (al crear/editar un .pine de estrategia)
-
-1. **Mismos parámetros y misma matemática** que su gemelo Python (mismos nombres de
-   `input.*` ↔ `ParamDef` donde sea posible). Si cambias lógica en uno, replícala en el otro.
-2. **Señal al cierre de vela** (`barstate.isconfirmed`) salvo estrategia explícitamente
-   intrabar. En KryptoLab eso = backtest a bar-close; algunas (CyberCycle, Decycler)
-   tienen además un **motor incremental intrabar** (evalúa la vela en formación min a
-   min, como TV en tiempo real) — si tu Pine es intrabar, dilo para que el port use ese motor.
-3. **Entrada = `close`** de la vela de señal (nunca `hl2` u otra fuente) para paridar
-   con el `entry_price` del backtest.
-4. **Rangos de inputs** (`minval`/`maxval`/`step`) deben coincidir con el espacio de
-   búsqueda (`ParamDef.min_val/max_val/step`) del optimizador.
-5. El **plan de RM** del JSON de alerta (`sl_pct`, `tp[]`, `trailing`, `breakeven`)
-   debe reflejar el risk management con el que KryptoLab backtestea (paridad de salidas).
-
-## 4. Flujo de trabajo recomendado
-
-1. Crear/ajustar el `.pine` aquí (siguiendo las directrices de sintaxis de arriba).
-2. Portarlo / actualizar su gemelo en `KryptoLab/strategies/` + su test de paridad.
-3. En KryptoLab: `optimize` (in-sample) → `backtest`/`validate` (out-of-sample).
-4. Copiar los `params` ganadores a los `input.*` del `.pine` → publicar el indicador mejorado.
-
-> Honestidad: ningún indicador "rinde" hasta que el backtest de KryptoLab lo diga.
-> El `.pine` aporta lectura y estética; KryptoLab aporta la prueba y los parámetros.
 
 
 
