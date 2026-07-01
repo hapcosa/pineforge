@@ -1,0 +1,89 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Kratos (Line)
+//  Media móvil suave de tendencia + variante MTF. Modo Kernel (mismo motor que
+//  la Trail) o MAs clásicas. Coloreada por pendiente. Estética Athenea.
+//  Estudio de emulación por piezas — pieza «Line» (overlay opcional del pack).
+//  Gemelo Python (futuro): KryptoLab/indicators/kratos.py
+//  (c) BudAI Capital® — Pine v6
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Kratos (Line)", shorttitle="BudAI Capital® - Kratos · Line", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// ════════════════ GRUPOS ════════════════
+G_L  = "① Kratos Line"
+G_S  = "② Estética"
+G_WM = "✦ Marca de agua"
+
+// ════════════════ ① KRATOS LINE ════════════════
+string lineMode = input.string("Kernel (RQ)", "Modo", options=["Kernel (RQ)", "EMA", "SMA", "WMA", "HMA", "RMA"], group=G_L, tooltip="La 'Neptune Line' es una media suave. Kernel = mismo motor que la Trail (hipótesis: la Line es el centro desnudo del kernel).")
+float  length   = input.float(15.0, "Longitud / bandwidth", minval=1.0, maxval=200.0, step=0.5, group=G_L, tooltip="Para MAs = periodo; para Kernel = bandwidth. Empieza igual que la Trail (15).")
+float  srcIn    = input.source(close, "Fuente", group=G_L)
+float  rWt      = input.float(1.0, "Peso kernel (r)", minval=0.1, maxval=25.0, step=0.1, group=G_L)
+int    winLen   = input.int(50, "Ventana kernel", minval=10, maxval=300, group=G_L)
+bool   showMTF  = input.bool(false, "Mostrar línea MTF", group=G_L, inline="mtf")
+string mtfRes   = input.string("60", "TF", options=["5", "15", "30", "60", "240", "D"], group=G_L, inline="mtf")
+
+// ════════════════ ② ESTÉTICA (paleta Athenea) ════════════════
+bool  colorSlope = input.bool(true, "Colorear por pendiente", group=G_S)
+color C_BULL  = input.color(#00e5ff, "Alcista (celeste)", group=G_S, inline="c")
+color C_BEAR  = input.color(#ff1e6e, "Bajista (fucsia)",  group=G_S, inline="c")
+color C_NEUT  = input.color(#b388ff, "Neutro",            group=G_S, inline="c")
+color C_MTF   = input.color(color.new(#ff9100, 10), "Línea MTF (naranja)", group=G_S)
+bool  glow    = input.bool(true, "Glow (capa de brillo)", group=G_S)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+bool   showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+string wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda", "Inferior Derecha", "Superior Izquierda", "Superior Derecha"], group=G_WM)
+color  wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+// ════════════════ MOTORES ════════════════
+f_rq(float s, float bw, float r, int win) =>
+    float num = 0.0
+    float den = 0.0
+    for i = 0 to win - 1
+        float w = math.pow(1.0 + (i * i) / (bw * bw * 2.0 * r), -r)
+        num += s[i] * w
+        den += w
+    den == 0.0 ? s : num / den
+
+f_ma(float s, int l, string t) =>
+    float m = t == "SMA" ? ta.sma(s, l) : t == "WMA" ? ta.wma(s, l) : t == "RMA" ? ta.rma(s, l) : t == "HMA" ? ta.hma(s, l) : ta.ema(s, l)
+    m
+
+f_line() =>
+    float lk = f_rq(srcIn, length, rWt, winLen)
+    float lm = f_ma(srcIn, int(length), lineMode)
+    lineMode == "Kernel (RQ)" ? lk : lm
+
+// ════════════════ CÁLCULO ════════════════
+float lineVal = f_line()
+float mtfVal  = request.security(syminfo.tickerid, mtfRes, f_line(), lookahead = barmerge.lookahead_off)
+
+bool  up      = lineVal >= lineVal[1]
+color lineCol = colorSlope ? (up ? C_BULL : C_BEAR) : C_NEUT
+
+// ════════════════ PLOTS ════════════════
+plot(glow ? lineVal : na, "Glow ext", color=color.new(lineCol, 92), linewidth=8)
+plot(glow ? lineVal : na, "Glow",     color=color.new(lineCol, 78), linewidth=4)
+plot(lineVal, "Line", color=lineCol, linewidth=2)
+plot(showMTF ? mtfVal : na, "Line MTF", color=C_MTF, linewidth=1)
+
+// ════════════════ MARCA DE AGUA (tabla 1×1) ════════════════
+f_wmPos(p) =>
+    p == "Inferior Izquierda" ? position.bottom_left : p == "Inferior Derecha" ? position.bottom_right : p == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1)
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.normal, bgcolor=color.new(#0b0e16, 100))
+
+// ════════════════ ALERTAS (placeholder; JSON canónico BudAI al ensamblar) ════════════════
+bool slopeUp = up and not up[1]
+bool slopeDn = not up and up[1]
+alertcondition(slopeUp, title="Kratos Line · giro alcista", message="Kratos Line UP")
+alertcondition(slopeDn, title="Kratos Line · giro bajista", message="Kratos Line DOWN")

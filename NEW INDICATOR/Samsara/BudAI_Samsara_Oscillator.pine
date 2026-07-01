@@ -1,0 +1,132 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Samsara Oscillator
+//  Oscilador cíclico WaveTrend con estética Athenea (onda + brillo + glow fading).
+//  Samsara = el ciclo: el mercado respira entre sobrecompra y sobreventa.
+//  PIEZA 1/11 — Núcleo WaveTrend (esa/de/ci → wt1 → wt2 → normalizado 0..100).
+//  Gemelo Python paridad 1:1: KryptoLab/indicators/samsara.py
+//  (c) BudAI Capital® — Pine v6
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Samsara Oscillator", shorttitle="BudAI Capital® - Samsara Oscillator",
+     overlay=false, precision=1, max_lines_count=300, max_labels_count=300)
+
+// ════════════════ GRUPOS ════════════════
+G_CORE = "① Núcleo (WaveTrend)"
+G_LVL  = "⑤ Niveles"
+G_VIS  = "⑦ Estética Cyberpunk"
+G_WM   = "✦ Marca de agua"
+
+// ════════════════ ① NÚCLEO (WAVETREND) ════════════════
+src     = input.source(hlc3, "Fuente", group=G_CORE)
+chanLen = input.int(9,   "WaveTrend Canal",       minval=2,  maxval=30,  group=G_CORE, tooltip="Período del canal cíclico (esa/de).")
+avgLen  = input.int(12,  "WaveTrend Promedio",    minval=2,  maxval=40,  group=G_CORE)
+trigLen = input.int(4,   "Trigger (Señal)",       minval=1,  maxval=20,  group=G_CORE)
+normLen = input.int(100, "Normalización 0..100",  minval=10, maxval=200, step=5, group=G_CORE, tooltip="Ventana de normalización a rango 0..100.")
+
+// ════════════════ ⑤ NIVELES ════════════════
+showFib = input.bool(true, "Niveles Fibonacci sutiles", group=G_LVL)
+obLvl   = input.int(80, "Sobrecompra (OB)", minval=55, maxval=95, group=G_LVL)
+osLvl   = input.int(20, "Sobreventa (OS)",  minval=5,  maxval=45, group=G_LVL)
+
+// ════════════════ ⑦ ESTÉTICA CYBERPUNK ════════════════
+upCol    = input.color(#00e5ff, "Alcista (celeste)", group=G_VIS, inline="c")
+dnCol    = input.color(#ff1e6e, "Bajista (fucsia)",  group=G_VIS, inline="c")
+briCol   = input.color(color.new(#ffffff, 25), "Brillo cresta",   group=G_VIS)
+trigCol  = input.color(color.new(#ffffff, 65), "Trigger",         group=G_VIS)
+glow     = input.bool(true, "Relleno degradado (Glow)", group=G_VIS)
+shadeInt = input.int(55, "Opacidad onda (glow)", minval=20, maxval=90, group=G_VIS)
+showDash = input.bool(true, "Dashboard minimalista", group=G_VIS)
+dashPos  = input.string("Arriba Derecha", "Posición Dashboard", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda","Inferior Derecha","Superior Izquierda","Superior Derecha"], group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  CÁLCULO — Núcleo WaveTrend  (paridad 1:1 con samsara.py)
+// ════════════════════════════════════════════════════════════════════════════
+
+// Normaliza una serie a 0..100 sobre una ventana; serie plana → 50
+f_norm(float s, simple int len) =>
+    float lo = ta.lowest(s, len)
+    float hi = ta.highest(s, len)
+    hi - lo != 0 ? 100.0 * (s - lo) / (hi - lo) : 50.0
+
+float esaWT = ta.ema(src, chanLen)
+float deWT  = ta.ema(math.abs(src - esaWT), chanLen)
+float ciWT  = deWT == 0 ? 0.0 : (src - esaWT) / (0.015 * deWT)
+float wt1   = ta.ema(ciWT, avgLen)
+float wt2   = ta.sma(wt1, trigLen)
+
+float osc  = f_norm(wt1, normLen)
+float trig = f_norm(wt2, normLen)
+
+bool  isBull  = osc > trig
+color waveCol = isBull ? upCol : dnCol
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NIVELES — Fibonacci sutiles + OB/OS
+// ════════════════════════════════════════════════════════════════════════════
+
+fibCol = showFib ? color.new(#9d6cff, 80) : color.new(#9d6cff, 100)
+hline(obLvl, "Sobrecompra", color.new(color.gray, 62), hline.style_dashed)
+hline(50.0,  "Centro",      color.new(color.gray, 82), hline.style_dotted)
+hline(osLvl, "Sobreventa",  color.new(color.gray, 62), hline.style_dashed)
+hline(61.8,  "Fib .618",    fibCol, hline.style_dotted)
+hline(38.2,  "Fib .382",    fibCol, hline.style_dotted)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PLOTS — Onda + brillo cresta + glow fading + trigger (estética Athenea)
+// ════════════════════════════════════════════════════════════════════════════
+
+pOsc = plot(osc,  "Samsara",  color.new(waveCol, 0), 2)
+pBri = plot(osc,  "Brillo",   briCol, 1)
+pTrg = plot(trig, "Trigger",  trigCol, 1)
+pMid = plot(50.0, "Centro ref", color.new(color.gray, 100), display=display.none)
+
+// Glow degradado que se desvanece hacia el centro 50 (sello institucional)
+fill(pOsc, pMid,
+     top_value    = 100.0,
+     bottom_value = 50.0,
+     top_color    = glow ? color.new(waveCol, shadeInt) : color.new(waveCol, 100),
+     bottom_color = glow ? color.new(waveCol, 100)      : color.new(waveCol, 100),
+     title        = "Glow Onda")
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD minimalista (tiny)
+// ════════════════════════════════════════════════════════════════════════════
+
+var table dash = table.new(
+     dashPos == "Arriba Derecha"   ? position.top_right    :
+     dashPos == "Arriba Izquierda" ? position.top_left     :
+     dashPos == "Abajo Derecha"    ? position.bottom_right : position.bottom_left,
+     2, 3, bgcolor=color.new(#0b0e16, 12), frame_color=color.new(#1b2030, 40), frame_width=1)
+
+if barstate.islast and showDash
+    table.cell(dash, 0, 0, "SAMSARA", text_color=color.new(#b6f400, 0), text_size=size.tiny, text_halign=text.align_left, bgcolor=color.new(#1b2030, 20))
+    table.cell(dash, 1, 0, "P1",      text_color=color.new(color.white, 25), text_size=size.tiny, bgcolor=color.new(#1b2030, 20))
+    table.cell(dash, 0, 1, "OSC",     text_color=color.new(color.gray, 20), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(dash, 1, 1, str.tostring(osc, "#.#"), text_color=color.new(color.white, 10), text_size=size.tiny)
+    table.cell(dash, 0, 2, "BIAS",    text_color=color.new(color.gray, 20), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(dash, 1, 2, isBull ? "Bull" : "Bear", text_color=isBull ? upCol : dnCol, text_size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MARCA DE AGUA
+// ════════════════════════════════════════════════════════════════════════════
+
+var table wm = table.new(
+     wmPos == "Inferior Derecha"   ? position.bottom_right :
+     wmPos == "Inferior Izquierda" ? position.bottom_left  :
+     wmPos == "Superior Derecha"   ? position.top_right    : position.top_left,
+     1, 1)
+
+if barstate.islast and showWM
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.small, bgcolor=color.new(color.black, 100))

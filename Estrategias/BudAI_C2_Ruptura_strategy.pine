@@ -29,6 +29,7 @@ kcLen  = input.int(20, "Keltner", minval=5, group=G_KAI, inline="kc")
 kcMult = input.float(1.5, "×", step=0.1, group=G_KAI, inline="kc")
 dcLen  = input.int(20, "Donchian", minval=5, group=G_KAI)
 armWin = input.int(6, "Ventana tras compresión", minval=1, maxval=20, group=G_KAI)
+useSqueeze = input.bool(true, "Exigir squeeze previo", group=G_KAI)
 atCoeff = input.float(1.0, "AlphaTrend factor", minval=0.3, step=0.1, group=G_AET, inline="at")
 atLen   = input.int(14, "ATR/RSI", minval=2, group=G_AET, inline="at")
 erLen   = input.int(20, "Efficiency Ratio", minval=5, group=G_AET, inline="er")
@@ -70,6 +71,7 @@ bool released = sqzOn[1] and not sqzOn
 var int sinceRel = 999
 sinceRel := released ? 0 : sinceRel + 1
 bool armed = sinceRel <= armWin
+bool armedEff = useSqueeze ? armed : true
 float dcU = ta.highest(high, dcLen)[1]
 float dcL = ta.lowest(low,  dcLen)[1]
 bool breakUp = close > dcU
@@ -81,8 +83,8 @@ bool volOk = rvol >= volThr
 bool regUpOk = not useReg or (trending and trendDir == 1)
 bool regDnOk = not useReg or (trending and trendDir == -1)
 bool inWindow = not useDate or (time >= dFrom and time <= dTo)
-bool longSig  = armed and breakUp and regUpOk and volOk and conf and inWindow and allowLong
-bool shortSig = armed and breakDn and regDnOk and volOk and conf and inWindow and allowShort
+bool longSig  = armedEff and breakUp and regUpOk and volOk and conf and inWindow and allowLong
+bool shortSig = armedEff and breakDn and regDnOk and volOk and conf and inWindow and allowShort
 
 if longSig
     strategy.entry("L", strategy.long)

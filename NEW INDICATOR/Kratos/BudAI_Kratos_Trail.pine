@@ -1,0 +1,102 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Kratos
+//  Trail dinámico de tendencia (soporte/resistencia algorítmico): kernel
+//  rational-quadratic (Nadaraya-Watson) + banda ATR + nube de glow. Estética Athenea.
+//  Kratos = la fuerza que sostiene la tendencia.
+//  Estudio de emulación por piezas — pieza «Trail». Gemelo Python (futuro):
+//  KryptoLab/indicators/kratos.py
+//  (c) BudAI Capital® — Pine v6
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Kratos", shorttitle="BudAI Capital® - Kratos", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// ════════════════ GRUPOS ════════════════
+G_T  = "① Kratos Trail"
+G_S  = "② Estética"
+G_WM = "✦ Marca de agua"
+
+// ════════════════ ① KRATOS TRAIL (kernel RQ + banda ATR) ════════════════
+string resStr = input.string("", "Resolución (vacío = gráfico)", options=["", "1", "5", "15", "60", "240", "D"], group=G_T, tooltip="Resolución MTF del trail. Vacío = timeframe del gráfico.")
+float  h      = input.float(8.0, "Sensitivity (bandwidth)", minval=1.0, maxval=100.0, step=0.5, group=G_T, tooltip="↑ = curva más suave / tendencia más larga (igual que la Sensitivity de referencia: 'higher = longer-term'). KNOB PRINCIPAL a igualar.")
+float  rWt    = input.float(1.0, "Peso relativo (r)", minval=0.1, maxval=25.0, step=0.1, group=G_T, tooltip="Forma del kernel rational-quadratic. Bajo = más reactivo a barras recientes.")
+int    winLen = input.int(50, "Ventana (barras)", minval=10, maxval=300, group=G_T, tooltip="Cuántas barras pesa el kernel hacia atrás.")
+int    atrLen = input.int(14, "ATR length", minval=1, maxval=100, group=G_T)
+float  bMult  = input.float(2.0, "Distancia banda (mult ATR)", minval=0.1, maxval=10.0, step=0.1, group=G_T, tooltip="Despegue del trail respecto al precio. Ajústalo DESPUÉS del bandwidth.")
+float  cloudW = input.float(1.5, "Grosor de la nube (mult ATR)", minval=0.0, maxval=5.0, step=0.1, group=G_T)
+
+// ════════════════ ② ESTÉTICA (paleta neón Athenea) ════════════════
+color C_BULL   = input.color(#00e5ff, "Alcista (celeste)", group=G_S, inline="c")
+color C_BEAR   = input.color(#ff1e6e, "Bajista (fucsia)", group=G_S, inline="c")
+bool  glow     = input.bool(true, "Glow (capa de brillo)", group=G_S)
+int   fillT    = input.int(55, "Opacidad nube (núcleo)", minval=0, maxval=100, group=G_S)
+int   fadeT    = input.int(90, "Opacidad nube (fade)", minval=0, maxval=100, group=G_S)
+bool  cloudPx  = input.bool(true, "Nube hacia el precio", group=G_S, tooltip="ON = nube entre la línea y el precio (como la referencia). OFF = hacia afuera.")
+bool  showFlip = input.bool(true, "Marcar flips", group=G_S)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+bool   showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+string wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda", "Inferior Derecha", "Superior Izquierda", "Superior Derecha"], group=G_WM)
+color  wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+// ════════════════ KERNEL RATIONAL-QUADRATIC (Nadaraya-Watson, endpoint) ════════════════
+f_rq(float src, float bw, float r, int win) =>
+    float num = 0.0
+    float den = 0.0
+    for i = 0 to win - 1
+        float w = math.pow(1.0 + (i * i) / (bw * bw * 2.0 * r), -r)
+        num += src[i] * w
+        den += w
+    den == 0.0 ? src : num / den
+
+// ════════════════ TRAIL (en la resolución elegida, sin repaint) ════════════════
+f_trail() =>
+    float center = f_rq(close, h, rWt, winLen)
+    float a      = ta.atr(atrLen)
+    float up     = center + bMult * a
+    float dn     = center - bMult * a
+    var int d    = 1
+    d := na(up[1]) ? d : (close > up[1] ? 1 : (close < dn[1] ? -1 : d))
+    float tr     = d == 1 ? dn : up
+    [tr, d, a]
+
+string res = resStr == "" ? timeframe.period : resStr
+[trailLine, trailDir, trailAtr] = request.security(syminfo.tickerid, res, f_trail(), lookahead = barmerge.lookahead_off)
+
+bool  isBull     = trailDir == 1
+color trailCol   = isBull ? C_BULL : C_BEAR
+float cwS        = cloudPx ? cloudW : -cloudW
+float cloudEdge  = isBull ? trailLine + cwS * trailAtr : trailLine - cwS * trailAtr
+
+// ════════════════ PLOTS (glow multicapa + onda + nube en degradado) ════════════════
+float hiE    = math.max(trailLine, cloudEdge)
+float loE    = math.min(trailLine, cloudEdge)
+bool  lineHi = trailLine >= cloudEdge
+plot(glow ? trailLine : na, "Glow ext", color=color.new(trailCol, 92), linewidth=6)
+plot(glow ? trailLine : na, "Glow",     color=color.new(trailCol, 80), linewidth=3)
+pMain  = plot(trailLine, "Trail", color=trailCol, linewidth=2)
+pCloud = plot(cloudEdge, "Nube (borde)", color=color.new(trailCol, 100))
+fill(pMain, pCloud, top_value=hiE, bottom_value=loE, top_color=color.new(trailCol, lineHi ? fillT : fadeT), bottom_color=color.new(trailCol, lineHi ? fadeT : fillT), title="Nube Trail")
+
+// ════════════════ FLIPS ════════════════
+bool flipUp   = isBull and not isBull[1]
+bool flipDown = not isBull and isBull[1]
+plotshape(showFlip and flipUp,   title="Flip alcista", style=shape.triangleup,   location=location.belowbar, color=C_BULL, size=size.tiny)
+plotshape(showFlip and flipDown, title="Flip bajista", style=shape.triangledown, location=location.abovebar, color=C_BEAR, size=size.tiny)
+
+// ════════════════ MARCA DE AGUA (tabla 1×1) ════════════════
+f_wmPos(p) =>
+    p == "Inferior Izquierda" ? position.bottom_left : p == "Inferior Derecha" ? position.bottom_right : p == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1)
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.normal, bgcolor=color.new(#0b0e16, 100))
+
+// ════════════════ ALERTAS (placeholder; JSON canónico BudAI al ensamblar el pack) ════════════════
+alertcondition(flipUp,   title="Kratos Trail · flip alcista", message="Kratos Trail flip BULL")
+alertcondition(flipDown, title="Kratos Trail · flip bajista", message="Kratos Trail flip BEAR")

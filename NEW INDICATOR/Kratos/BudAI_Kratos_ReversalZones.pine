@@ -1,0 +1,83 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Kratos (Reversal Zones)
+//  Zonas de reversión: bandas de volatilidad con borde interno brillante +
+//  relleno en degradado (glow Athenea, se desvanece hacia afuera). Zona alta =
+//  resistencia (rojo), zona baja = soporte (teal). Distancia = factor × vol.
+//  Estudio de emulación por piezas — pieza «Reversal Zones» (overlay opcional).
+//  Gemelo Python (futuro): KryptoLab/indicators/kratos.py
+//  (c) BudAI Capital® — Pine v6
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Kratos (Reversal Zones)", shorttitle="BudAI Capital® - Kratos · RZ", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// ════════════════ GRUPOS ════════════════
+G_R  = "① Kratos Reversal Zones"
+G_S  = "② Estética"
+G_WM = "✦ Marca de agua"
+
+// ════════════════ ① KRATOS REVERSAL ZONES ════════════════
+float  factor   = input.float(2.3, "Distancia (mult volatilidad)", minval=0.1, maxval=10.0, step=0.1, group=G_R, tooltip="Calibrado por cotejo: el '1.4' de la referencia ≈ 2.3 aquí (no mapea 1:1). ↑ = zonas más lejos.")
+float  zoneW    = input.float(1.0, "Grosor de zona (mult vol)", minval=0.0, maxval=5.0, step=0.1, group=G_R, tooltip="Ancho de cada banda (degradado del borde interno brillante hacia el externo difuminado).")
+string volType  = input.string("StdDev", "Volatilidad", options=["StdDev", "ATR"], group=G_R, tooltip="Hipótesis Bollinger-extreme: StdDev de ventana larga.")
+int    volLen   = input.int(100, "Longitud volatilidad", minval=1, maxval=400, group=G_R)
+string baseType = input.string("SMA", "Base", options=["SMA", "EMA", "WMA", "HMA", "RMA"], group=G_R, tooltip="Centro desde el que se miden las zonas.")
+int    baseLen  = input.int(20, "Longitud base", minval=1, maxval=300, group=G_R)
+bool   showTag  = input.bool(false, "Marcar toques de zona", group=G_R)
+
+// ════════════════ ② ESTÉTICA (paleta Athenea + glow-fading) ════════════════
+color C_UP    = input.color(#ff1744, "Zona alta / resistencia (rojo)", group=G_S)
+color C_DN    = input.color(#00e676, "Zona baja / soporte (teal)",     group=G_S)
+int   coreT   = input.int(55, "Opacidad borde interno (núcleo)", minval=0, maxval=100, group=G_S, tooltip="Transparencia del borde brillante pegado al precio.")
+int   fadeT   = input.int(92, "Opacidad borde externo (fade)",   minval=0, maxval=100, group=G_S, tooltip="Transparencia del borde lejano (se desvanece).")
+int   bordT   = input.int(25, "Transparencia línea de borde", minval=0, maxval=100, group=G_S)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+bool   showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+string wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda", "Inferior Derecha", "Superior Izquierda", "Superior Derecha"], group=G_WM)
+color  wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+// ════════════════ CÁLCULO ════════════════
+f_ma(float s, int l, string t) =>
+    float m = t == "SMA" ? ta.sma(s, l) : t == "WMA" ? ta.wma(s, l) : t == "RMA" ? ta.rma(s, l) : t == "HMA" ? ta.hma(s, l) : ta.ema(s, l)
+    m
+
+float basis = f_ma(close, baseLen, baseType)
+float vol   = volType == "ATR" ? ta.atr(volLen) : ta.stdev(close, volLen)
+
+float upInner = basis + factor * vol
+float upOuter = basis + (factor + zoneW) * vol
+float dnInner = basis - factor * vol
+float dnOuter = basis - (factor + zoneW) * vol
+
+// ════════════════ PLOTS (borde brillante + relleno en degradado) ════════════════
+pUpI = plot(upInner, "Resistencia (borde)",   color=color.new(C_UP, bordT), linewidth=2)
+pUpO = plot(upOuter, "Resistencia (externo)", color=color.new(C_UP, 100))
+fill(pUpI, pUpO, top_value=upOuter, bottom_value=upInner, top_color=color.new(C_UP, fadeT), bottom_color=color.new(C_UP, coreT), title="Zona alta")
+
+pDnI = plot(dnInner, "Soporte (borde)",   color=color.new(C_DN, bordT), linewidth=2)
+pDnO = plot(dnOuter, "Soporte (externo)", color=color.new(C_DN, 100))
+fill(pDnI, pDnO, top_value=dnInner, bottom_value=dnOuter, top_color=color.new(C_DN, coreT), bottom_color=color.new(C_DN, fadeT), title="Zona baja")
+
+// ════════════════ TOQUES DE ZONA (opcional) ════════════════
+bool tagUp = high >= upInner
+bool tagDn = low  <= dnInner
+plotshape(showTag and tagUp and not tagUp[1], title="Toque resistencia", style=shape.triangledown, location=location.abovebar, color=C_UP, size=size.tiny)
+plotshape(showTag and tagDn and not tagDn[1], title="Toque soporte",     style=shape.triangleup,   location=location.belowbar, color=C_DN, size=size.tiny)
+
+// ════════════════ MARCA DE AGUA (tabla 1×1) ════════════════
+f_wmPos(p) =>
+    p == "Inferior Izquierda" ? position.bottom_left : p == "Inferior Derecha" ? position.bottom_right : p == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1)
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.normal, bgcolor=color.new(#0b0e16, 100))
+
+// ════════════════ ALERTAS (placeholder; JSON canónico BudAI al ensamblar) ════════════════
+alertcondition(tagUp and not tagUp[1], title="Kratos RZ · toque resistencia", message="Kratos RZ resistencia")
+alertcondition(tagDn and not tagDn[1], title="Kratos RZ · toque soporte",     message="Kratos RZ soporte")

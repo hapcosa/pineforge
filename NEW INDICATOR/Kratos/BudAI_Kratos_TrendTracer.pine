@@ -1,0 +1,79 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Kratos (Trend Tracer)
+//  Rastreador de tendencia: trailing stop ATR (SuperTrend) azul/naranja, más
+//  ajustado que el Trend Catcher (factor menor). Región en degradado glow Athenea.
+//  Estudio de emulación por piezas — pieza «Trend Tracer» (overlay opcional).
+//  Gemelo Python (futuro): KryptoLab/indicators/kratos.py
+//  (c) BudAI Capital® — Pine v6
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Kratos (Trend Tracer)", shorttitle="BudAI Capital® - Kratos · TT", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// ════════════════ GRUPOS ════════════════
+G_C  = "① Kratos Trend Tracer"
+G_S  = "② Estética"
+G_WM = "✦ Marca de agua"
+
+// ════════════════ ① KRATOS TREND TRACER (SuperTrend) ════════════════
+float factor     = input.float(3.1, "Factor (mult ATR)", minval=0.5, maxval=20.0, step=0.1, group=G_C, tooltip="El '3.1' de la referencia. Más bajo que el Trend Catcher = trail más ajustado, más flips.")
+int   atrLen     = input.int(10, "ATR length", minval=1, maxval=100, group=G_C)
+bool  showRegion = input.bool(true, "Mostrar región de tendencia (precio↔stop)", group=G_C)
+bool  showFlip   = input.bool(true, "Marcar flips", group=G_C)
+
+// ════════════════ ② ESTÉTICA (paleta Athenea + glow-fading) ════════════════
+color C_BULL = input.color(#2962ff, "Alcista (azul)",    group=G_S, inline="c")
+color C_BEAR = input.color(#ff9100, "Bajista (naranja)", group=G_S, inline="c")
+bool  glow   = input.bool(true, "Glow (capa de brillo)", group=G_S)
+int   coreT  = input.int(80, "Opacidad región (núcleo)", minval=0, maxval=100, group=G_S)
+int   fadeT  = input.int(94, "Opacidad región (fade)",   minval=0, maxval=100, group=G_S)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+bool   showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+string wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda", "Inferior Derecha", "Superior Izquierda", "Superior Derecha"], group=G_WM)
+color  wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+// ════════════════ CÁLCULO (SuperTrend) ════════════════
+[st, dir] = ta.supertrend(factor, atrLen)
+bool  isBull = dir < 0
+color ttCol  = isBull ? C_BULL : C_BEAR
+
+float stUp = isBull ? st : na
+float stDn = isBull ? na : st
+
+// ════════════════ PLOTS (línea azul/naranja con glow multicapa) ════════════════
+plot(glow ? stUp : na, "Tracer↑ glow", color=color.new(C_BULL, 90), linewidth=6)
+plot(stUp, "Tracer↑", color=C_BULL, linewidth=2)
+plot(glow ? stDn : na, "Tracer↓ glow", color=color.new(C_BEAR, 90), linewidth=6)
+plot(stDn, "Tracer↓", color=C_BEAR, linewidth=2)
+
+// ════════════════ REGIÓN DE TENDENCIA (precio↔stop, degradado) ════════════════
+float hiR  = math.max(st, close)
+float loR  = math.min(st, close)
+bool  stLo = st <= close
+pSt = plot(showRegion ? st : na,    "Stop", color=color.new(ttCol, 100))
+pPx = plot(showRegion ? close : na, "Px",   color=color.new(ttCol, 100))
+fill(pSt, pPx, top_value=hiR, bottom_value=loR, top_color=color.new(ttCol, stLo ? fadeT : coreT), bottom_color=color.new(ttCol, stLo ? coreT : fadeT), title="Región tendencia")
+
+// ════════════════ FLIPS ════════════════
+bool flipUp = isBull and not isBull[1]
+bool flipDn = not isBull and isBull[1]
+plotshape(showFlip and flipUp, title="Flip alcista", style=shape.triangleup,   location=location.belowbar, color=C_BULL, size=size.tiny)
+plotshape(showFlip and flipDn, title="Flip bajista", style=shape.triangledown, location=location.abovebar, color=C_BEAR, size=size.tiny)
+
+// ════════════════ MARCA DE AGUA (tabla 1×1) ════════════════
+f_wmPos(p) =>
+    p == "Inferior Izquierda" ? position.bottom_left : p == "Inferior Derecha" ? position.bottom_right : p == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1)
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.normal, bgcolor=color.new(#0b0e16, 100))
+
+// ════════════════ ALERTAS (placeholder; JSON canónico BudAI al ensamblar) ════════════════
+alertcondition(flipUp, title="Kratos Trend Tracer · flip alcista", message="Kratos TT flip BULL")
+alertcondition(flipDn, title="Kratos Trend Tracer · flip bajista", message="Kratos TT flip BEAR")

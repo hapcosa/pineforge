@@ -25,6 +25,12 @@ G_DATE= "⑤ Rango de backtest"
 
 kNb     = input.int(8, "Vecinos (k)", minval=1, maxval=48, group=G_ML)
 maxBack = input.int(800, "Memoria (barras)", minval=100, maxval=2000, group=G_ML)
+useKernel = input.bool(false, "Usar kernel Nadaraya-Watson", group=G_ML)
+kH = input.int(8, "Kernel h", minval=4, maxval=20, group=G_ML)
+kR = input.float(8.0, "Kernel r", minval=2.0, maxval=16.0, step=0.5, group=G_ML)
+kX = input.int(25, "Kernel x", minval=2, maxval=60, group=G_ML)
+kLag = input.int(2, "Kernel lag", minval=1, maxval=10, group=G_ML)
+kSmooth = input.bool(false, "Kernel smooth", group=G_ML)
 atCoeff = input.float(1.0, "AlphaTrend factor", minval=0.3, step=0.1, group=G_AET, inline="at")
 atLen   = input.int(14, "ATR/RSI", minval=2, group=G_AET, inline="at")
 erLen   = input.int(20, "Efficiency Ratio", minval=5, group=G_AET, inline="er")
@@ -46,6 +52,25 @@ dnCol = input.color(#ff1744, "Bajista", group=G_DATE, inline="c")
 
 bool conf = barstate.isconfirmed
 f_rescale(float x, float a, float b) => (x - a) / math.max(b - a, 1e-10)
+
+f_rq(src, lb, rw, start) =>
+    float num = 0.0
+    float den = 0.0
+    for i = 0 to start + 1
+        float ww = math.pow(1.0 + (i * i) / (lb * lb * 2.0 * rw), -rw)
+        num := num + ww * nz(src[i])
+        den := den + ww
+    den != 0 ? num / den : src
+
+f_g(src, lb, start) =>
+    float num = 0.0
+    float den = 0.0
+    for i = 0 to start + 1
+        float ww = math.exp(-(i * i) / (2.0 * lb * lb))
+        num := num + ww * nz(src[i])
+        den := den + ww
+    den != 0 ? num / den : src
+
 // LORENTZIAN
 [diP, diM, adxv] = ta.dmi(14, 14)
 float esa = ta.ema(hlc3, 10)
@@ -117,6 +142,16 @@ bool aboveVwap = not useVwap or close >= vwap
 bool belowVwap = not useVwap or close <= vwap
 float rvol = ta.sma(volume, 20) != 0 ? volume / ta.sma(volume, 20) : 1.0
 bool volOk = rvol >= volThr
+// KERNEL
+float yhat1 = bar_index >= kX + 1 ? f_rq(close, kH, kR, kX) : na
+float yhat2 = bar_index >= kX + 1 ? f_g(close, math.max(kH - kLag, 2), kX) : na
+bool kBullRate = yhat1 >= yhat1[1]
+bool kBearRate = yhat1 <= yhat1[1]
+bool kBullSmooth = yhat2 >= yhat1
+bool kBearSmooth = yhat2 <= yhat1
+bool kLongOk  = not useKernel ? true : (kSmooth ? kBullSmooth : kBullRate)
+bool kShortOk = not useKernel ? true : (kSmooth ? kBearSmooth : kBearRate)
+
 // SEÑAL
 var int mlSig = 0
 mlSig := prediction > 0 ? 1 : prediction < 0 ? -1 : nz(mlSig[1])
@@ -125,8 +160,8 @@ bool mlNewShort = mlSig == -1 and mlSig[1] != -1
 bool regUpOk = not useReg or (trending and trendDir == 1)
 bool regDnOk = not useReg or (trending and trendDir == -1)
 bool inWindow = not useDate or (time >= dFrom and time <= dTo)
-bool longSig  = mlNewLong  and regUpOk and aboveVwap and volOk and conf and inWindow and allowLong
-bool shortSig = mlNewShort and regDnOk and belowVwap and volOk and conf and inWindow and allowShort
+bool longSig  = mlNewLong  and regUpOk and aboveVwap and volOk and kLongOk  and conf and inWindow and allowLong
+bool shortSig = mlNewShort and regDnOk and belowVwap and volOk and kShortOk and conf and inWindow and allowShort
 
 if longSig
     strategy.entry("L", strategy.long)

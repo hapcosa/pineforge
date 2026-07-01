@@ -590,7 +590,7 @@ Este protocolo asegura que cada error encontrado en producción se convierte en 
   "price": 67234.5,           // opcional (close de la vela)
 
   // ── Entrada limit/trigger (opcional — default market) ──────────────
-  // Omitir todo esto = entrada a mercado (comportamiento de siempre).
+  // Omitir todo esto = entrada a mercado (comportamiento de siempre).gggggg
   "entry_type": "limit",      // market|limit|trigger  (alias: order_type)
   "limit_price": 66800.0,     // precio maker (limit, o leg limit de un trigger)
   "trigger_price": 67500.0,   // precio de activación (trigger; alias: stop_price)
