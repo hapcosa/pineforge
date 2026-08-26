@@ -1,0 +1,186 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Kratos
+//  Trail dinámico de tendencia (soporte/resistencia algorítmico): kernel
+//  rational-quadratic (Nadaraya-Watson) + banda ATR + nube de glow. Estética Athenea.
+//  Suma bandas de reversión graduadas (agotamiento débil/normal/fuerte) sobre
+//  el mismo kernel — sin depender de librerías externas ni clustering pesado.
+//  Señales adoptadas de Signals & Overlays (LuxAlgo): clasificador de fuerza
+//  1-4 + confirmación EMA 50/200, recalculado sobre el flip del kernel propio
+//  (no se porta su SuperTrend por K-means: sería un segundo motor redundante
+//  con el kernel RQ que Kratos ya tiene).
+//  Kratos = la fuerza que sostiene la tendencia.
+//  Estudio de emulación por piezas — pieza «Trail». Gemelo Python (futuro):
+//  KryptoLab/indicators/kratos.py
+//  (c) BudAI Capital® — Pine v6
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Kratos", shorttitle="BudAI Capital® - Kratos", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// ════════════════ GRUPOS ════════════════
+G_T   = "① Kratos Trail"
+G_R   = "② Bandas de Reversión"
+G_SIG = "③ Señales"
+G_S   = "④ Estética"
+G_WM  = "✦ Marca de agua"
+
+// ════════════════ ① KRATOS TRAIL (kernel RQ + banda ATR) ════════════════
+string resStr = input.string("", "Resolución (vacío = gráfico)", options=["", "1", "5", "15", "60", "240", "D"], group=G_T, tooltip="Resolución MTF del trail. Vacío = timeframe del gráfico.")
+float  h      = input.float(8.0, "Sensitivity (bandwidth)", minval=1.0, maxval=100.0, step=0.5, group=G_T, tooltip="↑ = curva más suave / tendencia más larga (igual que la Sensitivity de referencia: 'higher = longer-term'). KNOB PRINCIPAL a igualar.")
+float  rWt    = input.float(1.0, "Peso relativo (r)", minval=0.1, maxval=25.0, step=0.1, group=G_T, tooltip="Forma del kernel rational-quadratic. Bajo = más reactivo a barras recientes.")
+int    winLen = input.int(50, "Ventana (barras)", minval=10, maxval=300, group=G_T, tooltip="Cuántas barras pesa el kernel hacia atrás.")
+int    atrLen = input.int(14, "ATR length", minval=1, maxval=100, group=G_T)
+float  bMult  = input.float(2.0, "Distancia banda (mult ATR)", minval=0.1, maxval=10.0, step=0.1, group=G_T, tooltip="Despegue del trail respecto al precio. Ajústalo DESPUÉS del bandwidth.")
+float  cloudW = input.float(1.5, "Grosor de la nube (mult ATR)", minval=0.0, maxval=5.0, step=0.1, group=G_T)
+
+// ════════════════ ② BANDAS DE REVERSIÓN (agotamiento graduado) ════════════════
+bool  showRev  = input.bool(true, "Mostrar bandas de reversión", group=G_R, tooltip="Zonas de agotamiento más allá de la banda del trail. Adaptado del concepto de canal de reversión (LuxAlgo), recalculado sobre el kernel de Kratos.")
+float revStep  = input.float(0.8, "Paso de zona (mult ATR)", minval=0.1, maxval=5.0, step=0.1, group=G_R, tooltip="Ancho de cada escalón débil/normal/fuerte, en múltiplos de ATR más allá de la banda del trail.")
+bool  markRev  = input.bool(true, "Marcar agotamiento extremo", group=G_R)
+color revCol   = input.color(#ffb300, "Color agotamiento (ámbar)", group=G_R)
+
+// ════════════════ ③ SEÑALES (adoptado de Signals & Overlays, sobre el kernel Kratos) ════════════════
+bool  showSig    = input.bool(true, "Etiquetas de señal (flip + fuerza)", group=G_SIG, tooltip="Clasificador de fuerza 1-4 y confirmación EMA 50/200, al estilo Signals & Overlays — recalculado sobre el flip del kernel de Kratos.")
+bool  useEmaConf = input.bool(true, "Confirmar con EMA 50/200", group=G_SIG, tooltip="Agrega un '+' a la etiqueta cuando la EMA 50/200 confirma la dirección del flip.")
+int   minStrength= input.int(1, "Fuerza mínima para mostrar", minval=1, maxval=4, group=G_SIG, tooltip="1 = mostrar todas. 4 = solo flips con mayor extensión respecto al kernel.")
+
+// ════════════════ ④ ESTÉTICA (paleta neón Athenea) ════════════════
+color C_BULL   = input.color(#00e5ff, "Alcista (celeste)", group=G_S, inline="c")
+color C_BEAR   = input.color(#ff1e6e, "Bajista (fucsia)", group=G_S, inline="c")
+bool  glow     = input.bool(true, "Glow (capa de brillo)", group=G_S)
+int   fillT    = input.int(55, "Opacidad nube (núcleo)", minval=0, maxval=100, group=G_S)
+int   fadeT    = input.int(90, "Opacidad nube (fade)", minval=0, maxval=100, group=G_S)
+bool  cloudPx  = input.bool(true, "Nube hacia el precio", group=G_S, tooltip="ON = nube entre la línea y el precio (como la referencia). OFF = hacia afuera.")
+bool  showFlip = input.bool(true, "Marcar flips", group=G_S)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+bool   showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+string wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda", "Inferior Derecha", "Superior Izquierda", "Superior Derecha"], group=G_WM)
+color  wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+// ════════════════ KERNEL RATIONAL-QUADRATIC (Nadaraya-Watson, endpoint) ════════════════
+f_rq(float src, float bw, float r, int win) =>
+    float num = 0.0
+    float den = 0.0
+    for i = 0 to win - 1
+        float w = math.pow(1.0 + (i * i) / (bw * bw * 2.0 * r), -r)
+        num += src[i] * w
+        den += w
+    den == 0.0 ? src : num / den
+
+// ════════════════ TRAIL (en la resolución elegida, sin repaint) ════════════════
+f_trail() =>
+    float center = f_rq(close, h, rWt, winLen)
+    float a      = ta.atr(atrLen)
+    float up     = center + bMult * a
+    float dn     = center - bMult * a
+    var int d    = 1
+    d := na(up[1]) ? d : (close > up[1] ? 1 : (close < dn[1] ? -1 : d))
+    float tr     = d == 1 ? dn : up
+    [tr, d, a, center]
+
+string res = resStr == "" ? timeframe.period : resStr
+[trailLine, trailDir, trailAtr, kernelCenter] = request.security(syminfo.tickerid, res, f_trail(), lookahead = barmerge.lookahead_off)
+
+bool  isBull     = trailDir == 1
+color trailCol   = isBull ? C_BULL : C_BEAR
+float cwS        = cloudPx ? cloudW : -cloudW
+float cloudEdge  = isBull ? trailLine + cwS * trailAtr : trailLine - cwS * trailAtr
+
+// ════════════════ PLOTS (glow multicapa + onda + nube en degradado) ════════════════
+float hiE    = math.max(trailLine, cloudEdge)
+float loE    = math.min(trailLine, cloudEdge)
+bool  lineHi = trailLine >= cloudEdge
+plot(glow ? trailLine : na, "Glow ext", color=color.new(trailCol, 92), linewidth=6)
+plot(glow ? trailLine : na, "Glow",     color=color.new(trailCol, 80), linewidth=3)
+pMain  = plot(trailLine, "Trail", color=trailCol, linewidth=2)
+pCloud = plot(cloudEdge, "Nube (borde)", color=color.new(trailCol, 100))
+fill(pMain, pCloud, top_value=hiE, bottom_value=loE, top_color=color.new(trailCol, lineHi ? fillT : fadeT), bottom_color=color.new(trailCol, lineHi ? fadeT : fillT), title="Nube Trail")
+
+// ════════════════ FLIPS ════════════════
+bool flipUp   = isBull and not isBull[1]
+bool flipDown = not isBull and isBull[1]
+plotshape(showFlip and flipUp,   title="Flip alcista", style=shape.triangleup,   location=location.belowbar, color=C_BULL, size=size.tiny)
+plotshape(showFlip and flipDown, title="Flip bajista", style=shape.triangledown, location=location.abovebar, color=C_BEAR, size=size.tiny)
+
+// ════════════════ BANDAS DE REVERSIÓN (agotamiento graduado, sobre el kernel) ════════════════
+float outerUp = kernelCenter + bMult * trailAtr
+float outerDn = kernelCenter - bMult * trailAtr
+float revUp1  = outerUp + revStep * trailAtr * 1
+float revUp2  = outerUp + revStep * trailAtr * 2
+float revUp3  = outerUp + revStep * trailAtr * 3
+float revDn1  = outerDn - revStep * trailAtr * 1
+float revDn2  = outerDn - revStep * trailAtr * 2
+float revDn3  = outerDn - revStep * trailAtr * 3
+
+pRevUp0 = plot(showRev ? outerUp : na, "Reversión Sup base", color=na, display=display.none)
+pRevUp1 = plot(showRev ? revUp1  : na, "Reversión Sup débil", color=color.new(revCol, 100))
+pRevUp2 = plot(showRev ? revUp2  : na, "Reversión Sup normal", color=color.new(revCol, 100))
+pRevUp3 = plot(showRev ? revUp3  : na, "Reversión Sup fuerte", color=color.new(revCol, 100))
+pRevDn0 = plot(showRev ? outerDn : na, "Reversión Inf base", color=na, display=display.none)
+pRevDn1 = plot(showRev ? revDn1  : na, "Reversión Inf débil", color=color.new(revCol, 100))
+pRevDn2 = plot(showRev ? revDn2  : na, "Reversión Inf normal", color=color.new(revCol, 100))
+pRevDn3 = plot(showRev ? revDn3  : na, "Reversión Inf fuerte", color=color.new(revCol, 100))
+
+fill(pRevUp0, pRevUp1, color=showRev ? color.new(revCol, 92) : na, title="Zona Sup débil")
+fill(pRevUp1, pRevUp2, color=showRev ? color.new(revCol, 85) : na, title="Zona Sup normal")
+fill(pRevUp2, pRevUp3, color=showRev ? color.new(revCol, 75) : na, title="Zona Sup fuerte")
+fill(pRevDn0, pRevDn1, color=showRev ? color.new(revCol, 92) : na, title="Zona Inf débil")
+fill(pRevDn1, pRevDn2, color=showRev ? color.new(revCol, 85) : na, title="Zona Inf normal")
+fill(pRevDn2, pRevDn3, color=showRev ? color.new(revCol, 75) : na, title="Zona Inf fuerte")
+
+// Marca de agotamiento extremo — primer pinchazo de la zona "fuerte"
+bool revTop = showRev and markRev and high >= revUp3 and high[1] < revUp3[1]
+bool revBot = showRev and markRev and low  <= revDn3 and low[1]  > revDn3[1]
+plotchar(revTop ? high : na, "Kratos Agotamiento Sup", "•", location.absolute, color=revCol, size=size.tiny)
+plotchar(revBot ? low  : na, "Kratos Agotamiento Inf", "•", location.absolute, color=revCol, size=size.tiny)
+
+// ════════════════ SEÑALES — clasificador de fuerza 1-4 + confirmación EMA (LuxAlgo, kernel Kratos) ════════════════
+float ema50  = ta.ema(close, 50)
+float ema200 = ta.ema(close, 200)
+bool  emaBull = ema50 > ema200
+bool  emaBear = ema50 < ema200
+
+// Fuerza = extensión del precio respecto al kernel, en múltiplos de ATR (mismo espíritu
+// que el perf_idx de LuxAlgo, pero sobre el trail propio en vez de un cluster K-means)
+float extAtr    = math.abs(close - kernelCenter) / math.max(trailAtr, syminfo.mintick)
+int   strength  = extAtr < 1.0 ? 1 : extAtr < 2.0 ? 2 : extAtr < 3.0 ? 3 : 4
+bool  passStr   = strength >= minStrength
+
+var array<label> sigLabels = array.new_label()
+const int MAX_SIG_LABELS = 200
+
+f_addSigLabel(txt, y, styleUp, col) =>
+    if array.size(sigLabels) >= MAX_SIG_LABELS
+        label.delete(array.shift(sigLabels))
+    lbl = label.new(bar_index, y, txt, style=styleUp ? label.style_label_up : label.style_label_down, color=col, textcolor=color.black, size=size.small)
+    array.push(sigLabels, lbl)
+
+if showSig and passStr and barstate.isconfirmed and flipUp
+    string txt = str.tostring(strength) + (useEmaConf and emaBull ? "+" : "")
+    f_addSigLabel(txt, low - trailAtr * 0.5, true, C_BULL)
+if showSig and passStr and barstate.isconfirmed and flipDown
+    string txt = str.tostring(strength) + (useEmaConf and emaBear ? "+" : "")
+    f_addSigLabel(txt, high + trailAtr * 0.5, false, C_BEAR)
+
+// ════════════════ MARCA DE AGUA (tabla 1×1) ════════════════
+f_wmPos(p) =>
+    p == "Inferior Izquierda" ? position.bottom_left : p == "Inferior Derecha" ? position.bottom_right : p == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1)
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.normal, bgcolor=color.new(#0b0e16, 100))
+
+// ════════════════ ALERTAS (placeholder; JSON canónico BudAI al ensamblar el pack) ════════════════
+alertcondition(flipUp,   title="Kratos Trail · flip alcista", message="Kratos Trail flip BULL")
+alertcondition(flipDown, title="Kratos Trail · flip bajista", message="Kratos Trail flip BEAR")
+alertcondition(flipUp   and strength >= 3, title="Kratos · señal fuerte alcista", message="Kratos Señal BULL (fuerza ≥3)")
+alertcondition(flipDown and strength >= 3, title="Kratos · señal fuerte bajista", message="Kratos Señal BEAR (fuerza ≥3)")
+alertcondition(revTop,   title="Kratos · agotamiento superior", message="Kratos Reversión: zona fuerte SUP")
+alertcondition(revBot,   title="Kratos · agotamiento inferior", message="Kratos Reversión: zona fuerte INF")
+
