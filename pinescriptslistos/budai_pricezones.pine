@@ -1,0 +1,248 @@
+//@version=6
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  ██████╗ ██╗   ██╗██████╗  █████╗ ██╗                             ║
+// ║  ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║                             ║
+// ║  ██████╔╝██║   ██║██║  ██║███████║██║                             ║
+// ║  ██╔══██╗██║   ██║██║  ██║██╔══██║██║                             ║
+// ║  ██████╔╝╚██████╔╝██████╔╝██║  ██║██║                             ║
+// ║  ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝                             ║
+// ║        C R I P T O · T R A D I N G · C A P I T A L                ║
+// ╚══════════════════════════════════════════════════════════════════╝
+// BudAI Price Zones — recreación propia de "LuxAlgo Price Action Toolkit".
+// Pieza modular del pack (futuro gemelo Python: KryptoLab/indicators/budai_pricezones.py).
+//
+// ALCANCE (decidido con el usuario: "Todo incluido Volume Profile"):
+//   ① Volume Profile + sentimiento (bull/bear por fila) + POC
+//   ② Equal Highs / Equal Lows
+//   ③ Zonas Premium / Discount / Equilibrium
+//   ④ Niveles Diario / Semanal / Mensual
+//
+// DESVIACIÓN DELIBERADA: no se re-porta Estructura (BOS/CHoCH), Order Blocks
+// ni Fair Value Gaps — ya viven en budai_smc.pine con el diseño BigBeluga
+// que el usuario aprobó. Duplicarlos acá generaría dos motores redundantes
+// dibujando lo mismo. Si se quiere Price Zones + estructura juntos, usar
+// ambos scripts en el mismo chart.
+//
+// Motor de Volume Profile reimplementado desde cero (bucle bar×fila con
+// fracción de solape por fila), no port literal del original (arrays/UDT
+// propios, sin heatmap ni "Developing POC" — ver nota en ①).
+
+indicator("BudAI Capital® -  Price Zones", shorttitle="BudAI Capital®")
+// ─── PALETA ─────────────────────────────────────────────────
+G_S  = "⑤ Estética"
+C_BULL = input.color(#00e5ff, "Bull", group=G_S, inline="c")
+C_BEAR = input.color(#ff1e6e, "Bear", group=G_S, inline="c")
+C_AMB  = input.color(#ffb300, "Neutral/Intensidad", group=G_S)
+
+// ─── ① VOLUME PROFILE ───────────────────────────────────────
+G_VP = "① Volume Profile"
+showVP    = input.bool(true, "Mostrar Volume Profile", group=G_VP)
+vpLookback = input.int(200, "Lookback (barras)", minval=20, maxval=500, group=G_VP)
+vpRows     = input.int(25, "Filas", minval=5, maxval=60, group=G_VP)
+vpSrcMode  = input.string("Volumen", "Fuente", options=["Volumen", "Money Flow"], group=G_VP)
+vpWidthBars = input.int(30, "Ancho máx (barras)", minval=5, maxval=100, group=G_VP)
+showPOC    = input.bool(true, "Mostrar POC", group=G_VP)
+
+var array<box> vpBoxes = array.new_box()
+var line pocLine = na
+var label pocLbl = na
+const int MAX_VP = 60
+
+f_vpClear() =>
+    if array.size(vpBoxes) > 0
+        for b in vpBoxes
+            box.delete(b)
+        array.clear(vpBoxes)
+
+if showVP and barstate.islast
+    f_vpClear()
+    float pHi = ta.highest(high, vpLookback)
+    float pLo = ta.lowest(low, vpLookback)
+    float rowH = (pHi - pLo) / vpRows
+    if rowH > 0
+        var array<float> rowBull = array.new_float(vpRows, 0.0)
+        var array<float> rowBear = array.new_float(vpRows, 0.0)
+        array.fill(rowBull, 0.0)
+        array.fill(rowBear, 0.0)
+        for i = 0 to vpLookback - 1
+            float bH = high[i]
+            float bL = low[i]
+            float bRange = bH - bL
+            if bRange > 0
+                float w = vpSrcMode == "Money Flow" ? volume[i] * hlc3[i] : volume[i]
+                bool bull = close[i] >= open[i]
+                for r = 0 to vpRows - 1
+                    float rowLo = pLo + r * rowH
+                    float rowHi = rowLo + rowH
+                    float ovLo = math.max(bL, rowLo)
+                    float ovHi = math.min(bH, rowHi)
+                    if ovHi > ovLo
+                        float frac = (ovHi - ovLo) / bRange
+                        if bull
+                            array.set(rowBull, r, array.get(rowBull, r) + w * frac)
+                        else
+                            array.set(rowBear, r, array.get(rowBear, r) + w * frac)
+        float maxRow = 0.0
+        int pocRow = 0
+        for r = 0 to vpRows - 1
+            float tot = array.get(rowBull, r) + array.get(rowBear, r)
+            if tot > maxRow
+                maxRow := tot
+                pocRow := r
+        if maxRow > 0
+            for r = 0 to vpRows - 1
+                float bull = array.get(rowBull, r)
+                float bear = array.get(rowBear, r)
+                float tot = bull + bear
+                if tot > 0
+                    float frac = tot / maxRow
+                    int w = math.max(1, int(vpWidthBars * frac))
+                    float rowLo = pLo + r * rowH
+                    float rowHi = rowLo + rowH
+                    color rowCol = bull >= bear ? color.new(C_BULL, 60) : color.new(C_BEAR, 60)
+                    box b = box.new(bar_index + 2, rowHi, bar_index + 2 + w, rowLo, border_color=color(na), bgcolor=rowCol)
+                    array.push(vpBoxes, b)
+            if showPOC
+                float pocLo = pLo + pocRow * rowH
+                float pocPrice = pocLo + rowH / 2
+                if not na(pocLine)
+                    line.delete(pocLine)
+                if not na(pocLbl)
+                    label.delete(pocLbl)
+                pocLine := line.new(bar_index - vpLookback, pocPrice, bar_index + 2, pocPrice, color=C_AMB, style=line.style_dashed, width=1)
+                pocLbl  := label.new(bar_index + 2, pocPrice, "POC", color=color(na), textcolor=C_AMB, style=label.style_label_left, size=size.small)
+
+// ─── ② EQUAL HIGHS / LOWS ───────────────────────────────────
+G_EQ = "② Equal Highs/Lows"
+showEQ   = input.bool(true, "Mostrar EQH/EQL", group=G_EQ)
+eqLen    = input.int(3, "Barras confirmación", minval=1, group=G_EQ)
+eqThresh = input.float(0.1, "Umbral (xATR)", minval=0.01, maxval=1.0, step=0.01, group=G_EQ)
+
+float eqAtr = ta.atr(200)
+float ph = ta.pivothigh(high, eqLen, eqLen)
+float pl = ta.pivotlow(low, eqLen, eqLen)
+
+var float lastEqH = na
+var int lastEqHBar = na
+var float lastEqL = na
+var int lastEqLBar = na
+
+var array<line> eqLines = array.new_line()
+var array<label> eqLbls = array.new_label()
+const int MAX_EQ = 60
+
+f_addEq(line ln, label lb) =>
+    if array.size(eqLines) >= MAX_EQ
+        line.delete(array.shift(eqLines))
+        label.delete(array.shift(eqLbls))
+    array.push(eqLines, ln)
+    array.push(eqLbls, lb)
+
+if showEQ and not na(ph) and barstate.isconfirmed
+    int phBar = bar_index - eqLen
+    if not na(lastEqH) and math.abs(ph - lastEqH) < eqThresh * eqAtr
+        line ln = line.new(lastEqHBar, lastEqH, phBar, ph, color=C_BEAR, style=line.style_dotted)
+        label lb = label.new(int(math.avg(lastEqHBar, phBar)), math.max(ph, lastEqH), "EQH", color=color(na), textcolor=C_BEAR, style=label.style_label_down, size=size.tiny)
+        f_addEq(ln, lb)
+    lastEqH := ph
+    lastEqHBar := phBar
+
+if showEQ and not na(pl) and barstate.isconfirmed
+    int plBar = bar_index - eqLen
+    if not na(lastEqL) and math.abs(pl - lastEqL) < eqThresh * eqAtr
+        line ln = line.new(lastEqLBar, lastEqL, plBar, pl, color=C_BULL, style=line.style_dotted)
+        label lb = label.new(int(math.avg(lastEqLBar, plBar)), math.min(pl, lastEqL), "EQL", color=color(na), textcolor=C_BULL, style=label.style_label_up, size=size.tiny)
+        f_addEq(ln, lb)
+    lastEqL := pl
+    lastEqLBar := plBar
+
+// ─── ③ ZONAS PREMIUM / DISCOUNT / EQUILIBRIUM ────────────────
+G_PD = "③ Zonas Premium/Discount"
+showPD    = input.bool(true, "Mostrar zonas", group=G_PD)
+pdLookback = input.int(90, "Lookback (barras)", minval=10, maxval=500, group=G_PD)
+premCol = input.color(color.new(#ff1e6e, 82), "Premium", group=G_PD)
+eqCol   = input.color(color.new(#787b86, 85), "Equilibrium", group=G_PD)
+discCol = input.color(color.new(#00e5ff, 82), "Discount", group=G_PD)
+
+var box premBox = na
+var box eqBox = na
+var box discBox = na
+
+if showPD and barstate.isconfirmed
+    float pdHi = ta.highest(high, pdLookback)
+    float pdLo = ta.lowest(low, pdLookback)
+    int x1 = bar_index - pdLookback
+    if not na(premBox)
+        box.delete(premBox)
+    if not na(eqBox)
+        box.delete(eqBox)
+    if not na(discBox)
+        box.delete(discBox)
+    premBox := box.new(x1, pdHi, bar_index, 0.95 * pdHi + 0.05 * pdLo, border_color=color(na), bgcolor=premCol)
+    eqBox   := box.new(x1, 0.525 * pdHi + 0.475 * pdLo, bar_index, 0.525 * pdLo + 0.475 * pdHi, border_color=color(na), bgcolor=eqCol)
+    discBox := box.new(x1, 0.95 * pdLo + 0.05 * pdHi, bar_index, pdLo, border_color=color(na), bgcolor=discCol)
+
+// ─── ④ NIVELES D/W/M ─────────────────────────────────────────
+G_LV = "④ Niveles D/W/M"
+showD = input.bool(false, "Diario", group=G_LV, inline="d")
+showW = input.bool(false, "Semanal", group=G_LV, inline="w")
+showM = input.bool(false, "Mensual", group=G_LV, inline="m")
+lvCol = input.color(#787b86, "Color niveles", group=G_LV)
+const int LV_SPAN = 100
+
+f_lvl(string tf) =>
+    [h, l] = request.security(syminfo.tickerid, tf, [high[1], low[1]], lookahead=barmerge.lookahead_off)
+    [h, l]
+
+var line dH = na
+var line dL = na
+var line wH = na
+var line wL = na
+var line mH = na
+var line mL = na
+
+[dHigh, dLow] = f_lvl("D")
+[wHigh, wLow] = f_lvl("W")
+[mHigh, mLow] = f_lvl("M")
+
+f_drawLvl(line prevH, line prevL, float h, float l, color col) =>
+    if not na(prevH)
+        line.delete(prevH)
+    if not na(prevL)
+        line.delete(prevL)
+    line lh = line.new(bar_index - LV_SPAN, h, bar_index + 5, h, color=col, style=line.style_solid)
+    line ll = line.new(bar_index - LV_SPAN, l, bar_index + 5, l, color=col, style=line.style_solid)
+    [lh, ll]
+
+if showD and barstate.islast
+    [lh, ll] = f_drawLvl(dH, dL, dHigh, dLow, lvCol)
+    dH := lh
+    dL := ll
+if showW and barstate.islast
+    [lh, ll] = f_drawLvl(wH, wL, wHigh, wLow, color.new(lvCol, 30))
+    wH := lh
+    wL := ll
+if showM and barstate.islast
+    [lh, ll] = f_drawLvl(mH, mL, mHigh, mLow, color.new(lvCol, 50))
+    mH := lh
+    mL := ll
+
+// ─── ✦ MARCA DE AGUA ─────────────────────────────────────────
+G_WM = "✦ Marca de agua"
+showWM = input.bool(true, "Mostrar", group=G_WM)
+wmPos  = input.string("Abajo Derecha", "Posición", options=["Abajo Derecha", "Abajo Izquierda", "Arriba Derecha", "Arriba Izquierda"], group=G_WM)
+wmCol  = input.color(color.new(#787b86, 40), "Color", group=G_WM)
+
+f_wmPos(string p) =>
+    string pos = position.bottom_right
+    if p == "Abajo Izquierda"
+        pos := position.bottom_left
+    else if p == "Arriba Derecha"
+        pos := position.top_right
+    else if p == "Arriba Izquierda"
+        pos := position.top_left
+    pos
+
+if showWM and barstate.islast
+    var table wm = table.new(f_wmPos(wmPos), 1, 1)
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.tiny)

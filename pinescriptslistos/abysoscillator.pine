@@ -1,0 +1,222 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Abyss Oscillator
+//  WaveTrend con círculos OB/OS estilo institucional (fuerte = círculo · simple = ×).
+//  Glow futurista, Money Flow, divergencias. Inspirado en Nautilus (recreado).
+//  (c) BudAI Capital - Pine v6 - estetica futurista limpia
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Abyss Wave Oscillator", shorttitle="BudAI Capital® - Abyss Wave Oscillator", overlay=false, precision=1, max_labels_count=300, max_lines_count=300)
+
+// ════════════════ GRUPOS ════════════════
+G_CORE = "① Núcleo (WaveTrend)"
+G_MF   = "② Money Flow"
+G_LVL  = "③ Niveles OB / OS"
+G_SIG  = "④ Señales"
+G_VIS  = "⑤ Estética"
+G_WM   = "✦ Marca de agua"
+
+// ════════════════ ① NÚCLEO ════════════════
+chanLen = input.int(9,  "Canal", minval=3, maxval=50, group=G_CORE, tooltip="WaveTrend. 9-10 scalping, 21 swing.")
+avgLen  = input.int(12, "Promedio", minval=2, maxval=50, group=G_CORE)
+trigLen = input.int(3,  "Trigger (señal)", minval=1, maxval=20, group=G_CORE)
+src     = input.source(hlc3, "Fuente", group=G_CORE)
+
+// ════════════════ ② MONEY FLOW ════════════════
+showMF = input.bool(true, "Histograma Money Flow", group=G_MF)
+mfLen  = input.int(14, "Money Flow len", minval=2, maxval=50, group=G_MF)
+
+// ════════════════ ③ NIVELES ════════════════
+obLvl  = input.int(60,  "Sobrecompra",  minval=20, maxval=98, group=G_LVL, inline="l")
+osLvl  = input.int(-60, "Sobreventa",   minval=-98, maxval=-20, group=G_LVL, inline="l")
+obX    = input.int(53,  "Sobrecompra extrema",  minval=20, maxval=98, group=G_LVL, inline="x")
+osX    = input.int(-53, "Sobreventa extrema",   minval=-98, maxval=-20, group=G_LVL, inline="x")
+
+// ════════════════ ④ SEÑALES ════════════════
+showDots = input.bool(true, "Círculos OB/OS (giros)", group=G_SIG, tooltip="Círculo = señal fuerte (cruce en zona extrema). × = señal simple (cruce normal en zona).")
+showX    = input.bool(true, "× señales simples", group=G_SIG)
+reqMF    = input.bool(true, "Validar con Money Flow a favor", group=G_SIG)
+showDiv  = input.bool(true, "Divergencias (puntos)", group=G_SIG)
+divLen   = input.int(5, "Pivote divergencia", minval=2, maxval=20, group=G_SIG)
+
+// ════════════════ ⑤ ESTÉTICA (paleta BudAI) ════════════════
+gradMode = input.bool(false, "Modo gradiente neón (línea multicolor por nivel)", group=G_VIS, tooltip="OFF (recomendado) = celeste alcista / naranja bajista. ON = multicolor por nivel.")
+upCol   = input.color(#00bcd4, "Alcista (celeste)", group=G_VIS, inline="ln")
+dnCol   = input.color(#ff9800, "Bajista (naranja)", group=G_VIS, inline="ln")
+gLow    = input.color(#00bcd4, "Gradiente · piso (OS)", group=G_VIS, inline="g1")
+gMid    = input.color(#26c6da, "Gradiente · centro", group=G_VIS, inline="g1")
+gHigh   = input.color(#ff9800, "Gradiente · techo (OB)", group=G_VIS, inline="g2")
+sigUp   = input.color(#00e5ff, "Señal alcista (celeste neón)", group=G_VIS, inline="sg")
+sigDn   = input.color(#ff00ff, "Señal bajista (magenta neón)", group=G_VIS, inline="sg")
+divUpCol = input.color(#ffff00, "Divergencia alcista (amarillo neón)", group=G_VIS, inline="dv")
+divDnCol = input.color(#ff007f, "Divergencia bajista (rosa neón)", group=G_VIS, inline="dv")
+glow    = input.bool(true, "Glow futurista", group=G_VIS)
+showDash= input.bool(true, "Dashboard minimalista", group=G_VIS)
+dashPos = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda","Inferior Derecha","Superior Izquierda","Superior Derecha"], group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NÚCLEO — WaveTrend (escala ±100)
+// ════════════════════════════════════════════════════════════════════════════
+float esa = ta.ema(src, chanLen)
+float de  = ta.ema(math.abs(src - esa), chanLen)
+float ci  = de == 0 ? 0.0 : (src - esa) / (0.015 * de)
+float wt1 = ta.ema(ci, avgLen)
+float wt2 = ta.sma(wt1, trigLen)
+float wtClamp = math.max(-100.0, math.min(100.0, wt1))
+float wtTrig  = math.max(-100.0, math.min(100.0, wt2))
+
+bool isBull = wt1 >= wt2
+bool isBear = wt1 < wt2
+
+// Money Flow (CMF) para validar señales
+float mfm = (high - low) != 0 ? ((close - low) - (high - close)) / (high - low) : 0.0
+float vol = nz(volume) == 0 ? 1.0 : volume
+float cmf = math.sum(mfm * vol, mfLen) / math.sum(vol, mfLen)
+float mfiHist = ta.mfi(hlc3, mfLen) - 50.0   // -50..+50 centrado
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NIVELES — líneas finas, sin background
+// ════════════════════════════════════════════════════════════════════════════
+hline(0,     "Centro",       color.new(color.gray, 70), hline.style_solid)
+hline(obLvl, "Sobrecompra",  color.new(dnCol, 70), hline.style_dotted)
+hline(osLvl, "Sobreventa",   color.new(upCol, 70), hline.style_dotted)
+hline(obX,   "OB extrema",   color.new(dnCol, 88), hline.style_dotted)
+hline(osX,   "OS extrema",   color.new(upCol, 88), hline.style_dotted)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PLOTS — línea + glow futurista (capas semitransparentes)
+// ════════════════════════════════════════════════════════════════════════════
+bool waveUp = wtClamp >= wtClamp[1]
+// COLOR LÍNEA: gradiente neón por nivel (verde/cian abajo → rojo arriba) o clásico
+color gradCol = wtClamp >= 0 ? color.from_gradient(wtClamp, 0, 100, gMid, gHigh) : color.from_gradient(wtClamp, -100, 0, gLow, gMid)
+color oscCol = gradMode ? gradCol : (waveUp ? upCol : dnCol)
+plot(showMF ? mfiHist : na, "Money Flow", color=cmf >= 0 ? color.new(upCol, 75) : color.new(dnCol, 75), style=plot.style_columns, histbase=0)
+
+pTrig = plot(wtTrig, "Trigger", color=color.new(color.white, 15), linewidth=1)
+pOsc  = plot(wtClamp, "Abyss", color=oscCol, linewidth=2)
+pBase = plot(0, "Base", color=color.new(color.white, 100), display=display.none)
+// SOMBRA degradada de la onda hacia el centro (estilo Neptune)
+fill(pOsc, pBase, color=color.new(oscCol, 70), title="Sombra onda")
+// glow: capa fina alrededor de la línea (profundidad neón)
+pG1u = plot(glow ? wtClamp + 4 : na, "g1u", color=color.new(color.white,100), display=display.none)
+pG1d = plot(glow ? wtClamp - 4 : na, "g1d", color=color.new(color.white,100), display=display.none)
+color gIn = glow ? color.new(oscCol, 82) : color.new(color.white,100)
+fill(pOsc, pG1u, top_color=color.new(color.white,100), bottom_color=gIn, title="glow up")
+fill(pG1d, pOsc, top_color=gIn, bottom_color=color.new(color.white,100), title="glow dn")
+
+// ════════════════════════════════════════════════════════════════════════════
+//  SEÑALES — círculos (fuerte) y × (simple), estilo Nautilus
+// ════════════════════════════════════════════════════════════════════════════
+bool crossUp = ta.crossover(wt1, wt2)
+bool crossDn = ta.crossunder(wt1, wt2)
+bool flowUp  = not reqMF or cmf > 0
+bool flowDn  = not reqMF or cmf < 0
+bool conf    = barstate.isconfirmed
+
+// fuerte = cruce en zona EXTREMA · simple = cruce en zona normal (no extrema)
+bool strongUp = crossUp and wt1 <= osX and flowUp and conf
+bool strongDn = crossDn and wt1 >= obX and flowDn and conf
+bool simpleUp = crossUp and wt1 <= osLvl and wt1 > osX and flowUp and conf
+bool simpleDn = crossDn and wt1 >= obLvl and wt1 < obX and flowDn and conf
+
+// círculos fuertes pegados a la línea
+// círculos fuertes pegados a la línea con efecto glow
+plotchar(showDots and strongUp ? wtClamp : na, "Giro fuerte ↑ Glow", "•", location.absolute, color=color.new(sigUp, 60), size=size.small)
+plotchar(showDots and strongUp ? wtClamp : na, "Giro fuerte ↑", "•", location.absolute, color=sigUp, size=size.tiny)
+plotchar(showDots and strongDn ? wtClamp : na, "Giro fuerte ↓ Glow", "•", location.absolute, color=color.new(sigDn, 60), size=size.small)
+plotchar(showDots and strongDn ? wtClamp : na, "Giro fuerte ↓", "•", location.absolute, color=sigDn, size=size.tiny)
+// × simples
+plotchar(showX and simpleUp ? wtClamp : na, "Simple ↑", "×", location.absolute, color=color.new(sigUp, 25), size=size.tiny)
+plotchar(showX and simpleDn ? wtClamp : na, "Simple ↓", "×", location.absolute, color=color.new(sigDn, 25), size=size.tiny)
+
+// ── divergencias ──
+float dpl = ta.pivotlow(low,  divLen, divLen)
+float dph = ta.pivothigh(high, divLen, divLen)
+var float pLo1 = na
+var float pLo2 = na
+var float oLo1 = na
+var float oLo2 = na
+var int   bLo1 = na
+var int   bLo2 = na
+var float pHi1 = na
+var float pHi2 = na
+var float oHi1 = na
+var float oHi2 = na
+var int   bHi1 = na
+var int   bHi2 = na
+if not na(dpl)
+    pLo2 := pLo1
+    pLo1 := dpl
+    oLo2 := oLo1
+    oLo1 := wtClamp[divLen]
+    bLo2 := bLo1
+    bLo1 := bar_index - divLen
+if not na(dph)
+    pHi2 := pHi1
+    pHi1 := dph
+    oHi2 := oHi1
+    oHi1 := wtClamp[divLen]
+    bHi2 := bHi1
+    bHi1 := bar_index - divLen
+bool bullDiv = showDiv and not na(dpl) and not na(pLo2) and pLo1 < pLo2 and oLo1 > oLo2 and conf
+bool bearDiv = showDiv and not na(dph) and not na(pHi2) and pHi1 > pHi2 and oHi1 < oHi2 and conf
+// círculos diminutos con glow · amarillo bullish · rosa neón bearish
+plotchar(bullDiv ? wtClamp : na, "Div+ Glow", "•", location.absolute, color=color.new(divUpCol, 60), size=size.small)
+plotchar(bullDiv ? wtClamp : na, "Div+", "•", location.absolute, color=divUpCol, size=size.tiny)
+plotchar(bearDiv ? wtClamp : na, "Div− Glow", "•", location.absolute, color=color.new(divDnCol, 60), size=size.small)
+plotchar(bearDiv ? wtClamp : na, "Div−", "•", location.absolute, color=divDnCol, size=size.tiny)
+
+// Nodo Celeste Neón al cruzar la línea 0 (cambio de sesgo)
+bool cross0 = ta.cross(wtClamp, 0)
+plotchar(cross0 ? 0 : na, "Cruce 0 Glow", "•", location.absolute, color=color.new(#00e5ff, 60), size=size.small)
+plotchar(cross0 ? 0 : na, "Cruce 0 Centro", "•", location.absolute, color=color.new(#00e5ff, 0), size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD minimalista (tiny)
+// ════════════════════════════════════════════════════════════════════════════
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+var table d = table.new(f_pos(dashPos), 2, 4, bgcolor=color.new(#0b0e16, 14), frame_color=color.new(#546e7a, 40), frame_width=1, border_width=1)
+f_cell(t, r, k, v, vc) =>
+    table.cell(t, 0, r, k, text_color=color.new(#90a4ae, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
+
+if showDash and barstate.islast
+    string zona = wt1 >= obX ? "OB EXTREMA" : wt1 >= obLvl ? "Sobrecompra" : wt1 <= osX ? "OS EXTREMA" : wt1 <= osLvl ? "Sobreventa" : "Neutro"
+    color  zCol = wt1 >= obLvl ? dnCol : wt1 <= osLvl ? upCol : color.new(#90a4ae,0)
+    string dir = isBull ? "▲ Alcista" : "▼ Bajista"
+    color  dirC = isBull ? upCol : dnCol
+    string flow = cmf > 0 ? "ACUMULA" : "DISTRIB"
+    color  flowC = cmf > 0 ? upCol : dnCol
+    table.cell(d, 0, 0, "Abyss", text_color=color.white, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, str.tostring(wt1, "#.#"), text_color=oscCol, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(d, 1, "Zona",       zona, zCol)
+    f_cell(d, 2, "Dirección",  dir,  dirC)
+    f_cell(d, 3, "Money Flow", flow, flowC)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MARCA DE AGUA — firma BudAI Cripto
+// ════════════════════════════════════════════════════════════════════════════
+f_wmPos(s) => s == "Inferior Izquierda" ? position.bottom_left : s == "Inferior Derecha" ? position.bottom_right : s == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(strongUp, "Giro fuerte alcista", "Abyss · giro fuerte ↑ {{ticker}}")
+alertcondition(strongDn, "Giro fuerte bajista", "Abyss · giro fuerte ↓ {{ticker}}")
+alertcondition(bullDiv,  "Divergencia alcista", "Abyss · divergencia ▲ {{ticker}}")
+alertcondition(bearDiv,  "Divergencia bajista", "Abyss · divergencia ▼ {{ticker}}")
+

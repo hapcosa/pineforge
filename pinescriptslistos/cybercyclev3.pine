@@ -1,0 +1,954 @@
+//@version=6
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  ██████╗ ██╗   ██╗██████╗  █████╗ ██╗                             ║
+// ║  ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║                             ║
+// ║  ██████╔╝██║   ██║██║  ██║███████║██║                             ║
+// ║  ██╔══██╗██║   ██║██║  ██║██╔══██║██║                             ║
+// ║  ██████╔╝╚██████╔╝██████╔╝██║  ██║██║                             ║
+// ║  ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝                             ║
+// ║        C R I P T O · T R A D I N G · C A P I T A L                ║
+// ╚══════════════════════════════════════════════════════════════════╝
+// BudAI CyberCycle — Ehlers Adaptive Cyber Cycle + iTrend, rediseño visual.
+// Pieza modular del pack (futuro gemelo Python: KryptoLab/indicators/budai_cybercycle.py).
+//
+// CAMBIO vs v7: se eliminó la config por moneda (20 bloques BTC/ETH/SOL/...
+// con dispatcher switch(detectedCoin)) y se dejó UNA config general. El motor
+// matemático (Homodyne/MAMA/Autocorrelation/Kalman, Cyber Cycle, iTrend,
+// Fisher, filtros, risk management) es el mismo, solo cambia de dónde toma
+// los parámetros. Quien quiera afinar por símbolo ahora usa Pine Profiles
+// de TradingView en vez de un switch hardcodeado en el script.
+// De paso: alertas pasan de alertcondition() con JSON const (no podía
+// inyectar SL/TP reales) a alert() con JSON canónico BudAI dinámico.
+indicator("BudAI CyberCycle", shorttitle="BudAI CC", overlay=true, max_labels_count=500, max_lines_count=500)
+
+// ─── ① GENERAL ────────────────────────────────────────────────
+G_GEN = "① General"
+srcCyber   = input.source(hl2, "Source", group=G_GEN)
+signalMode = input.string("Manual", "Modo de Confianza",
+     options=["Manual","Conservative","Standard","Aggressive"], group=G_GEN)
+confMinInput = input.float(75, "Confianza Mín % (Manual)", minval=30, maxval=95, step=5, group=G_GEN)
+
+// ─── ② ALPHA ADAPTATIVO ─────────────────────────────────────
+G_AL = "② Alpha Adaptativo"
+alphaMethodInput = input.string("MAMA", "Método", options=["Homodyne","MAMA","Autocorrelation","Kalman","Manual"], group=G_AL)
+manualAlphaInput = input.float(0.35, "Manual Alpha", minval=0.05, maxval=0.80, step=0.01, group=G_AL)
+alphaFloorInput  = input.float(0.0,  "Alpha Floor",  minval=0.0,  maxval=0.50, step=0.01, group=G_AL)
+iTrendAlphaInput = input.float(0.07, "iTrend Alpha", minval=0.01, maxval=0.3,  step=0.01, group=G_AL)
+
+hdMinPeriod = input.float(3.0,  "Homodyne Min Period", minval=2,  maxval=10, step=1,  group=G_AL, inline="hd")
+hdMaxPeriod = input.float(40.0, "Max",                 minval=15, maxval=80, step=5,  group=G_AL, inline="hd")
+
+mamaFastLimit = input.float(0.5,  "MAMA Fast Limit", minval=0.2,  maxval=0.8, step=0.05, group=G_AL, inline="ma")
+mamaSlowLimit = input.float(0.05, "Slow",             minval=0.01,maxval=0.2, step=0.01, group=G_AL, inline="ma")
+
+acMinPeriod = input.int(6,  "Autocorr. Min Period", minval=3,  maxval=15, group=G_AL, inline="ac")
+acMaxPeriod = input.int(48, "Max Period",            minval=20, maxval=80, group=G_AL, inline="ac")
+acAvgLength = input.int(3,  "Avg Length",            minval=1,  maxval=5,  group=G_AL)
+
+kalQInput    = input.float(0.01, "Kalman Q",      minval=0.001,maxval=0.2,step=0.005,group=G_AL, inline="k1")
+kalRInput    = input.float(0.5,  "R",             minval=0.05, maxval=3.0,step=0.1,  group=G_AL, inline="k1")
+kalAFInput   = input.float(0.5,  "Kalman α Fast", minval=0.2,  maxval=0.8,step=0.05, group=G_AL, inline="k2")
+kalASInput   = input.float(0.05, "α Slow",        minval=0.01, maxval=0.2,step=0.01, group=G_AL, inline="k2")
+kalSensInput = input.float(2.0,  "Kalman Sens",   minval=0.5,  maxval=5.0,step=0.5,  group=G_AL)
+
+// ─── ③ FILTROS Y SEÑAL ──────────────────────────────────────
+G_SIG = "③ Filtros y Señal"
+trigEmaInput = input.int(14,  "Trigger EMA",      minval=3, maxval=30, group=G_SIG)
+minBarsInput = input.int(24,  "Min Bars Between",  minval=5, maxval=50, group=G_SIG)
+obLevelInput = input.float(1.5,  "OB Level", minval=0.3,  maxval=3.0, step=0.1, group=G_SIG, inline="obos")
+osLevelInput = input.float(-1.5, "OS Level", minval=-3.0, maxval=-0.3,step=0.1, group=G_SIG, inline="obos")
+volMultInput = input.float(2.0, "Volume Multiplier", minval=0.5, maxval=5.0, step=0.1, group=G_SIG)
+useHTFInput   = input.bool(true, "Usar Filtro HTF (4H)",  group=G_SIG)
+useTrendInput = input.bool(true, "Usar Filtro Tendencia", group=G_SIG)
+useVolInput   = input.bool(true, "Usar Filtro Volumen",   group=G_SIG)
+
+// ─── ④ RISK MANAGEMENT ──────────────────────────────────────
+G_RM = "④ Risk Management"
+slInput     = input.float(0.5, "SL %",  minval=0.1, maxval=10.0, step=0.1, group=G_RM)
+tp1Input    = input.float(1.5, "TP1 %", minval=0.1, maxval=20.0, step=0.25, group=G_RM, inline="tp1")
+tp1szInput  = input.float(0.4, "qty",   minval=0.1, maxval=1.0,  step=0.1,  group=G_RM, inline="tp1")
+tp2Input    = input.float(3.0, "TP2 %", minval=0.1, maxval=30.0, step=0.25, group=G_RM, inline="tp2")
+tp2szInput  = input.float(0.3, "qty",   minval=0.1, maxval=1.0,  step=0.1,  group=G_RM, inline="tp2")
+tp3Input    = input.float(7.5, "TP3 %", minval=0.1, maxval=50.0, step=0.25, group=G_RM)
+beInput     = input.float(1.8, "BE Activate %",    minval=0.1, maxval=20.0, step=0.1, group=G_RM)
+trailAInput = input.float(0.2, "Trail Activate %", minval=0.1, maxval=20.0, step=0.1, group=G_RM, inline="tr")
+trailPInput = input.float(0.6, "Trail Pullback %", minval=0.1, maxval=10.0, step=0.1, group=G_RM, inline="tr")
+
+// TP3 size derivado, TP1+TP2+TP3 = 1.0 (clamp)
+float tp3szInput = math.max(0.0, 1.0 - tp1szInput - tp2szInput)
+
+// alias directos: el motor mate de abajo usaba nombres e* (dispatcher por
+// moneda); se mantienen para no reescribir toda la sección de cálculo.
+eAlphaMethod  = alphaMethodInput
+eManualAlpha  = manualAlphaInput
+eITrendAlpha  = iTrendAlphaInput
+eTrigEma      = trigEmaInput
+eMinBars      = minBarsInput
+eVolMult      = volMultInput
+eOB           = obLevelInput
+eOS           = osLevelInput
+eAFloor       = alphaFloorInput
+eUseHTF       = useHTFInput
+eUseTrend     = useTrendInput
+eUseVol       = useVolInput
+eKalQ         = kalQInput
+eKalR         = kalRInput
+eKalAF        = kalAFInput
+eKalAS        = kalASInput
+eKalSens      = kalSensInput
+eSL           = slInput
+eTP1          = tp1Input
+eTP2          = tp2Input
+eTP3          = tp3Input
+eBE           = beInput
+eTrailA       = trailAInput
+eTrailP       = trailPInput
+eTP1sz        = tp1szInput
+eTP2sz        = tp2szInput
+eTP3sz        = tp3szInput
+
+float minConf = switch signalMode
+    "Conservative" => 80.0
+    "Standard"     => 50.0
+    "Aggressive"   => 30.0
+    => confMinInput
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║              ALPHA METHOD 1: HOMODYNE DISCRIMINATOR             ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+f_homodyne() =>
+    var float _hd_smooth = 0.0
+    _hd_smooth := (4.0 * srcCyber + 3.0 * nz(srcCyber[1]) + 2.0 * nz(srcCyber[2]) + nz(srcCyber[3])) / 10.0
+    var float _hd_period = 15.0
+    float _hd_adj = 0.075 * nz(_hd_period[1], 15.0) + 0.54
+    var float _hd_det = 0.0
+    _hd_det := (0.0962 * _hd_smooth + 0.5769 * nz(_hd_smooth[2]) - 0.5769 * nz(_hd_smooth[4]) - 0.0962 * nz(_hd_smooth[6])) * _hd_adj
+    var float _hd_Q1 = 0.0
+    _hd_Q1 := (0.0962 * _hd_det + 0.5769 * nz(_hd_det[2]) - 0.5769 * nz(_hd_det[4]) - 0.0962 * nz(_hd_det[6])) * _hd_adj
+    float _hd_I1 = nz(_hd_det[3])
+    var float _hd_jI = 0.0
+    var float _hd_jQ = 0.0
+    _hd_jI := (0.0962 * _hd_I1 + 0.5769 * nz(_hd_I1[2]) - 0.5769 * nz(_hd_I1[4]) - 0.0962 * nz(_hd_I1[6])) * _hd_adj
+    _hd_jQ := (0.0962 * _hd_Q1 + 0.5769 * nz(_hd_Q1[2]) - 0.5769 * nz(_hd_Q1[4]) - 0.0962 * nz(_hd_Q1[6])) * _hd_adj
+    var float _hd_I2 = 0.0
+    var float _hd_Q2 = 0.0
+    _hd_I2 := 0.2 * (_hd_I1 - _hd_jQ) + 0.8 * nz(_hd_I2[1])
+    _hd_Q2 := 0.2 * (_hd_Q1 + _hd_jI) + 0.8 * nz(_hd_Q2[1])
+    var float _hd_Re = 0.0
+    var float _hd_Im = 0.0
+    _hd_Re := 0.2 * (_hd_I2 * nz(_hd_I2[1]) + _hd_Q2 * nz(_hd_Q2[1])) + 0.8 * nz(_hd_Re[1])
+    _hd_Im := 0.2 * (_hd_I2 * nz(_hd_Q2[1]) - _hd_Q2 * nz(_hd_I2[1])) + 0.8 * nz(_hd_Im[1])
+    float _hd_phaseAdv = (math.abs(_hd_Im) > 1e-10 and math.abs(_hd_Re) > 1e-10) ? math.atan(_hd_Im / _hd_Re) : 0.0
+    float _hd_rawPer = _hd_phaseAdv > 0.001 ? 2.0 * math.pi / _hd_phaseAdv : nz(_hd_period[1], 15.0)
+    _hd_rawPer := math.max(_hd_rawPer, 0.67 * nz(_hd_period[1], 15.0))
+    _hd_rawPer := math.min(_hd_rawPer, 1.5 * nz(_hd_period[1], 15.0))
+    _hd_rawPer := math.max(hdMinPeriod, math.min(hdMaxPeriod, _hd_rawPer))
+    _hd_period := 0.2 * _hd_rawPer + 0.8 * nz(_hd_period[1], 15.0)
+    var float _hd_smoothPeriod = 15.0
+    _hd_smoothPeriod := 0.33 * _hd_period + 0.67 * nz(_hd_smoothPeriod[1], 15.0)
+    _hd_smoothPeriod := math.max(hdMinPeriod, math.min(hdMaxPeriod, _hd_smoothPeriod))
+    float _alpha = 2.0 / (_hd_smoothPeriod + 1.0)
+    [_alpha, _hd_smoothPeriod]
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║              ALPHA METHOD 2: MAMA                               ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+f_mama() =>
+    float _m_adj = 1.665
+    var float _m_smooth = 0.0
+    _m_smooth := (4.0 * srcCyber + 3.0 * nz(srcCyber[1]) + 2.0 * nz(srcCyber[2]) + nz(srcCyber[3])) / 10.0
+    var float _m_det = 0.0
+    _m_det := (0.0962 * _m_smooth + 0.5769 * nz(_m_smooth[2]) - 0.5769 * nz(_m_smooth[4]) - 0.0962 * nz(_m_smooth[6])) * _m_adj
+    var float _m_Q1 = 0.0
+    _m_Q1 := (0.0962 * _m_det + 0.5769 * nz(_m_det[2]) - 0.5769 * nz(_m_det[4]) - 0.0962 * nz(_m_det[6])) * _m_adj
+    float _m_I1 = nz(_m_det[3])
+    var float _m_jI = 0.0
+    var float _m_jQ = 0.0
+    _m_jI := (0.0962 * _m_I1 + 0.5769 * nz(_m_I1[2]) - 0.5769 * nz(_m_I1[4]) - 0.0962 * nz(_m_I1[6])) * _m_adj
+    _m_jQ := (0.0962 * _m_Q1 + 0.5769 * nz(_m_Q1[2]) - 0.5769 * nz(_m_Q1[4]) - 0.0962 * nz(_m_Q1[6])) * _m_adj
+    var float _m_I2 = 0.0
+    var float _m_Q2 = 0.0
+    _m_I2 := 0.2 * (_m_I1 - _m_jQ) + 0.8 * nz(_m_I2[1])
+    _m_Q2 := 0.2 * (_m_Q1 + _m_jI) + 0.8 * nz(_m_Q2[1])
+    float _m_sumI = _m_I1 + nz(_m_I1[1])
+    float _m_sumQ = _m_Q1 + nz(_m_Q1[1])
+    var float _m_phase = 0.0
+    float _m_rawPhase = 0.0
+    if math.abs(_m_sumI) > 0.001
+        _m_rawPhase := math.atan(math.abs(_m_sumQ / _m_sumI)) * (180.0 / math.pi)
+    else
+        _m_rawPhase := 90.0
+    if _m_sumI < 0 and _m_sumQ > 0
+        _m_rawPhase := 180.0 - _m_rawPhase
+    else if _m_sumI < 0 and _m_sumQ < 0
+        _m_rawPhase := 180.0 + _m_rawPhase
+    else if _m_sumI > 0 and _m_sumQ < 0
+        _m_rawPhase := 360.0 - _m_rawPhase
+    _m_phase := _m_rawPhase
+    float _m_dp_raw = nz(_m_phase[1], 0.0) - _m_phase
+    if _m_dp_raw > 180.0
+        _m_dp_raw := _m_dp_raw - 360.0
+    if _m_dp_raw < -180.0
+        _m_dp_raw := _m_dp_raw + 360.0
+    float _m_dp = math.max(1.0, math.min(60.0, _m_dp_raw))
+    var float _m_dpSmooth = 5.0
+    _m_dpSmooth := 0.33 * _m_dp + 0.67 * nz(_m_dpSmooth[1], 5.0)
+    _m_dpSmooth := math.max(1.0, math.min(60.0, _m_dpSmooth))
+    float _m_alpha = mamaFastLimit / _m_dpSmooth
+    _m_alpha := math.max(mamaSlowLimit, math.min(mamaFastLimit, _m_alpha))
+    float _m_periodEst = math.max(2.0, (2.0 / _m_alpha) - 1.0)
+    [_m_alpha, _m_periodEst]
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║         ALPHA METHOD 3: AUTOCORRELATION                         ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+f_autocorrelation() =>
+    float _ac_a1 = (0.707 * 2.0 * math.pi) / acMaxPeriod
+    float _ac_alphaHP = (math.cos(_ac_a1) + math.sin(_ac_a1) - 1.0) / math.cos(_ac_a1)
+    var float _ac_hp = 0.0
+    _ac_hp := (1.0 - _ac_alphaHP / 2.0) * (1.0 - _ac_alphaHP / 2.0) * (srcCyber - 2.0 * nz(srcCyber[1]) + nz(srcCyber[2])) + 2.0 * (1.0 - _ac_alphaHP) * nz(_ac_hp[1]) - (1.0 - _ac_alphaHP) * (1.0 - _ac_alphaHP) * nz(_ac_hp[2])
+    float _ac_a1ss = math.exp(-1.414 * math.pi / acMinPeriod)
+    float _ac_b1ss = 2.0 * _ac_a1ss * math.cos(1.414 * math.pi / acMinPeriod)
+    float _ac_c2ss = _ac_b1ss
+    float _ac_c3ss = -_ac_a1ss * _ac_a1ss
+    float _ac_c1ss = 1.0 - _ac_c2ss - _ac_c3ss
+    var float _ac_filt = 0.0
+    _ac_filt := _ac_c1ss * (_ac_hp + nz(_ac_hp[1])) / 2.0 + _ac_c2ss * nz(_ac_filt[1]) + _ac_c3ss * nz(_ac_filt[2])
+    int _ac_step = math.max(1, (acMaxPeriod - acMinPeriod) / 10)
+    var float _ac_bestPeriod = 15.0
+    float _ac_maxCorr = 0.0
+    float _ac_bestP = _ac_bestPeriod
+    for p = acMinPeriod to acMaxPeriod by _ac_step
+        float _sx = 0.0
+        float _sy = 0.0
+        float _sxx = 0.0
+        float _syy = 0.0
+        float _sxy = 0.0
+        int _cnt = acAvgLength * p
+        for j = 0 to math.min(_cnt - 1, 199)
+            float _x = nz(_ac_filt[j])
+            float _y = nz(_ac_filt[j + p])
+            _sx += _x
+            _sy += _y
+            _sxx += _x * _x
+            _syy += _y * _y
+            _sxy += _x * _y
+        float _denom = (_cnt * _sxx - _sx * _sx) * (_cnt * _syy - _sy * _sy)
+        float _corr = _denom > 0 ? (_cnt * _sxy - _sx * _sy) / math.sqrt(_denom) : 0.0
+        if _corr > _ac_maxCorr
+            _ac_maxCorr := _corr
+            _ac_bestP := float(p)
+    _ac_bestPeriod := 0.25 * _ac_bestP + 0.75 * nz(_ac_bestPeriod[1], 15.0)
+    _ac_bestPeriod := math.max(acMinPeriod, math.min(acMaxPeriod, _ac_bestPeriod))
+    float _ac_alpha = 2.0 / (_ac_bestPeriod + 1.0)
+    [_ac_alpha, _ac_bestPeriod]
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║          ALPHA METHOD 4: KALMAN                                 ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+f_kalman(float _kQ, float _kR, float _kAF, float _kAS, float _kSens) =>
+    var float _k_x = srcCyber
+    var float _k_P = 1.0
+    var float _k_innovEma = 0.001
+    float _k_xPred = _k_x
+    float _k_PPred = _k_P + _kQ
+    float _k_innovation = srcCyber - _k_xPred
+    float _k_S = _k_PPred + _kR
+    float _k_K = _k_S > 1e-12 ? _k_PPred / _k_S : 0.5
+    _k_x := _k_xPred + _k_K * _k_innovation
+    _k_P := (1.0 - _k_K) * _k_PPred
+    float _k_absInnov = math.abs(_k_innovation)
+    _k_innovEma := 0.05 * _k_absInnov + 0.95 * nz(_k_innovEma[1], 0.001)
+    float _k_normInnov = _k_innovEma > 1e-12 ? _k_absInnov / _k_innovEma : 1.0
+    float _k_ratio = (_k_normInnov - 1.0) * _kSens
+    float _k_sigmoid = 1.0 / (1.0 + math.exp(-_k_ratio))
+    float _k_alpha = _kAS + (_kAF - _kAS) * _k_sigmoid
+    _k_alpha := math.max(_kAS, math.min(_kAF, _k_alpha))
+    float _k_period = math.max(2.0, (2.0 / _k_alpha) - 1.0)
+    [_k_alpha, _k_period]
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║                  ALPHA METHOD DISPATCHER                        ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+[_a_hd, _p_hd] = f_homodyne()
+[_a_ma, _p_ma] = f_mama()
+[_a_ac, _p_ac] = f_autocorrelation()
+[_a_kl, _p_kl] = f_kalman(eKalQ, eKalR, eKalAF, eKalAS, eKalSens)
+
+float adaptiveAlpha = switch eAlphaMethod
+    "Homodyne"        => _a_hd
+    "MAMA"            => _a_ma
+    "Autocorrelation" => _a_ac
+    "Kalman"          => _a_kl
+    => eManualAlpha
+
+float dominantPeriod = switch eAlphaMethod
+    "Homodyne"        => _p_hd
+    "MAMA"            => _p_ma
+    "Autocorrelation" => _p_ac
+    "Kalman"          => _p_kl
+    => (2.0 / eManualAlpha) - 1.0
+
+if eAFloor > 0
+    adaptiveAlpha := math.max(adaptiveAlpha, eAFloor)
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║                  ADAPTIVE CYBER CYCLE + SUPPORT                 ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+f_ema(float src, int len) =>
+    float k = 2.0 / (len + 1)
+    var float out = 0.0
+    out := k * src + (1.0 - k) * nz(out[1])
+    out
+
+var float _mainSmooth = 0.0
+var float _mainCycle  = 0.0
+_mainSmooth := (srcCyber + 2.0 * nz(srcCyber[1]) + 2.0 * nz(srcCyber[2]) + nz(srcCyber[3])) / 6.0
+if bar_index < 7
+    _mainCycle := (srcCyber - 2.0 * nz(srcCyber[1]) + nz(srcCyber[2])) / 4.0
+else
+    float _a1 = (1.0 - 0.5 * adaptiveAlpha) * (1.0 - 0.5 * adaptiveAlpha)
+    float _a2 = 2.0 * (1.0 - adaptiveAlpha)
+    float _a3 = (1.0 - adaptiveAlpha) * (1.0 - adaptiveAlpha)
+    _mainCycle := _a1 * (_mainSmooth - 2.0 * nz(_mainSmooth[1]) + nz(_mainSmooth[2])) + _a2 * nz(_mainCycle[1]) - _a3 * nz(_mainCycle[2])
+
+float cyberCycle = _mainCycle
+float trigger    = f_ema(cyberCycle, eTrigEma)
+
+var float _iTrend = 0.0
+float _itA = eITrendAlpha
+_iTrend := (_itA - _itA * _itA / 4.0) * close + 0.5 * _itA * _itA * nz(close[1]) - (_itA - 0.75 * _itA * _itA) * nz(close[2]) + 2.0 * (1.0 - _itA) * nz(_iTrend[1]) - (1.0 - _itA) * (1.0 - _itA) * nz(_iTrend[2])
+float iTrend   = _iTrend
+bool bullTrend = iTrend > nz(iTrend[2])
+bool bearTrend = iTrend < nz(iTrend[2])
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║                     FISHER TRANSFORM                            ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+float _fH = ta.highest(cyberCycle, 10)
+float _fL = ta.lowest(cyberCycle, 10)
+float _fR = _fH - _fL
+float _fV = _fR != 0 ? 2.0 * ((cyberCycle - _fL) / _fR - 0.5) : 0.0
+_fV := math.max(-0.999, math.min(0.999, _fV))
+float _fRaw = 0.5 * math.log((1.0 + _fV) / (1.0 - _fV))
+var float fisherT = 0.0
+fisherT := 0.5 * _fRaw + 0.5 * nz(fisherT[1])
+bool fishRising  = fisherT > nz(fisherT[1])
+bool fishFalling = fisherT < nz(fisherT[1])
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║                     VOLUME FILTER                               ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+float volSma20 = ta.sma(volume, 20)
+float volRatio = volSma20 > 0 ? volume / volSma20 : 0
+bool  volumeOK = not eUseVol or volRatio >= eVolMult
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║                     HTF FILTER (4H)                             ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+float htfSrc = request.security(syminfo.tickerid, "240", hl2, lookahead=barmerge.lookahead_off)
+float htfCC  = request.security(syminfo.tickerid, "240", ta.ema(close, 10), lookahead=barmerge.lookahead_off)
+bool htfBullish   = not eUseHTF or htfSrc > htfCC
+bool htfBearish   = not eUseHTF or htfSrc < htfCC
+bool htfAlignBuy  = not eUseHTF or htfBullish
+bool htfAlignSell = not eUseHTF or htfBearish
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║                     SIGNAL GENERATION                           ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+bool bullCross = ta.crossover(cyberCycle, trigger)
+bool bearCross = ta.crossunder(cyberCycle, trigger)
+bool inOB = cyberCycle > eOB
+bool inOS = cyberCycle < eOS
+float momentum3 = cyberCycle - nz(cyberCycle[3])
+
+float buyConf = 0.0
+buyConf += bullCross                      ? 20.0 : 0.0
+buyConf += (eUseTrend ? bullTrend : true) ? 15.0 : 0.0
+buyConf += inOS                           ? 15.0 : 0.0
+buyConf += (eUseVol ? volumeOK : true)   ? 15.0 : 0.0
+buyConf += fishRising                     ? 10.0 : 0.0
+buyConf += momentum3 > 0                  ? 10.0 : 0.0
+buyConf += htfAlignBuy                    ? 15.0 : 0.0
+buyConf := math.min(buyConf, 100.0)
+
+float sellConf = 0.0
+sellConf += bearCross                      ? 20.0 : 0.0
+sellConf += (eUseTrend ? bearTrend : true) ? 15.0 : 0.0
+sellConf += inOB                           ? 15.0 : 0.0
+sellConf += (eUseVol ? volumeOK : true)   ? 15.0 : 0.0
+sellConf += fishFalling                    ? 10.0 : 0.0
+sellConf += momentum3 < 0                  ? 10.0 : 0.0
+sellConf += htfAlignSell                   ? 15.0 : 0.0
+sellConf := math.min(sellConf, 100.0)
+
+var int lastSigBar = 0
+bool barFilter = bar_index - lastSigBar >= eMinBars
+
+bool buySignal  = bullCross and buyConf  >= minConf and barFilter and (eUseTrend ? bullTrend : true) and htfAlignBuy
+bool sellSignal = bearCross and sellConf >= minConf and barFilter and (eUseTrend ? bearTrend : true) and htfAlignSell
+
+if buySignal or sellSignal
+    lastSigBar := bar_index
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║            RISK MANAGEMENT — TRADE STATE MACHINE                ║
+// ║   Solo vela en vivo (barstate.islast/isrealtime)                ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+var float  rm_entry      = float(na)
+var bool   rm_isLong     = bool(na)
+var float  rm_sl         = float(na)
+var float  rm_tp1        = float(na)
+var float  rm_tp2        = float(na)
+var float  rm_tp3        = float(na)
+var float  rm_beLevel    = float(na)
+var float  rm_trailActPx = float(na)
+var float  rm_trailHigh  = float(na)
+var bool   rm_beActive   = false
+var bool   rm_trailActive = false
+var bool   rm_tp1Hit     = false
+var bool   rm_tp2Hit     = false
+var bool   rm_tp3Hit     = false
+var bool   rm_tradeOpen  = false
+var int    rm_entryBar   = 0
+var int    rm_entryTime  = 0
+
+if buySignal and not rm_tradeOpen
+    rm_entry       := close
+    rm_isLong      := true
+    rm_sl          := close * (1.0 - eSL / 100.0)
+    rm_tp1         := close * (1.0 + eTP1 / 100.0)
+    rm_tp2         := close * (1.0 + eTP2 / 100.0)
+    rm_tp3         := close * (1.0 + eTP3 / 100.0)
+    rm_beLevel     := close * (1.0 + eBE / 100.0)
+    rm_trailActPx  := close * (1.0 + eTrailA / 100.0)
+    rm_trailHigh   := close
+    rm_beActive    := false
+    rm_trailActive := false
+    rm_tp1Hit      := false
+    rm_tp2Hit      := false
+    rm_tp3Hit      := false
+    rm_tradeOpen   := true
+    rm_entryBar    := bar_index
+    rm_entryTime   := time
+
+if sellSignal and not rm_tradeOpen
+    rm_entry       := close
+    rm_isLong      := false
+    rm_sl          := close * (1.0 + eSL / 100.0)
+    rm_tp1         := close * (1.0 - eTP1 / 100.0)
+    rm_tp2         := close * (1.0 - eTP2 / 100.0)
+    rm_tp3         := close * (1.0 - eTP3 / 100.0)
+    rm_beLevel     := close * (1.0 - eBE / 100.0)
+    rm_trailActPx  := close * (1.0 - eTrailA / 100.0)
+    rm_trailHigh   := close
+    rm_beActive    := false
+    rm_trailActive := false
+    rm_tp1Hit      := false
+    rm_tp2Hit      := false
+    rm_tp3Hit      := false
+    rm_tradeOpen   := true
+    rm_entryBar    := bar_index
+    rm_entryTime   := time
+
+bool rm_closed = false
+string rm_closeReason = ""
+
+if rm_tradeOpen and barstate.islast
+    float px = close
+
+    if rm_isLong
+        if px > rm_trailHigh
+            rm_trailHigh := px
+
+        if not rm_trailActive and px >= rm_trailActPx
+            rm_trailActive := true
+
+        if rm_trailActive
+            float newSL = rm_trailHigh * (1.0 - eTrailP / 100.0)
+            if newSL > rm_sl
+                rm_sl := newSL
+        else
+            if not rm_beActive and px >= rm_beLevel
+                rm_beActive := true
+                if rm_entry > rm_sl
+                    rm_sl := rm_entry
+
+        if not rm_tp1Hit and px >= rm_tp1
+            rm_tp1Hit := true
+        if not rm_tp2Hit and px >= rm_tp2
+            rm_tp2Hit := true
+        if not rm_tp3Hit and px >= rm_tp3
+            rm_tp3Hit := true
+            rm_closed := true
+            rm_closeReason := "TP3"
+
+        if px <= rm_sl and not rm_closed
+            rm_closed := true
+            rm_closeReason := "SL"
+
+    else
+        if px < rm_trailHigh or rm_trailHigh == rm_entry
+            rm_trailHigh := px
+
+        if not rm_trailActive and px <= rm_trailActPx
+            rm_trailActive := true
+
+        if rm_trailActive
+            float newSL_s = rm_trailHigh * (1.0 + eTrailP / 100.0)
+            if newSL_s < rm_sl
+                rm_sl := newSL_s
+        else
+            if not rm_beActive and px <= rm_beLevel
+                rm_beActive := true
+                if rm_entry < rm_sl
+                    rm_sl := rm_entry
+
+        if not rm_tp1Hit and px <= rm_tp1
+            rm_tp1Hit := true
+        if not rm_tp2Hit and px <= rm_tp2
+            rm_tp2Hit := true
+        if not rm_tp3Hit and px <= rm_tp3
+            rm_tp3Hit := true
+            rm_closed := true
+            rm_closeReason := "TP3"
+
+        if px >= rm_sl and not rm_closed
+            rm_closed := true
+            rm_closeReason := "SL"
+
+    if rm_closed
+        rm_tradeOpen := false
+
+float rm_pnlPct = na
+if rm_tradeOpen and not na(rm_entry) and rm_entry > 0
+    rm_pnlPct := (rm_isLong ? (close - rm_entry) / rm_entry : (rm_entry - close) / rm_entry) * 100.0
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║                     PRICE FORMAT HELPER                         ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+f_formatPrice(float p) =>
+    string result = ""
+    if p >= 10000
+        result := str.tostring(p, "#")
+    else if p >= 100
+        result := str.tostring(p, "#.#")
+    else if p >= 1
+        result := str.tostring(p, "#.##")
+    else if p >= 0.01
+        result := str.tostring(p, "#.####")
+    else
+        result := str.tostring(p, "#.######")
+    result
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║                     ⑤ VISUALIZACIÓN                              ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+G_VIZ = "⑤ Visualización"
+showITrend      = input.bool(true,  "Show iTrend",          group=G_VIZ)
+showCloud       = input.bool(true,  "Show Cloud",           group=G_VIZ)
+showBuySignals  = input.bool(true,  "Show BUY Signals",     group=G_VIZ)
+showSellSignals = input.bool(true,  "Show SELL Signals",    group=G_VIZ)
+showRM          = input.bool(true,  "Show Risk Management", group=G_VIZ)
+showInfoTable   = input.bool(true,  "Show Info Table",      group=G_VIZ)
+cloudAtrLen     = input.int(14,     "Cloud ATR Len",        group=G_VIZ)
+cloudAtrMult    = input.float(1.5,  "Cloud ATR Mult",       group=G_VIZ)
+float offsetMult = input.float(1.5, "Label Offset (ATR mult)", minval=0.5, maxval=5.0, step=0.5, group=G_VIZ)
+
+// ─── ⑥ ESTÉTICA (paleta Athenea) ────────────────────────────
+G_S = "⑥ Estética"
+C_BULL = input.color(#00e5ff, "Bull", group=G_S, inline="c")
+C_BEAR = input.color(#ff1e6e, "Bear", group=G_S, inline="c")
+C_AMB  = input.color(#ffb300, "Trailing/Intensidad", group=G_S)
+
+color bullColor = C_BULL
+color bearColor = C_BEAR
+color cloudBull = color.new(C_BULL, 88)
+color cloudBear = color.new(C_BEAR, 88)
+color colTP1    = color.new(#FFD700, 0)
+color colTP2    = color.new(#FFA500, 0)
+color colTP3    = color.new(#FF6B00, 0)
+color colSL     = color.new(C_BEAR, 0)
+color colBE     = color.new(#00BFFF, 0)
+color colEntry  = color.new(#FFFFFF, 30)
+
+float atr = ta.atr(cloudAtrLen)
+float cloudUpper = iTrend + atr * cloudAtrMult
+float cloudLower = iTrend - atr * cloudAtrMult
+
+plot(showITrend ? iTrend : na, "ITrend",
+     color=bullTrend ? bullColor : bearColor, linewidth=1)
+
+pU = plot(showCloud ? cloudUpper : na, "Cloud Upper", color=color.new(color.gray, 95))
+pL = plot(showCloud ? cloudLower : na, "Cloud Lower", color=color.new(color.gray, 95))
+pM = plot(showCloud ? iTrend     : na, "Cloud Mid",   color=na)
+fill(pU, pM, color=bullTrend ? cloudBull : cloudBear, title="Upper Fill")
+fill(pM, pL, color=bullTrend ? cloudBull : cloudBear, title="Lower Fill")
+
+// ─── Señales de entrada ───
+varip float capturedBuyPrice  = float(na)
+varip float capturedSellPrice = float(na)
+varip bool  buyPriceLocked    = false
+varip bool  sellPriceLocked   = false
+
+if barstate.isnew
+    capturedBuyPrice  := na
+    capturedSellPrice := na
+    buyPriceLocked    := false
+    sellPriceLocked   := false
+
+if buySignal and not buyPriceLocked
+    capturedBuyPrice := close
+    buyPriceLocked   := true
+
+if sellSignal and not sellPriceLocked
+    capturedSellPrice := close
+    sellPriceLocked   := true
+
+if showBuySignals and buySignal
+    float dp    = not na(capturedBuyPrice) ? capturedBuyPrice : close
+    string pStr = f_formatPrice(dp)
+    string live = barstate.isrealtime ? "·" : ""
+    string closed_mark = rm_closed and rm_closeReason == "SL" ? " ✕" : ""
+    label.new(bar_index, low - atr * offsetMult,
+         "▲ " + pStr + live + closed_mark,
+         style=label.style_label_up,
+         color=color.new(bullColor, 15),
+         textcolor=color.white,
+         size=size.small,
+         tooltip="BUY  conf=" + str.tostring(buyConf, "#") + "%\nSL=" + str.tostring(eSL,"#.##") + "% TP1=" + str.tostring(eTP1,"#.##") + "% TP2=" + str.tostring(eTP2,"#.##") + "% TP3=" + str.tostring(eTP3,"#.##") + "%")
+
+if showSellSignals and sellSignal
+    float dp    = not na(capturedSellPrice) ? capturedSellPrice : close
+    string pStr = f_formatPrice(dp)
+    string live = barstate.isrealtime ? "·" : ""
+    string closed_mark = rm_closed and rm_closeReason == "SL" ? " ✕" : ""
+    label.new(bar_index, high + atr * offsetMult,
+         "▼ " + pStr + live + closed_mark,
+         style=label.style_label_down,
+         color=color.new(bearColor, 15),
+         textcolor=color.white,
+         size=size.small,
+         tooltip="SELL  conf=" + str.tostring(sellConf, "#") + "%\nSL=" + str.tostring(eSL,"#.##") + "% TP1=" + str.tostring(eTP1,"#.##") + "% TP2=" + str.tostring(eTP2,"#.##") + "% TP3=" + str.tostring(eTP3,"#.##") + "%")
+
+bool weakBuy  = bullCross and buyConf  >= 30 and buyConf  < minConf and barFilter and htfAlignBuy
+bool weakSell = bearCross and sellConf >= 30 and sellConf < minConf and barFilter and htfAlignSell
+plotshape(showBuySignals  and weakBuy,  "Weak Buy",
+     shape.circle, location.belowbar, color.new(bullColor, 65), size=size.tiny, offset=0)
+plotshape(showSellSignals and weakSell, "Weak Sell",
+     shape.circle, location.abovebar, color.new(bearColor, 65), size=size.tiny, offset=0)
+
+barcolor(cyberCycle > trigger and bullTrend ? color.new(bullColor, 75) :
+         cyberCycle < trigger and bearTrend  ? color.new(bearColor, 75) : na)
+
+// ─── Líneas de Risk Management (solo trade activo en última vela) ───
+var line rm_lineEntry = line(na)
+var line rm_lineSL    = line(na)
+var line rm_lineTP1   = line(na)
+var line rm_lineTP2   = line(na)
+var line rm_lineTP3   = line(na)
+var line rm_lineBE    = line(na)
+var line rm_lineTrail = line(na)
+
+if showRM and barstate.islast and rm_tradeOpen
+    int startT = rm_entryTime
+    int endT   = time + 5 * (time - time[1])
+
+    if not na(rm_lineEntry)
+        line.delete(rm_lineEntry)
+    if not na(rm_lineSL)
+        line.delete(rm_lineSL)
+    if not na(rm_lineTP1)
+        line.delete(rm_lineTP1)
+    if not na(rm_lineTP2)
+        line.delete(rm_lineTP2)
+    if not na(rm_lineTP3)
+        line.delete(rm_lineTP3)
+    if not na(rm_lineBE)
+        line.delete(rm_lineBE)
+    if not na(rm_lineTrail)
+        line.delete(rm_lineTrail)
+
+    rm_lineEntry := line.new(startT, rm_entry, endT, rm_entry,
+         xloc=xloc.bar_time, color=colEntry, style=line.style_dashed, width=1)
+    rm_lineSL := line.new(startT, rm_sl, endT, rm_sl,
+         xloc=xloc.bar_time, color=colSL, style=line.style_solid, width=2)
+    if not rm_tp1Hit
+        rm_lineTP1 := line.new(startT, rm_tp1, endT, rm_tp1,
+             xloc=xloc.bar_time, color=colTP1, style=line.style_dotted, width=1)
+    if not rm_tp2Hit
+        rm_lineTP2 := line.new(startT, rm_tp2, endT, rm_tp2,
+             xloc=xloc.bar_time, color=colTP2, style=line.style_dotted, width=1)
+    if not rm_tp3Hit
+        rm_lineTP3 := line.new(startT, rm_tp3, endT, rm_tp3,
+             xloc=xloc.bar_time, color=colTP3, style=line.style_dotted, width=1)
+    if not rm_beActive and not rm_trailActive
+        rm_lineBE := line.new(startT, rm_beLevel, endT, rm_beLevel,
+             xloc=xloc.bar_time, color=colBE, style=line.style_dashed, width=1)
+    if rm_trailActive
+        float trailSLpx = (rm_isLong
+             ? rm_trailHigh * (1.0 - eTrailP / 100.0)
+             : rm_trailHigh * (1.0 + eTrailP / 100.0))
+        rm_lineTrail := line.new(startT, trailSLpx, endT, trailSLpx,
+             xloc=xloc.bar_time, color=C_AMB, style=line.style_solid, width=2)
+
+var label rm_lblEntry = label(na)
+var label rm_lblSL    = label(na)
+var label rm_lblTP1   = label(na)
+var label rm_lblTP2   = label(na)
+var label rm_lblTP3   = label(na)
+var label rm_lblBE    = label(na)
+var label rm_lblTrail = label(na)
+
+if showRM and barstate.islast and rm_tradeOpen
+    int lbIdx = bar_index + 5
+
+    if not na(rm_lblEntry)
+        label.delete(rm_lblEntry)
+    if not na(rm_lblSL)
+        label.delete(rm_lblSL)
+    if not na(rm_lblTP1)
+        label.delete(rm_lblTP1)
+    if not na(rm_lblTP2)
+        label.delete(rm_lblTP2)
+    if not na(rm_lblTP3)
+        label.delete(rm_lblTP3)
+    if not na(rm_lblBE)
+        label.delete(rm_lblBE)
+    if not na(rm_lblTrail)
+        label.delete(rm_lblTrail)
+
+    rm_lblEntry := label.new(lbIdx, rm_entry,
+         "ENTRY " + f_formatPrice(rm_entry),
+         style=label.style_label_left, color=color.new(colEntry, 20),
+         textcolor=color.white, size=size.tiny)
+
+    string slTag = rm_beActive ? "BE-SL " : (rm_trailActive ? "TRAIL-SL " : "SL ")
+    rm_lblSL := label.new(lbIdx, rm_sl,
+         slTag + f_formatPrice(rm_sl) + "  -" + str.tostring(eSL,"#.##") + "%",
+         style=label.style_label_left, color=color.new(colSL, 20),
+         textcolor=color.white, size=size.tiny)
+
+    if not rm_tp1Hit
+        rm_lblTP1 := label.new(lbIdx, rm_tp1,
+             "TP1 " + f_formatPrice(rm_tp1) + "  +" + str.tostring(eTP1,"#.##") + "%",
+             style=label.style_label_left, color=color.new(colTP1, 20),
+             textcolor=color.black, size=size.tiny)
+    if not rm_tp2Hit
+        rm_lblTP2 := label.new(lbIdx, rm_tp2,
+             "TP2 " + f_formatPrice(rm_tp2) + "  +" + str.tostring(eTP2,"#.##") + "%",
+             style=label.style_label_left, color=color.new(colTP2, 20),
+             textcolor=color.black, size=size.tiny)
+    if not rm_tp3Hit
+        rm_lblTP3 := label.new(lbIdx, rm_tp3,
+             "TP3 " + f_formatPrice(rm_tp3) + "  +" + str.tostring(eTP3,"#.##") + "%",
+             style=label.style_label_left, color=color.new(colTP3, 20),
+             textcolor=color.black, size=size.tiny)
+
+    if not rm_beActive and not rm_trailActive
+        rm_lblBE := label.new(lbIdx, rm_beLevel,
+             "BE @" + str.tostring(eBE,"#.#") + "%",
+             style=label.style_label_left, color=color.new(colBE, 20),
+             textcolor=color.white, size=size.tiny)
+
+    if rm_trailActive
+        rm_lblTrail := label.new(lbIdx, rm_sl,
+             "TRAIL ↑ pull=" + str.tostring(eTrailP,"#.#") + "%",
+             style=label.style_label_left, color=color.new(C_AMB, 20),
+             textcolor=color.white, size=size.tiny)
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║                  INFO TABLE                                     ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+if showInfoTable and barstate.islast
+    var table t = table.new(
+         position.top_right, 2, 17,
+         bgcolor      = color.new(#0D0D0D, 60),
+         border_width = 1,
+         border_color = color.new(color.gray, 70),
+         frame_width  = 1,
+         frame_color  = color.new(color.gray, 50))
+
+    color hdrCol  = #A0A0B0
+    color valCol  = #E8E8F0
+    color accentY = #FFD166
+    color accentG = bullColor
+    color accentR = bearColor
+
+    int row = 0
+
+    table.cell(t, 0, row, "METHOD", text_color=hdrCol, text_size=size.tiny, bgcolor=color.new(#1A1A2E, 40))
+    table.cell(t, 1, row,
+         eAlphaMethod + "  α=" + str.tostring(adaptiveAlpha, "#.###") + "  P=" + str.tostring(dominantPeriod, "#.#"),
+         text_color=accentY, text_size=size.tiny, bgcolor=color.new(#1A1A2E, 40))
+    row += 1
+
+    table.cell(t, 0, row, "CYCLE",  text_color=hdrCol, text_size=size.tiny)
+    table.cell(t, 1, row, str.tostring(cyberCycle, "#.####"),
+         text_color=cyberCycle > 0 ? accentG : accentR, text_size=size.tiny)
+    row += 1
+
+    string trendStr = bullTrend ? "▲ BULL" : bearTrend ? "▼ BEAR" : "── FLAT"
+    table.cell(t, 0, row, "TREND",  text_color=hdrCol, text_size=size.tiny)
+    table.cell(t, 1, row, trendStr + (eUseTrend ? "" : "  [off]"),
+         text_color=bullTrend ? accentG : bearTrend ? accentR : color.gray, text_size=size.tiny)
+    row += 1
+
+    string zoneStr = inOB ? "⬆ OB" : inOS ? "⬇ OS" : "○ NEUTRAL"
+    table.cell(t, 0, row, "ZONE",   text_color=hdrCol, text_size=size.tiny)
+    table.cell(t, 1, row, zoneStr,
+         text_color=inOB ? accentR : inOS ? accentG : color.gray, text_size=size.tiny)
+    row += 1
+
+    table.cell(t, 0, row, "DIR",    text_color=hdrCol, text_size=size.tiny)
+    table.cell(t, 1, row, cyberCycle > trigger ? "▲ BULLISH" : "▼ BEARISH",
+         text_color=cyberCycle > trigger ? accentG : accentR, text_size=size.tiny)
+    row += 1
+
+    float cConf = bullCross ? buyConf : bearCross ? sellConf : 0
+    string confStr = cConf > 0 ? str.tostring(cConf,"#") + "%  (min " + str.tostring(minConf,"#") + "%)" : "---"
+    table.cell(t, 0, row, "CONF",   text_color=hdrCol, text_size=size.tiny)
+    table.cell(t, 1, row, confStr,
+         text_color=cConf >= minConf ? accentG : cConf >= 30 ? accentY : color.gray, text_size=size.tiny)
+    row += 1
+
+    table.cell(t, 0, row, eUseVol ? "VOLUME" : "VOL[off]", text_color=hdrCol, text_size=size.tiny)
+    table.cell(t, 1, row, eUseVol ? (volumeOK ? "✔ OK" : "✘ LOW") : "---",
+         text_color=volumeOK ? accentG : accentR, text_size=size.tiny)
+    row += 1
+
+    table.cell(t, 0, row, eUseHTF ? "HTF 4H" : "HTF[off]", text_color=hdrCol, text_size=size.tiny)
+    table.cell(t, 1, row, eUseHTF ? (htfBullish ? "▲ BULL" : "▼ BEAR") : "---",
+         text_color=htfBullish ? accentG : accentR, text_size=size.tiny)
+    row += 1
+
+    table.cell(t, 0, row, "CONFIG", text_color=hdrCol, text_size=size.tiny)
+    table.cell(t, 1, row,
+         "T=" + str.tostring(eTrigEma) + "  B=" + str.tostring(eMinBars) +
+         "  OB=" + str.tostring(eOB,"#.#") + "  OS=" + str.tostring(eOS,"#.#"),
+         text_color=valCol, text_size=size.tiny)
+    row += 1
+
+    table.cell(t, 0, row, "━━ TRADE ━━", text_color=accentY, text_size=size.tiny, bgcolor=color.new(#1A1A2E, 30))
+    table.cell(t, 1, row, rm_tradeOpen ? (rm_isLong ? "▲ LONG" : "▼ SHORT") : "── NO TRADE",
+         text_color=rm_tradeOpen ? (rm_isLong ? accentG : accentR) : color.gray,
+         text_size=size.tiny, bgcolor=color.new(#1A1A2E, 30))
+    row += 1
+
+    if rm_tradeOpen
+        string pnlStr = not na(rm_pnlPct) ? str.tostring(rm_pnlPct, "+#.##;-#.##") + "%" : "---"
+        color  pnlCol = not na(rm_pnlPct) ? (rm_pnlPct >= 0 ? accentG : accentR) : color.gray
+        table.cell(t, 0, row, "P&L %", text_color=hdrCol, text_size=size.tiny)
+        table.cell(t, 1, row, pnlStr, text_color=pnlCol, text_size=size.tiny)
+        row += 1
+
+        table.cell(t, 0, row, "ENTRY", text_color=hdrCol, text_size=size.tiny)
+        table.cell(t, 1, row, f_formatPrice(rm_entry), text_color=valCol, text_size=size.tiny)
+        row += 1
+
+        string slStatus = rm_beActive ? "BE-SL" : (rm_trailActive ? "TRAIL-SL" : "SL")
+        table.cell(t, 0, row, slStatus, text_color=hdrCol, text_size=size.tiny)
+        table.cell(t, 1, row, f_formatPrice(rm_sl) + "  " + str.tostring(eSL,"#.#") + "%",
+             text_color=colSL, text_size=size.tiny)
+        row += 1
+
+        string tp1Str = rm_tp1Hit ? "✔ HIT" : f_formatPrice(rm_tp1) + "  +" + str.tostring(eTP1,"#.#") + "%"
+        string tp2Str = rm_tp2Hit ? "✔ HIT" : f_formatPrice(rm_tp2) + "  +" + str.tostring(eTP2,"#.#") + "%"
+        string tp3Str = rm_tp3Hit ? "✔ HIT" : f_formatPrice(rm_tp3) + "  +" + str.tostring(eTP3,"#.#") + "%"
+        table.cell(t, 0, row, "TP1", text_color=hdrCol, text_size=size.tiny)
+        table.cell(t, 1, row, tp1Str, text_color=rm_tp1Hit ? accentG : colTP1, text_size=size.tiny)
+        row += 1
+
+        table.cell(t, 0, row, "TP2", text_color=hdrCol, text_size=size.tiny)
+        table.cell(t, 1, row, tp2Str, text_color=rm_tp2Hit ? accentG : colTP2, text_size=size.tiny)
+        row += 1
+
+        table.cell(t, 0, row, "TP3", text_color=hdrCol, text_size=size.tiny)
+        table.cell(t, 1, row, tp3Str, text_color=rm_tp3Hit ? accentG : colTP3, text_size=size.tiny)
+        row += 1
+
+        string beStr = rm_beActive ? "✔ ACTIVE" : (rm_trailActive ? "→ TRAIL" : "@ " + str.tostring(eBE,"#.#") + "%")
+        table.cell(t, 0, row, "BE/TRAIL", text_color=hdrCol, text_size=size.tiny)
+        table.cell(t, 1, row, beStr + "  pull=" + str.tostring(eTrailP,"#.#") + "%",
+             text_color=rm_beActive or rm_trailActive ? colBE : color.gray, text_size=size.tiny)
+
+
+// ─── ✦ MARCA DE AGUA ─────────────────────────────────────────
+G_WM = "✦ Marca de agua"
+showWM = input.bool(true, "Mostrar", group=G_WM)
+wmPos  = input.string("Abajo Izquierda", "Posición", options=["Abajo Derecha", "Abajo Izquierda", "Arriba Derecha", "Arriba Izquierda"], group=G_WM)
+wmCol  = input.color(color.new(#787b86, 40), "Color", group=G_WM)
+
+f_wmPos(string p) =>
+    string pos = position.bottom_left
+    if p == "Abajo Derecha"
+        pos := position.bottom_right
+    else if p == "Arriba Derecha"
+        pos := position.top_right
+    else if p == "Arriba Izquierda"
+        pos := position.top_left
+    pos
+
+if showWM and barstate.islast
+    var table wm = table.new(f_wmPos(wmPos), 1, 1)
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.tiny)
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║                     ALERTS                                      ║
+// ╚══════════════════════════════════════════════════════════════════╝
+// Config general (no per-coin) → el JSON dinámico ya puede llevar SL/TP/
+// trailing/BE reales del usuario en vez de defaults fijos de BTC. Symbol
+// limpio (basecurrency+USDT), nunca {{ticker}} — ver contrato en CLAUDE.md.
+
+f_sym() => syminfo.basecurrency + "USDT"
+f_alertJson(string side) =>
+    '{"side":"' + side + '","symbol":"' + f_sym() + '"' +
+      ',"timeframe":"' + timeframe.period + '"' +
+      ',"price":' + str.tostring(close) +
+      ',"risk":{"sl_pct":' + str.tostring(eSL) +
+        ',"tp":[{"pct":' + str.tostring(eTP1) + ',"qty_pct":' + str.tostring(eTP1sz * 100) + '},' +
+              '{"pct":' + str.tostring(eTP2) + ',"qty_pct":' + str.tostring(eTP2sz * 100) + '},' +
+              '{"pct":' + str.tostring(eTP3) + ',"qty_pct":' + str.tostring(eTP3sz * 100) + '}]' +
+        ',"trailing":{"activation_pct":' + str.tostring(eTrailA) + ',"callback_pct":' + str.tostring(eTrailP) + '}' +
+        ',"breakeven":{"trigger_pct":' + str.tostring(eBE) + ',"offset_pct":0.1}}}'
+
+if buySignal
+    alert(f_alertJson("buy"), alert.freq_once_per_bar_close)
+if sellSignal
+    alert(f_alertJson("sell"), alert.freq_once_per_bar_close)
+
+// alertcondition() de auditoría — texto libre para alertas manuales en TV,
+// no sustituyen el webhook JSON de arriba.
+alertcondition(buySignal,  "BudAI CC — BUY",  "BudAI CyberCycle: BUY")
+alertcondition(sellSignal, "BudAI CC — SELL", "BudAI CyberCycle: SELL")
+alertcondition(bullCross,  "Bull Cross", "BudAI CC: Bull Cross (unfiltered)")
+alertcondition(bearCross,  "Bear Cross", "BudAI CC: Bear Cross (unfiltered)")

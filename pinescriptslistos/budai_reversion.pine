@@ -1,0 +1,283 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Reversion
+//  Recreación propia de la parte self-contained de Signals & Overlays (LuxAlgo):
+//  Mean Reversion Channel (SuperSmoother de Ehlers sobre precio y true range,
+//  gradiente de agotamiento 1-5) + Trend adaptativo por K-means (clustering de
+//  factores ATR en 3 clusters: peor/promedio/mejor, se toma "mejor" cluster) +
+//  clasificador de fuerza de señal 1-4. NO se portó nada de la librería
+//  externa opaca (Smart Trail / Trend Catcher / Trend Tracer / Squeeze de
+//  ayvaliktrading) — solo las dos piezas del original que eran código propio
+//  legible. Motor distinto al de Kratos (kernel RQ): acá el trail nace del
+//  clustering de multiplicadores ATR, no de un kernel Nadaraya-Watson —
+//  producto complementario, no redundante.
+//  Estudio de emulación por piezas — pieza «Reversión». Gemelo Python (futuro):
+//  KryptoLab/indicators/budai_reversion.py
+//  (c) BudAI Capital® — Pine v6
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Reversion", shorttitle="BudAI Capital® - Reversion", overlay=true, max_lines_count=200, max_labels_count=200, max_boxes_count=100)
+
+// ════════════════ GRUPOS ════════════════
+G_MRC = "① Canal de Reversión (Mean Reversion Channel)"
+G_ST  = "② Trend Adaptativo (K-means ATR)"
+G_SIG = "③ Señales"
+G_S   = "④ Estética"
+G_WM  = "✦ Marca de agua"
+
+// ════════════════ ① CANAL DE REVERSIÓN ════════════════
+bool  showMrc     = input.bool(true, "Mostrar canal de reversión", group=G_MRC)
+int   mrcLen      = input.int(100, "Longitud SuperSmoother", minval=10, maxval=300, group=G_MRC)
+float mrcInner    = input.float(1.0, "Multiplicador banda interna", minval=0.1, step=0.1, group=G_MRC)
+float mrcOuter    = input.float(2.415, "Multiplicador banda externa", minval=0.1, step=0.05, group=G_MRC)
+bool  showMrcZone = input.bool(true, "Mostrar zonas de agotamiento", group=G_MRC)
+
+// ════════════════ ② TREND ADAPTATIVO (K-MEANS ATR) ════════════════
+bool   showTrend   = input.bool(true, "Mostrar trend adaptativo", group=G_ST)
+int    kAtrLen     = input.int(10, "ATR length", minval=1, maxval=100, group=G_ST)
+string autopilot   = input.string("Mid Term", "Autopilot", options=["Short Term", "Mid Term", "Long-Term", "Manual"], group=G_ST)
+int    sensitivity = input.int(9, "Sensibilidad (modo Manual)", minval=1, maxval=26, group=G_ST)
+bool   showAma     = input.bool(true, "Mostrar media adaptativa (AMA)", group=G_ST)
+
+// ════════════════ ③ SEÑALES ════════════════
+bool showSig      = input.bool(true, "Mostrar señales", group=G_SIG)
+bool useEmaConf   = input.bool(true, "Confirmar con EMA 50/200", group=G_SIG)
+bool numClassif   = input.bool(true, "Clasificar fuerza 1-4 (OFF = flechas)", group=G_SIG)
+
+// ════════════════ ④ ESTÉTICA (paleta neón Athenea) ════════════════
+color C_BULL = input.color(#00e5ff, "Alcista (celeste)", group=G_S, inline="c")
+color C_BEAR = input.color(#ff1e6e, "Bajista (fucsia)", group=G_S, inline="c")
+color revCol = input.color(#ffb300, "Color agotamiento (ámbar)", group=G_S)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+bool   showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+string wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda", "Inferior Derecha", "Superior Izquierda", "Superior Derecha"], group=G_WM)
+color  wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+// ════════════════ ① CANAL DE REVERSIÓN — Ehlers SuperSmoother ════════════════
+var float PI = 2 * math.asin(1)
+
+f_supersmoother(float src, int len) =>
+    float a1 = math.exp(-math.sqrt(2) * PI / len)
+    float b1 = 2 * a1 * math.cos(math.sqrt(2) * PI / len)
+    float c3 = -math.pow(a1, 2)
+    float c2 = b1
+    float c1 = 1 - c2 - c3
+    var float ss = 0.0
+    ss := c1 * src + c2 * nz(ss[1], src[1]) + c3 * nz(ss[2], src[2])
+    ss
+
+float mrcMult1 = PI * mrcInner
+float mrcMult2 = PI * mrcOuter
+float mrcGrad  = 0.5
+
+float mrcMean  = f_supersmoother(hlc3, mrcLen)
+float mrcRange = f_supersmoother(ta.tr, mrcLen)
+float mrcUp1   = mrcMean + mrcRange * mrcMult1
+float mrcDn1   = mrcMean - mrcRange * mrcMult1
+float mrcUp2   = mrcMean + mrcRange * mrcMult2
+float mrcDn2   = mrcMean - mrcRange * mrcMult2
+
+int mrcCond = 0
+if close > mrcMean
+    float up2Far  = mrcUp2 + mrcRange * mrcGrad * 4
+    float up2Near = mrcUp2 - mrcRange * mrcGrad * 4
+    mrcCond := (high >= up2Near and high < mrcUp2) ? 1 : (high >= mrcUp2 and high < up2Far) ? 2 : (high >= up2Far) ? 3 : (close <= mrcMean + mrcRange) ? 4 : 5
+if close < mrcMean
+    float dn2Far  = mrcDn2 - mrcRange * mrcGrad * 4
+    float dn2Near = mrcDn2 + mrcRange * mrcGrad * 4
+    mrcCond := (low <= dn2Near and low > mrcDn2) ? -1 : (low <= mrcDn2 and low > dn2Far) ? -2 : (low <= dn2Far) ? -3 : (close >= mrcMean - mrcRange) ? -4 : -5
+
+pMrcMean = plot(showMrc ? mrcMean : na, "Canal medio", color=color.new(color.gray, 55), style=plot.style_circles)
+pMrcUp1  = plot(showMrc ? mrcUp1  : na, "Banda interna sup", color=color.new(C_BEAR, 65))
+pMrcDn1  = plot(showMrc ? mrcDn1  : na, "Banda interna inf", color=color.new(C_BULL, 65))
+pMrcUp2  = plot(showMrc and showMrcZone ? mrcUp2 : na, "Banda externa sup", color=color.new(revCol, 55))
+pMrcDn2  = plot(showMrc and showMrcZone ? mrcDn2 : na, "Banda externa inf", color=color.new(revCol, 55))
+// canal core sombreado (contexto) + zonas de agotamiento en degradado — look Kratos
+fill(pMrcUp1, pMrcMean, color=showMrc ? color.new(C_BEAR, 95) : na, title="Canal sup (contexto)")
+fill(pMrcMean, pMrcDn1, color=showMrc ? color.new(C_BULL, 95) : na, title="Canal inf (contexto)")
+fill(pMrcUp1, pMrcUp2, color=showMrc and showMrcZone and mrcCond >= 1 ? color.new(revCol, 100 - mrcCond * 15) : na)
+fill(pMrcDn1, pMrcDn2, color=showMrc and showMrcZone and mrcCond <= -1 ? color.new(revCol, 100 - math.abs(mrcCond) * 15) : na)
+
+// ════════════════ ② TREND ADAPTATIVO — K-means sobre factores ATR ════════════════
+type supertrend
+    float upper = hl2
+    float lower = hl2
+    float output = na
+    float perf = 0.0
+    float factor = na
+    int   trend = 0
+
+type vector
+    array<float> out
+
+float minMult = math.max(sensitivity - 4, 1)
+float maxMult = math.min(sensitivity, 26)
+if autopilot == "Short Term"
+    minMult := 1
+    maxMult := 4
+if autopilot == "Mid Term"
+    minMult := 5
+    maxMult := 10
+if autopilot == "Long-Term"
+    minMult := 8
+    maxMult := 13
+
+float step     = 0.5
+float perfAlpha = 10.0
+int   maxIter  = 250
+int   maxData  = 2500
+
+var array<supertrend> holder  = array.new<supertrend>(0)
+var array<float>       factors = array.new<float>(0)
+
+if barstate.isfirst
+    for i = 0 to int((maxMult - minMult) / step)
+        array.push(factors, minMult + i * step)
+        array.push(holder, supertrend.new())
+
+float kAtr = ta.atr(kAtrLen)
+
+int k = 0
+for factorVal in factors
+    supertrend st = array.get(holder, k)
+    float up = hl2 + kAtr * factorVal
+    float dn = hl2 - kAtr * factorVal
+    st.trend  := close > st.upper ? 1 : close < st.lower ? 0 : st.trend
+    st.upper  := close[1] < st.upper ? math.min(up, st.upper) : up
+    st.lower  := close[1] > st.lower ? math.max(dn, st.lower) : dn
+    float diff = nz(math.sign(close[1] - st.output))
+    st.perf   := st.perf + 2 / (perfAlpha + 1) * (nz(close - close[1]) * diff - st.perf)
+    st.output := st.trend == 1 ? st.lower : st.upper
+    st.factor := factorVal
+    k := k + 1
+
+array<float> dataArr   = array.new<float>(0)
+array<float> factorArr = array.new<float>(0)
+if last_bar_index - bar_index <= maxData
+    for element in holder
+        array.push(dataArr, element.perf)
+        array.push(factorArr, element.factor)
+
+array<float> centroids = array.new<float>(0)
+array.push(centroids, array.percentile_linear_interpolation(dataArr, 25))
+array.push(centroids, array.percentile_linear_interpolation(dataArr, 50))
+array.push(centroids, array.percentile_linear_interpolation(dataArr, 75))
+
+var array<vector> factorClusters = na
+var array<vector> perfClusters   = na
+
+if last_bar_index - bar_index <= maxData
+    for iter = 0 to maxIter
+        factorClusters := array.from(vector.new(array.new<float>(0)), vector.new(array.new<float>(0)), vector.new(array.new<float>(0)))
+        perfClusters   := array.from(vector.new(array.new<float>(0)), vector.new(array.new<float>(0)), vector.new(array.new<float>(0)))
+
+        int di = 0
+        for value in dataArr
+            array<float> dist = array.new<float>(0)
+            for centroid in centroids
+                array.push(dist, math.abs(value - centroid))
+            int idx = array.indexof(dist, array.min(dist))
+            array.push(array.get(perfClusters, idx).out, value)
+            array.push(array.get(factorClusters, idx).out, array.get(factorArr, di))
+            di := di + 1
+
+        array<float> newCentroids = array.new<float>(0)
+        for clusterVec in perfClusters
+            array.push(newCentroids, array.avg(clusterVec.out))
+
+        bool converged = array.get(newCentroids, 0) == array.get(centroids, 0) and array.get(newCentroids, 1) == array.get(centroids, 1) and array.get(newCentroids, 2) == array.get(centroids, 2)
+        centroids := newCentroids
+        if converged
+            break
+
+// Cluster objetivo = "Mejor" (índice 2)
+var float targetFactor = na
+var float perfIdx      = na
+float den = ta.ema(math.abs(close - close[1]), int(perfAlpha))
+
+if not na(perfClusters)
+    targetFactor := nz(array.avg(array.get(factorClusters, 2).out), targetFactor)
+    perfIdx      := math.max(nz(array.avg(array.get(perfClusters, 2).out)), 0) / den
+
+var float trUpper = hl2
+var float trLower = hl2
+var int   trOs     = 0
+
+float trUp = hl2 + kAtr * targetFactor
+float trDn = hl2 - kAtr * targetFactor
+trUpper := close[1] < trUpper ? math.min(trUp, trUpper) : trUp
+trLower := close[1] > trLower ? math.max(trDn, trLower) : trDn
+trOs    := close > trUpper ? 1 : close < trLower ? 0 : trOs
+float trStop = trOs == 1 ? trLower : trUpper
+
+var float trAma = na
+if na(trStop[1]) and not na(trStop)
+    trAma := trStop
+else
+    trAma := trAma + perfIdx * (trStop - trAma)
+
+bool  trBull  = trOs == 1
+color trCol   = trBull ? C_BULL : C_BEAR
+
+bool trUnbroken = trOs == trOs[1]
+// glow multicapa (mismo patrón Kratos/Omni) en vez de línea plana única
+plot(showTrend and trUnbroken ? trStop : na, "Trend glow ext", color=color.new(trCol, 92), linewidth=6)
+plot(showTrend and trUnbroken ? trStop : na, "Trend glow",     color=color.new(trCol, 80), linewidth=3)
+pTrStop  = plot(showTrend and trUnbroken ? trStop : na, "Trend adaptativo", color=trCol, linewidth=2)
+plot(showTrend and showAma ? trAma : na, "AMA", color=color.new(trCol, 40), linewidth=1)
+pTrPrice = plot(showTrend ? close : na, "TR precio", display=display.none, editable=false)
+fill(pTrPrice, pTrStop, color=showTrend and trUnbroken ? color.new(trCol, 88) : na, title="Nube trend")
+
+// ════════════════ ③ SEÑALES ════════════════
+bool flipUp   = trOs > trOs[1]
+bool flipDown = trOs < trOs[1]
+
+float ema50  = ta.ema(close, 50)
+float ema200 = ta.ema(close, 200)
+bool  emaBull = ema50 > ema200
+bool  emaBear = ema50 < ema200
+
+int strength = int(perfIdx * 10) < 2 ? 1 : int(perfIdx * 10) < 4 ? 2 : int(perfIdx * 10) < 5 ? 3 : 4
+
+var array<label> sigLabels = array.new_label()
+const int MAX_SIG = 200
+
+f_addSigLabel(txt, y, styleUp, col) =>
+    if array.size(sigLabels) >= MAX_SIG
+        label.delete(array.shift(sigLabels))
+    lbl = label.new(bar_index, y, txt, style=styleUp ? label.style_label_up : label.style_label_down, color=col, textcolor=color.black, size=size.small)
+    array.push(sigLabels, lbl)
+
+float atr30 = ta.atr(30)
+if showSig and barstate.isconfirmed and flipUp
+    string txt = numClassif ? str.tostring(strength) : (useEmaConf and emaBull ? "▲+" : "▲")
+    f_addSigLabel(txt, low - atr30 / 2, true, C_BULL)
+if showSig and barstate.isconfirmed and flipDown
+    string txt = numClassif ? str.tostring(strength) : (useEmaConf and emaBear ? "▼+" : "▼")
+    f_addSigLabel(txt, high + atr30 / 2, false, C_BEAR)
+
+// nodo glow en el flip exacto (mismo lenguaje visual que Kratos)
+plotshape(showSig and flipUp,   title="Flip Glow ↑", style=shape.triangleup,   location=location.belowbar, color=color.new(C_BULL, 55), size=size.small)
+plotshape(showSig and flipUp,   title="Flip ↑",       style=shape.triangleup,   location=location.belowbar, color=C_BULL, size=size.tiny)
+plotshape(showSig and flipDown, title="Flip Glow ↓", style=shape.triangledown, location=location.abovebar, color=color.new(C_BEAR, 55), size=size.small)
+plotshape(showSig and flipDown, title="Flip ↓",       style=shape.triangledown, location=location.abovebar, color=C_BEAR, size=size.tiny)
+
+// ════════════════ MARCA DE AGUA (tabla 1×1) ════════════════
+f_wmPos(p) =>
+    p == "Inferior Izquierda" ? position.bottom_left : p == "Inferior Derecha" ? position.bottom_right : p == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1)
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.normal, bgcolor=color.new(#0b0e16, 100))
+
+// ════════════════ ALERTAS (placeholder; JSON canónico BudAI al ensamblar el pack) ════════════════
+alertcondition(flipUp,   title="Reversion · trend adaptativo alcista", message="BudAI Reversion: flip ALCISTA")
+alertcondition(flipDown, title="Reversion · trend adaptativo bajista", message="BudAI Reversion: flip BAJISTA")
+alertcondition(mrcCond >= 3,  title="Reversion · agotamiento superior", message="BudAI Reversion: zona fuerte SUP")
+alertcondition(mrcCond <= -3, title="Reversion · agotamiento inferior", message="BudAI Reversion: zona fuerte INF")

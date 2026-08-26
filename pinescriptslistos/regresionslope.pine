@@ -1,0 +1,195 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Slope Engine
+//  Pendiente de regresión lineal (fuerza/dirección de tendencia) + ondas degradadas.
+//  Línea blanca que se tiñe verde/rojo · sombras acum/dist · histograma de flujo.
+//  (c) BudAI Capital® — Pine v6 · estética futurista limpia
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Regression Slope Engine", shorttitle="BudAI Capital® - Regression Slope Engine", overlay=false, precision=1, max_labels_count=300, max_lines_count=300)
+
+// ════════════════ GRUPOS ════════════════
+G_CORE = "① Núcleo (Pendiente)"
+G_FLOW = "② Flujo (histograma)"
+G_LVL  = "③ Niveles OB / OS"
+G_SIG  = "④ Señales"
+G_VIS  = "⑤ Estética"
+G_WM   = "✦ Marca de agua"
+
+// ════════════════ ① NÚCLEO ════════════════
+slopeLen = input.int(20, "Regresión (longitud)", minval=3, maxval=100, group=G_CORE, tooltip="Ventana de la regresión lineal. 20 equilibrado, 14 rápido, 34 swing.")
+sigLen   = input.int(9,  "Señal (suavizado)", minval=1, maxval=50, group=G_CORE)
+src      = input.source(close, "Fuente", group=G_CORE)
+smooth   = input.int(2,  "Suavizado de la onda", minval=1, maxval=10, group=G_CORE)
+
+// ════════════════ ② FLUJO ════════════════
+showFlow = input.bool(true, "Histograma de flujo (acum/dist)", group=G_FLOW)
+flowLen  = input.int(14, "Flujo len", minval=2, maxval=50, group=G_FLOW)
+
+// ════════════════ ③ NIVELES ════════════════
+obLvl = input.int(60,  "Sobrecompra",  minval=20, maxval=98, group=G_LVL, inline="l")
+osLvl = input.int(-60, "Sobreventa",   minval=-98, maxval=-20, group=G_LVL, inline="l")
+
+// ════════════════ ④ SEÑALES ════════════════
+showDots = input.bool(true, "Círculos de reversión (giro)", group=G_SIG, tooltip="Giro alcista: pendiente cruza su señal estando bajo 0. Giro bajista: cruza estando sobre 0.")
+reqExt   = input.bool(true, "Solo en zona extrema (OB/OS)", group=G_SIG)
+showDiv  = input.bool(true, "Divergencias (puntos)", group=G_SIG)
+divLen   = input.int(5, "Pivote divergencia", minval=2, maxval=20, group=G_SIG)
+
+// ════════════════ ⑤ ESTÉTICA (paleta BudAI · sombras Neptune) ════════════════
+upCol    = input.color(#00c853, "Alcista (acumulación)", group=G_VIS, inline="c")
+dnCol    = input.color(#ff1744, "Bajista (distribución)", group=G_VIS, inline="c")
+sigUp    = input.color(#00e5ff, "Señal alcista (cian neón)", group=G_VIS, inline="sg")
+sigDn    = input.color(#ff00ff, "Señal bajista (magenta neón)", group=G_VIS, inline="sg")
+divUpCol = input.color(#64ffda, "Divergencia alcista (verde menta)", group=G_VIS, inline="dv")
+divDnCol = input.color(#ff007f, "Divergencia bajista (rosa neón)", group=G_VIS, inline="dv")
+shadeInt = input.int(55, "Intensidad de sombra", minval=20, maxval=90, group=G_VIS, tooltip="Menor = sombra más fuerte.")
+showDash = input.bool(true, "Dashboard minimalista", group=G_VIS)
+dashPos  = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda","Inferior Derecha","Superior Izquierda","Superior Derecha"], group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NÚCLEO — pendiente de regresión lineal, normalizada ±100
+// ════════════════════════════════════════════════════════════════════════════
+// pendiente = diferencia de la regresión lineal entre hoy y la barra previa
+float lr  = ta.linreg(src, slopeLen, 0)
+float lr1 = ta.linreg(src, slopeLen, 1)
+float slopeRaw = lr - lr1
+// normalizar la pendiente por el ATR para que sea comparable en todo activo/TF
+float norm = ta.atr(slopeLen) / slopeLen
+float slopeN = norm != 0 ? slopeRaw / norm * 25.0 : 0.0
+float osc  = ta.ema(math.max(-100.0, math.min(100.0, slopeN)), smooth)
+float sig  = ta.ema(osc, sigLen)
+
+bool isBull = osc >= 0
+bool waveUp = osc >= osc[1]
+
+// flujo (acum/dist) para histograma
+float mfm = (high - low) != 0 ? ((close - low) - (high - close)) / (high - low) : 0.0
+float vol = nz(volume) == 0 ? 1.0 : volume
+float cmf = math.sum(mfm * vol, flowLen) / math.sum(vol, flowLen)
+float flowHist = cmf * 70.0
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NIVELES — líneas finas
+// ════════════════════════════════════════════════════════════════════════════
+hline(0,     "Centro",      color.new(color.gray, 65), hline.style_solid)
+hline(obLvl, "Sobrecompra", color.new(dnCol, 78), hline.style_dotted)
+hline(osLvl, "Sobreventa",  color.new(upCol, 78), hline.style_dotted)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PLOTS — onda blanca + SOMBRAS degradadas (acum verde / dist rojo)
+// ════════════════════════════════════════════════════════════════════════════
+plot(showFlow ? flowHist : na, "Flujo", color=cmf >= 0 ? color.new(upCol, 60) : color.new(dnCol, 60), style=plot.style_columns, histbase=0)
+
+// línea: VERDE alcista (sobre 0) / ROJO bajista (bajo 0) — legible globalmente
+color waveCol = isBull ? upCol : dnCol
+
+// glow sutil de una sola capa (panel de oscilador: línea fina, sin bulto)
+plot(osc, "Glow", color=color.new(waveCol, 85), linewidth=3)
+pOsc  = plot(osc, "Slope", color=waveCol, linewidth=1)
+pBase = plot(0, "Base", color=color.new(color.white, 100), display=display.none)
+p100  = plot(100, "Techo", color=color.new(color.white, 100), display=display.none)
+pN100 = plot(-100, "Piso", color=color.new(color.white, 100), display=display.none)
+
+// SOMBRA degradada real (fade hacia 0, no offset fijo) · look Omni/Kratos
+fill(pOsc, pBase, top_value=100, bottom_value=0, top_color=color.new(upCol, shadeInt), bottom_color=color.new(upCol, 100), title="Sombra alcista")
+fill(pOsc, pBase, top_value=0, bottom_value=-100, top_color=color.new(dnCol, 100), bottom_color=color.new(dnCol, shadeInt), title="Sombra bajista")
+
+// ════════════════════════════════════════════════════════════════════════════
+//  SEÑALES — giros (cruce pendiente × señal) en zona extrema
+// ════════════════════════════════════════════════════════════════════════════
+bool xUp = ta.crossover(osc, sig)
+bool xDn = ta.crossunder(osc, sig)
+bool conf = barstate.isconfirmed
+bool extUp = not reqExt or osc <= osLvl
+bool extDn = not reqExt or osc >= obLvl
+bool giroUp = showDots and xUp and osc < 0 and extUp and conf
+bool giroDn = showDots and xDn and osc > 0 and extDn and conf
+plotchar(giroUp ? osc : na, "Giro ↑ Glow", "•", location.absolute, color=color.new(sigUp, 65), size=size.small)
+plotchar(giroUp ? osc : na, "Giro ↑", "•", location.absolute, color=sigUp, size=size.tiny)
+plotchar(giroDn ? osc : na, "Giro ↓ Glow", "•", location.absolute, color=color.new(sigDn, 65), size=size.small)
+plotchar(giroDn ? osc : na, "Giro ↓", "•", location.absolute, color=sigDn, size=size.tiny)
+
+// Nodo celeste neón al cruzar cero (cambio de sesgo principal)
+bool cross0Slope = ta.cross(osc, 0)
+plotchar(cross0Slope ? 0 : na, "Cruce 0 Slope Glow", "•", location.absolute, color=color.new(#00e5ff, 60), size=size.small)
+plotchar(cross0Slope ? 0 : na, "Cruce 0 Slope", "•", location.absolute, color=color.new(#00e5ff, 0), size=size.tiny)
+
+// ── divergencias (puntos) ──
+float dpl = ta.pivotlow(low,  divLen, divLen)
+float dph = ta.pivothigh(high, divLen, divLen)
+var float pLo1 = na
+var float pLo2 = na
+var float oLo1 = na
+var float oLo2 = na
+var float pHi1 = na
+var float pHi2 = na
+var float oHi1 = na
+var float oHi2 = na
+if not na(dpl)
+    pLo2 := pLo1
+    pLo1 := dpl
+    oLo2 := oLo1
+    oLo1 := osc[divLen]
+if not na(dph)
+    pHi2 := pHi1
+    pHi1 := dph
+    oHi2 := oHi1
+    oHi1 := osc[divLen]
+bool bullDiv = showDiv and not na(dpl) and not na(pLo2) and pLo1 < pLo2 and oLo1 > oLo2 and conf
+bool bearDiv = showDiv and not na(dph) and not na(pHi2) and pHi1 > pHi2 and oHi1 < oHi2 and conf
+plotchar(bullDiv ? osc : na, "Div+ Glow", "•", location.absolute, color=color.new(divUpCol, 65), size=size.small)
+plotchar(bullDiv ? osc : na, "Div+", "•", location.absolute, color=divUpCol, size=size.tiny)
+plotchar(bearDiv ? osc : na, "Div− Glow", "•", location.absolute, color=color.new(divDnCol, 65), size=size.small)
+plotchar(bearDiv ? osc : na, "Div−", "•", location.absolute, color=divDnCol, size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD minimalista (tiny)
+// ════════════════════════════════════════════════════════════════════════════
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+var table d = table.new(f_pos(dashPos), 2, 4, bgcolor=color.new(#0b0e16, 14), frame_color=color.new(#546e7a, 40), frame_width=1, border_width=1)
+f_cell(t, r, k, v, vc) =>
+    table.cell(t, 0, r, k, text_color=color.new(#90a4ae, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
+
+if showDash and barstate.islast
+    string zona = osc >= obLvl ? "SOBRECOMPRA" : osc <= osLvl ? "SOBREVENTA" : "Neutro"
+    color  zCol = osc >= obLvl ? dnCol : osc <= osLvl ? upCol : color.new(#90a4ae,0)
+    string dir = waveUp ? "▲ Subiendo" : "▼ Bajando"
+    color  dirC = waveUp ? upCol : dnCol
+    string fuerza = math.abs(osc) > 60 ? "Fuerte" : math.abs(osc) > 30 ? "Moderada" : "Débil"
+    string flow = cmf > 0 ? "ACUMULA" : "DISTRIB"
+    color  flowC = cmf > 0 ? upCol : dnCol
+    table.cell(d, 0, 0, "Slope", text_color=color.white, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, str.tostring(osc, "#.#"), text_color=waveCol, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(d, 1, "Zona",      zona,   zCol)
+    f_cell(d, 2, "Pendiente", dir + " · " + fuerza, dirC)
+    f_cell(d, 3, "Flujo",     flow,   flowC)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MARCA DE AGUA — firma BudAI Cripto
+// ════════════════════════════════════════════════════════════════════════════
+f_wmPos(s) => s == "Inferior Izquierda" ? position.bottom_left : s == "Inferior Derecha" ? position.bottom_right : s == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(giroUp, "Giro alcista", "Slope · giro alcista {{ticker}}")
+alertcondition(giroDn, "Giro bajista", "Slope · giro bajista {{ticker}}")
+alertcondition(ta.crossover(osc, 0),  "Pendiente cruza 0 ↑", "Slope · momentum alcista {{ticker}}")
+alertcondition(ta.crossunder(osc, 0), "Pendiente cruza 0 ↓", "Slope · momentum bajista {{ticker}}")
+

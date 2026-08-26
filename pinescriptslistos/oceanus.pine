@@ -1,0 +1,288 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Oceanus Oscillator
+//  Oscilador cíclico de onda con presión de volumen, onda de presión doble-kernel,
+//  LSMA dual, nodos de cruce, glow institucional y divergencias con trazo.
+//  (c) BudAI Capital® — Pine v6
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Oceanus Oscillator", shorttitle="BudAI Capital® - Oceanus Oscillator", overlay=false, precision=1, max_labels_count=300, max_lines_count=300)
+
+// ════════════════ GRUPOS ════════════════
+G_CALC = "① Cálculo"
+G_HYP  = "② Onda de Presión (Kernels)"
+G_FLOW = "③ Flujo de Volumen"
+G_LSMA = "④ LSMA Dual"
+G_SIG  = "⑤ Señales · Nodos · Glow"
+G_DIV  = "⑥ Divergencias"
+G_LVL  = "⑦ Niveles"
+G_VIS  = "⑧ Visual"
+G_COL  = "⑨ Colores"
+G_WM   = "✦ Marca de agua"
+
+// ════════════════ ① CÁLCULO ════════════════
+src     = input.source(hlc3, "Fuente", group=G_CALC)
+chanLen = input.int(9, "WaveTrend Canal", minval=2, group=G_CALC)
+avgLen  = input.int(12, "WaveTrend Promedio", minval=2, group=G_CALC)
+trigLen = input.int(4, "Trigger (Señal)", minval=1, group=G_CALC, tooltip="Trigger Length del original.")
+normLen = input.int(100, "Normalización (0..100)", minval=10, group=G_CALC)
+
+// ════════════════ ② ONDA DE PRESIÓN (KERNELS) ════════════════
+showHyp  = input.bool(true, "Mostrar Onda de Presión (Hyper Wave)", group=G_HYP)
+hypLen   = input.int(6, "Hyper Wave Longitud", minval=1, group=G_HYP)
+kern1    = input.float(0.8, "Kernel 1", minval=0.05, maxval=1.0, step=0.05, group=G_HYP, tooltip="Suavizado primario (0.8 en el original).")
+kern2    = input.float(0.3, "Kernel 2", minval=0.05, maxval=1.0, step=0.05, group=G_HYP, tooltip="Suavizado secundario (0.3 en el original).")
+
+// ════════════════ ③ FLUJO DE VOLUMEN ════════════════
+showMF   = input.bool(true, "Barras de Presión (Money Flow MFI)", group=G_FLOW)
+mfLen    = input.int(35, "Money Flow Longitud", minval=2, group=G_FLOW, tooltip="Longitud 35 del original.")
+showRvol = input.bool(true, "Barras de Volumen Relativo (RVOL)", group=G_FLOW)
+
+// ════════════════ ④ LSMA DUAL ════════════════
+showLsma = input.bool(true, "Mostrar LSMA 21 / 6", group=G_LSMA)
+lsmaLong = input.int(21, "LSMA Larga", minval=2, group=G_LSMA)
+lsmaShort = input.int(6, "LSMA Corta", minval=2, group=G_LSMA)
+
+// ════════════════ ⑤ SEÑALES · NODOS · GLOW ════════════════
+showNodes = input.bool(true, "Nodos de cruce (azul)", group=G_SIG)
+showGlow  = input.bool(true, "Círculo blanco con glow (cruce fuerte)", group=G_SIG)
+showBounce = input.bool(true, "Señales rebote Top/Bottom", group=G_SIG)
+reqFlow   = input.bool(true, "Cruce fuerte exige flujo a favor", group=G_SIG)
+
+// ════════════════ ⑥ DIVERGENCIAS ════════════════
+showDiv  = input.bool(true, "Divergencias con trazo (Neptune Trail)", group=G_DIV)
+divLb    = input.int(5, "Pivotes Izq/Der", minval=2, group=G_DIV)
+
+// ════════════════ ⑦ NIVELES ════════════════
+obLvl   = input.int(80, "Sobrecompra", group=G_LVL)
+osLvl   = input.int(20, "Sobreventa", group=G_LVL)
+showFib = input.bool(true, "Fibonacci sutiles", group=G_LVL)
+showBars = input.bool(true, "Barras superiores/inferiores (anomalías)", group=G_LVL)
+
+// ════════════════ ⑧ VISUAL ════════════════
+glow     = input.bool(true, "Relleno Degradado (nube)", group=G_VIS)
+shadeInt = input.int(55, "Opacidad nube", minval=20, maxval=90, group=G_VIS)
+barInt   = input.int(76, "Transparencia barras volumen", minval=40, maxval=92, group=G_VIS)
+lineW    = input.int(2, "Grosor onda principal", minval=1, maxval=3, group=G_VIS)
+showDash = input.bool(true, "Dashboard minimalista", group=G_VIS)
+dashPos  = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════ ⑨ COLORES ════════════════
+upCol    = input.color(#00e676, "Alcista (nube verde)", group=G_COL, inline="c")
+dnCol    = input.color(#ff1744, "Bajista (nube roja)", group=G_COL, inline="c")
+volUpCol = input.color(#26c6a8, "Volumen comprador", group=G_COL, inline="v")
+volDnCol = input.color(#ff5252, "Volumen vendedor", group=G_COL, inline="v")
+nodeCol  = input.color(#2196f3, "Nodo de cruce (azul)", group=G_COL)
+hypUpCol = input.color(#00e676, "Presión alcista", group=G_COL, inline="h")
+hypDnCol = input.color(#ff1744, "Presión bajista", group=G_COL, inline="h")
+lsmaLCol = input.color(#7c4dff, "LSMA larga", group=G_COL, inline="l")
+lsmaSCol = input.color(#ffea00, "LSMA corta", group=G_COL, inline="l")
+divUpCol = input.color(#00e5ff, "Divergencia alcista", group=G_COL, inline="d")
+divDnCol = input.color(#ff1e6e, "Divergencia bajista", group=G_COL, inline="d")
+bounceUpCol = input.color(#00e676, "Rebote suelo", group=G_COL, inline="b")
+bounceDnCol = input.color(#ffea00, "Rechazo techo", group=G_COL, inline="b")
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda","Inferior Derecha","Superior Izquierda","Superior Derecha"], group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  CÁLCULOS
+// ════════════════════════════════════════════════════════════════════════════
+f_norm(float s, simple int len) =>
+    float lo = ta.lowest(s, len)
+    float hi = ta.highest(s, len)
+    hi - lo != 0 ? 100.0 * (s - lo) / (hi - lo) : 50.0
+
+// WaveTrend → onda principal normalizada 0..100
+float esa = ta.ema(src, chanLen)
+float de  = ta.ema(math.abs(src - esa), chanLen)
+float ci  = de == 0 ? 0.0 : (src - esa) / (0.015 * de)
+float wt1 = ta.ema(ci, avgLen)
+float wt2 = ta.sma(wt1, trigLen)
+float osc  = f_norm(wt1, normLen)
+float trig = f_norm(wt2, normLen)
+
+bool isBull = osc >= trig
+
+// Hyper Wave: onda de presión con doble kernel (alfas configurables 0.8 / 0.3)
+float hpRaw = src - ta.ema(src, hypLen)
+var float hw1 = 0.0
+var float hw2 = 0.0
+hw1 := kern1 * hpRaw + (1 - kern1) * nz(hw1[1])
+hw2 := kern2 * hw1 + (1 - kern2) * nz(hw2[1])
+float hyper = f_norm(hw2, normLen)
+
+// Money Flow (MFI) → barras de presión direccional centradas en 50
+float mfi    = ta.mfi(hlc3, mfLen)
+bool  flowUp = mfi >= 50
+
+// Volumen relativo
+float rvol    = ta.sma(volume, 20) != 0 ? volume / ta.sma(volume, 20) : 1.0
+float rvolVal = math.min(rvol * 7.5, 15.0)
+
+// LSMA dual sobre el oscilador (encaja en el panel 0..100)
+float lsmaL = ta.linreg(osc, lsmaLong, 0)
+float lsmaS = ta.linreg(osc, lsmaShort, 0)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NIVELES (Fibonacci + OB/OS)
+// ════════════════════════════════════════════════════════════════════════════
+hline(100, "Tope", color.new(color.gray, 92), hline.style_dotted)
+hline(showFib ? 78.6 : na, "Fibo 0.786", color.new(#9d6cff, 88), hline.style_dotted)
+hline(showFib ? 61.8 : na, "Fibo 0.618", color.new(#c39bff, 80), hline.style_dotted)
+hline(50, "Central · Fibo 0.5", color.new(#b06aff, 72), hline.style_solid)
+hline(showFib ? 38.2 : na, "Fibo 0.382", color.new(#c39bff, 80), hline.style_dotted)
+hline(showFib ? 23.6 : na, "Fibo 0.236", color.new(#9d6cff, 88), hline.style_dotted)
+hline(0, "Piso", color.new(color.gray, 92), hline.style_dotted)
+hline(obLvl, "Sobrecompra", color.new(dnCol, 75), hline.style_dashed)
+hline(osLvl, "Sobreventa", color.new(upCol, 75), hline.style_dashed)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PLOTS — FONDO (volumen) → ONDA → BRILLO
+// ════════════════════════════════════════════════════════════════════════════
+// Barras de presión Money Flow (centradas en 50)
+plot(showMF ? mfi : na, "Money Flow MFI", color=flowUp ? color.new(volUpCol, barInt) : color.new(volDnCol, barInt), style=plot.style_columns, histbase=50)
+// RVOL difuminado en la base
+plot(showRvol ? rvolVal : na, "RVOL", color=color.new(color.gray, 90), style=plot.style_columns, histbase=0)
+
+// LSMA dual
+plot(showLsma ? lsmaL : na, "LSMA 21", color=color.new(lsmaLCol, 30), linewidth=1)
+plot(showLsma ? lsmaS : na, "LSMA 6", color=color.new(lsmaSCol, 25), linewidth=1)
+
+// Onda de presión (Hyper Wave) — capa detrás, difusa
+plot(showHyp ? hyper : na, "Hyper Wave", color=hyper >= 50 ? color.new(hypUpCol, 70) : color.new(hypDnCol, 70), linewidth=2)
+
+// Onda principal + trigger + brillo blanco
+color waveCol = isBull ? upCol : dnCol
+pTrig = plot(trig, "Trigger", color=color.new(color.white, 35), linewidth=1)
+pOsc  = plot(osc, "Oceanus", color=waveCol, linewidth=lineW)
+plot(osc, "Brillo Blanco", color=color.new(color.white, 0), linewidth=1)
+pMid  = plot(50, "Mid", color=color.new(color.white, 100), display=display.none)
+
+// Nube degradada hacia el centro 50
+fill(pOsc, pMid, top_value=100, bottom_value=50, top_color=glow ? color.new(upCol, shadeInt) : na, bottom_color=glow ? color.new(upCol, 100) : na, title="Nube Superior")
+fill(pOsc, pMid, top_value=50, bottom_value=0,  top_color=glow ? color.new(dnCol, 100) : na, bottom_color=glow ? color.new(dnCol, shadeInt) : na, title="Nube Inferior")
+fill(pOsc, pTrig, color=isBull ? color.new(upCol, 84) : color.new(dnCol, 84), title="Ribbon Cruce")
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  BARRAS SUPERIORES / INFERIORES (anomalías, segmentadas cada 2 barras)
+// ════════════════════════════════════════════════════════════════════════════
+bool seg = bar_index % 2 == 0
+plotchar(showBars and seg ? 99 : na, "Barra Superior", "▬", location.absolute, color=flowUp ? color.new(volUpCol, 55) : color.new(volDnCol, 55), size=size.tiny)
+plotchar(showBars and seg ? 1  : na, "Barra Inferior", "▬", location.absolute, color=flowUp ? color.new(volUpCol, 55) : color.new(volDnCol, 55), size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NODOS DE CRUCE + GLOW + REBOTES
+// ════════════════════════════════════════════════════════════════════════════
+bool crossUp = ta.crossover(osc, trig)
+bool crossDn = ta.crossunder(osc, trig)
+bool crossAny = crossUp or crossDn
+
+// Nodo azul en cada cruce (alineado al valor de la onda)
+plotchar(showNodes and crossAny ? osc : na, "Nodo Glow", "•", location.absolute, color=color.new(nodeCol, 60), size=size.small)
+plotchar(showNodes and crossAny ? osc : na, "Nodo Centro", "•", location.absolute, color=color.new(nodeCol, 0), size=size.tiny)
+
+// Cruce fuerte → glow blanco
+bool strongUp = crossUp and osc < osLvl and (not reqFlow or flowUp)
+bool strongDn = crossDn and osc > obLvl and (not reqFlow or not flowUp)
+bool strong = strongUp or strongDn
+plotchar(showGlow and strong ? osc : na, "Glow Blanco", "•", location.absolute, color=color.new(color.white, 55), size=size.normal)
+plotchar(showGlow and strong ? osc : na, "Glow Centro", "•", location.absolute, color=color.new(color.white, 0), size=size.tiny)
+
+// Rebotes Top/Bottom
+bool bounceUp = ta.crossover(osc, osLvl)
+bool bounceDn = ta.crossunder(osc, obLvl)
+plotchar(showBounce and bounceUp ? osc : na, "Rebote Suelo", "•", location.absolute, color=bounceUpCol, size=size.tiny)
+plotchar(showBounce and bounceDn ? osc : na, "Rechazo Techo", "•", location.absolute, color=bounceDnCol, size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DIVERGENCIAS CON TRAZO (pivotes sobre el oscilador)
+// ════════════════════════════════════════════════════════════════════════════
+float ph = ta.pivothigh(osc, divLb, divLb)
+float pl = ta.pivotlow(osc, divLb, divLb)
+
+var float pHiOsc = na
+var int   pHiBar = na
+var float pHiPx  = na
+var float pLoOsc = na
+var int   pLoBar = na
+var float pLoPx  = na
+
+if not na(ph)
+    int   cb = bar_index - divLb
+    float cp = high[divLb]
+    if showDiv and not na(pHiOsc) and ph < pHiOsc and cp > nz(pHiPx)
+        line.new(pHiBar, pHiOsc, cb, ph, color=color.new(divDnCol, 10), width=1, style=line.style_solid)
+        label.new(cb, ph, "÷", color=color.new(divDnCol, 25), textcolor=color.white, style=label.style_label_down, size=size.tiny)
+    pHiOsc := ph
+    pHiBar := cb
+    pHiPx  := cp
+
+if not na(pl)
+    int   cb = bar_index - divLb
+    float cp = low[divLb]
+    if showDiv and not na(pLoOsc) and pl > pLoOsc and cp < nz(pLoPx)
+        line.new(pLoBar, pLoOsc, cb, pl, color=color.new(divUpCol, 10), width=1, style=line.style_solid)
+        label.new(cb, pl, "÷", color=color.new(divUpCol, 25), textcolor=color.black, style=label.style_label_up, size=size.tiny)
+    pLoOsc := pl
+    pLoBar := cb
+    pLoPx  := cp
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD
+// ════════════════════════════════════════════════════════════════════════════
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+var table d = table.new(f_pos(dashPos), 2, 5, bgcolor=color.new(#0b0e16, 12), frame_color=color.new(upCol, 55), frame_width=1, border_width=1)
+f_cell(t, r, k, v, vc) =>
+    table.cell(t, 0, r, k, text_color=color.new(#90a4ae, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
+
+if showDash and barstate.islast
+    string estado = osc >= obLvl ? "SOBRECOMPRA" : osc <= osLvl ? "SOBREVENTA" : isBull ? "Alcista" : "Bajista"
+    color  estCol = osc >= obLvl ? dnCol : osc <= osLvl ? upCol : isBull ? upCol : dnCol
+    string flowTxt = flowUp ? "COMPRADOR" : "VENDEDOR"
+    color  flowC   = flowUp ? volUpCol : volDnCol
+    string hypTxt  = hyper >= 50 ? "Presión +" : "Presión −"
+    color  hypC    = hyper >= 50 ? hypUpCol : hypDnCol
+    string sigTxt  = strongUp ? "▲ FUERTE" : strongDn ? "▼ FUERTE" : crossUp ? "▲ cruce" : crossDn ? "▼ cruce" : "—"
+    color  sigC    = (strongUp or crossUp) ? upCol : (strongDn or crossDn) ? dnCol : color.new(color.white, 35)
+
+    table.cell(d, 0, 0, "Oceanus", text_color=color.white, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, str.tostring(osc, "#") + "/100", text_color=waveCol, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(d, 1, "Tendencia", estado, estCol)
+    f_cell(d, 2, "Flujo", flowTxt, flowC)
+    f_cell(d, 3, "Presión", hypTxt, hypC)
+    f_cell(d, 4, "Señal", sigTxt, sigC)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+f_wmPos(s) => s == "Inferior Izquierda" ? position.bottom_left : s == "Inferior Derecha" ? position.bottom_right : s == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(crossUp, "Cruce Alcista", "Oceanus · Cruce alcista {{ticker}}")
+alertcondition(crossDn, "Cruce Bajista", "Oceanus · Cruce bajista {{ticker}}")
+alertcondition(strongUp, "Cruce Alcista FUERTE", "Oceanus · Cruce alcista fuerte {{ticker}}")
+alertcondition(strongDn, "Cruce Bajista FUERTE", "Oceanus · Cruce bajista fuerte {{ticker}}")
+alertcondition(bounceUp, "Salida Sobreventa", "Oceanus · Rebote desde suelo {{ticker}}")
+alertcondition(bounceDn, "Salida Sobrecompra", "Oceanus · Rechazo en techo {{ticker}}")
+

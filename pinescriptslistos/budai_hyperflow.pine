@@ -1,0 +1,206 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - HyperFlow
+//  Recreación propia de Oscillator Matrix (LuxAlgo): Hyper Wave (posición
+//  normalizada por rango + linreg + suavizado) + Smart Money Flow (MFI-50
+//  suavizado) + confluencia + señales de reversión por spike de volumen.
+//  Motor propio, no el código fuente de LuxAlgo. Cambios deliberados vs el
+//  original: línea de señal con longitud configurable (el original la fija
+//  en 2 pese al input de longitud), promedio de umbral MFI simplificado a
+//  SMA del lado clip positivo/negativo (el original mantiene una cola manual
+//  de tamaño variable), y medidor de confluencia como tabla en vez de barra
+//  de gradiente de 22 segmentos.
+//  Estudio de emulación por piezas — pieza «Oscilador». Gemelo Python (futuro):
+//  KryptoLab/indicators/budai_hyperflow.py
+//  (c) BudAI Capital® — Pine v6
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - HyperFlow", shorttitle="BudAI Capital® - HyperFlow", max_lines_count=200, max_labels_count=200)
+
+// ════════════════ GRUPOS ════════════════
+G_HW = "① Hyper Wave"
+G_MF = "② Smart Money Flow"
+G_CF = "③ Confluencia"
+G_RV = "④ Señales de Reversión"
+G_S  = "⑤ Estética"
+G_WM = "✦ Marca de agua"
+
+// ════════════════ ① HYPER WAVE ════════════════
+bool   showHW  = input.bool(true, "Mostrar Hyper Wave", group=G_HW)
+int    hwLen   = input.int(7, "Longitud", minval=5, maxval=21, group=G_HW)
+string sigType = input.string("SMA", "Suavizado de la señal", options=["SMA", "EMA"], group=G_HW)
+int    sigLen  = input.int(3, "Longitud de la señal", minval=2, maxval=10, group=G_HW)
+bool   showDiv = input.bool(true, "Mostrar divergencias", group=G_HW)
+int    divSens = input.int(20, "Sensibilidad divergencia", minval=20, maxval=40, group=G_HW)
+
+// ════════════════ ② SMART MONEY FLOW ════════════════
+bool showMF   = input.bool(true, "Mostrar Smart Money Flow", group=G_MF)
+int  mfLen    = input.int(35, "Longitud MFI", minval=10, maxval=55, group=G_MF)
+int  mfSmooth = input.int(6, "Suavizado", minval=2, maxval=10, group=G_MF)
+
+// ════════════════ ③ CONFLUENCIA ════════════════
+bool showCnfZones = input.bool(true, "Mostrar zonas de confluencia", group=G_CF)
+bool showDash     = input.bool(true, "Mostrar panel de confluencia", group=G_CF)
+
+// ════════════════ ④ SEÑALES DE REVERSIÓN ════════════════
+bool showRev   = input.bool(true, "Mostrar señales de reversión", group=G_RV)
+int  revFactor = input.int(4, "Factor de reversión", minval=1, maxval=10, group=G_RV, tooltip="Más factor = menos señales, pero más fuertes.")
+
+// ════════════════ ⑤ ESTÉTICA (paleta neón Athenea) ════════════════
+color C_BULL = input.color(#00e5ff, "Alcista (celeste)", group=G_S, inline="c")
+color C_BEAR = input.color(#ff1e6e, "Bajista (fucsia)", group=G_S, inline="c")
+string dashPos = input.string("Superior Derecha", "Posición panel", options=["Inferior Izquierda", "Inferior Derecha", "Superior Izquierda", "Superior Derecha"], group=G_S)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+bool   showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+string wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda", "Inferior Derecha", "Superior Izquierda", "Superior Derecha"], group=G_WM)
+color  wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+// ════════════════ ① HYPER WAVE — cálculo ════════════════
+float hwHi  = ta.highest(hwLen)
+float hwLo  = ta.lowest(hwLen)
+float hwAv  = ta.sma(hl2, hwLen)
+float rangeVal = hwHi - hwLo
+float hwPos = rangeVal != 0.0 ? (close - math.avg(hwHi, hwLo, hwAv)) / rangeVal * 100.0 : 0.0
+
+float oscLine   = ta.ema(ta.linreg(hwPos, hwLen, 0), 2)
+float oscSignal = sigType == "SMA" ? ta.sma(oscLine, sigLen) : ta.ema(oscLine, sigLen)
+bool  oscBull   = oscLine > oscSignal
+color oscCol    = oscBull ? C_BULL : C_BEAR
+
+// ── Divergencias (swing entre línea y señal) ──
+var int   divN   = na
+var float divSrc = na
+var float divP   = na
+
+if showDiv
+    float mx   = math.max(oscLine, oscSignal, oscLine[1], oscSignal[1])
+    float mn   = math.min(oscLine, oscSignal, oscLine[1], oscSignal[1])
+    int   mxid = (mx == oscLine[1] or mx == oscSignal[1]) ? 1 : 0
+    int   mnid = (mn == oscLine[1] or mn == oscSignal[1]) ? 1 : 0
+
+    if oscLine > divSens and ta.crossunder(oscLine, oscSignal)
+        if na(divSrc)
+            divN   := bar_index - mxid
+            divSrc := math.max(open[mxid], close[mxid])
+            divP   := mx
+        else
+            if math.max(open[mxid], close[mxid]) > divSrc and not (oscLine[mxid] > divP)
+                line.new(divN, divP, bar_index - mxid, mx, color=C_BEAR, width=1)
+                divN   := na
+                divSrc := na
+                divP   := na
+            else
+                divN   := bar_index - mxid
+                divSrc := math.max(open[mxid], close[mxid])
+                divP   := mx
+
+    if oscLine < -divSens and ta.crossover(oscLine, oscSignal)
+        if na(divSrc)
+            divN   := bar_index - mnid
+            divSrc := math.min(open[mnid], close[mnid])
+            divP   := mn
+        else
+            if math.min(open[mnid], close[mnid]) < divSrc and not (oscLine[mnid] < divP)
+                line.new(divN, divP, bar_index - mnid, mn, color=C_BULL, width=1)
+                divN   := na
+                divSrc := na
+                divP   := na
+            else
+                divN   := bar_index - mnid
+                divSrc := math.min(open[mnid], close[mnid])
+                divP   := mn
+
+// ════════════════ ② SMART MONEY FLOW — cálculo ════════════════
+float mfRaw    = ta.sma(ta.mfi(hl2, mfLen) - 50.0, mfSmooth)
+color mfCol    = mfRaw > 0 ? C_BULL : C_BEAR
+float mfBullAvg = ta.sma(math.max(mfRaw, 0.0), mfLen)
+float mfBearAvg = ta.sma(math.min(mfRaw, 0.0), mfLen)
+
+// ════════════════ ③ CONFLUENCIA ════════════════
+bool  cnfBull   = oscLine > 0 and mfRaw > 0
+bool  cnfBear   = oscLine < 0 and mfRaw < 0
+bool  cnfStrongBull = cnfBull and mfRaw > mfBullAvg
+bool  cnfStrongBear = cnfBear and mfRaw < mfBearAvg
+color cnfUpCol  = cnfBull ? C_BULL : color.new(C_BULL, 70)
+color cnfDnCol  = cnfBear ? C_BEAR : color.new(C_BEAR, 70)
+
+// ════════════════ ④ REVERSIÓN — cálculo ════════════════
+float volMA  = ta.sma(volume, 7)
+float volRsi = ta.rsi(volMA, 7) - 50.0
+float revMult = revFactor != 10 ? 1.0 + revFactor / 10.0 : 2.0
+float minMult = revFactor != 10 ? 0.0 + revFactor / 10.0 : 2.0
+bool  majorVol = volume > volMA * revMult
+bool  minorVol = volume > volMA * minMult and not majorVol
+
+bool majorBear = majorVol and oscLine >  revFactor and mfRaw > mfBullAvg
+bool majorBull = majorVol and oscLine < -revFactor and mfRaw < mfBearAvg
+bool minorBear = minorVol and oscLine >  20 and oscLine > oscSignal and volRsi >  20
+bool minorBull = minorVol and oscLine < -20 and oscLine < oscSignal and volRsi < -20
+
+// ════════════════ PLOTS — Hyper Wave ════════════════
+plot(showHW and ta.crossover(oscLine, oscSignal)  ? math.min(oscLine, oscSignal) : na, style=plot.style_circles, linewidth=2, color=oscCol)
+plot(showHW and ta.crossunder(oscLine, oscSignal) ? math.max(oscLine, oscSignal) : na, style=plot.style_circles, linewidth=2, color=oscCol)
+pOsc = plot(showHW ? oscLine   : na, "Hyper Wave", color=oscCol)
+pSig = plot(showHW ? oscSignal : na, "Señal", color=color.new(oscCol, 80), display=display.none)
+pZero = plot(0, "Cero", color=color.new(color.gray, 60))
+fill(pOsc, pSig, color=showHW ? color.new(oscCol, 70) : na)
+
+// ════════════════ PLOTS — Smart Money Flow ════════════════
+pMf   = plot(showMF ? mfRaw : na, "Smart Money Flow", color=mfCol)
+pMfBl = plot(showMF and mfRaw > 0 ? mfBullAvg : na, color=na, display=display.none)
+pMfBr = plot(showMF and mfRaw < 0 ? mfBearAvg : na, color=na, display=display.none)
+fill(pZero, pMf,   color=showMF ? color.new(mfCol, 50) : na)
+fill(pZero, pMfBl, color=showMF ? color.new(C_BULL, 0) : na)
+fill(pZero, pMfBr, color=showMF ? color.new(C_BEAR, 0) : na)
+plot(showMF and mfRaw > 0 ? mfBullAvg : na, "Umbral MF alcista", color=C_BULL, style=plot.style_linebr)
+plot(showMF and mfRaw < 0 ? mfBearAvg : na, "Umbral MF bajista", color=C_BEAR, style=plot.style_linebr)
+
+// ════════════════ PLOTS — Zonas de confluencia ════════════════
+pTop  = plot(showCnfZones ?  55 : na, color=cnfUpCol, display=display.none)
+pBot  = plot(showCnfZones ? -55 : na, color=cnfDnCol, display=display.none)
+pTop2 = plot(showCnfZones ?  50 : na, color=na, display=display.none)
+pBot2 = plot(showCnfZones ? -50 : na, color=na, display=display.none)
+fill(pTop, pTop2, color=showCnfZones ? cnfUpCol : na)
+fill(pBot, pBot2, color=showCnfZones ? cnfDnCol : na)
+
+// ════════════════ SEÑALES DE REVERSIÓN ════════════════
+plotshape(showRev and majorBull ? -65 : na, title="Reversión mayor alcista", location=location.absolute, style=shape.triangleup,   color=C_BULL, size=size.tiny)
+plotshape(showRev and majorBear ?  65 : na, title="Reversión mayor bajista", location=location.absolute, style=shape.triangledown, color=C_BEAR, size=size.tiny)
+plot(showRev and minorBull ? -65 : na, title="Reversión menor alcista", color=C_BULL, linewidth=1, style=plot.style_circles)
+plot(showRev and minorBear ?  65 : na, title="Reversión menor bajista", color=C_BEAR, linewidth=1, style=plot.style_circles)
+
+// ════════════════ PANEL DE CONFLUENCIA (tabla) ════════════════
+f_pos(p) =>
+    p == "Inferior Izquierda" ? position.bottom_left : p == "Inferior Derecha" ? position.bottom_right : p == "Superior Izquierda" ? position.top_left : position.top_right
+
+f_cell(t, row, label, val, col) =>
+    table.cell(t, 0, row, label, text_color=color.new(color.white, 20), text_size=size.small, bgcolor=color.new(#0b0e16, 15))
+    table.cell(t, 1, row, val,   text_color=col,                       text_size=size.small, bgcolor=color.new(#0b0e16, 15))
+
+var table dash = table.new(f_pos(dashPos), 2, 3)
+if showDash and barstate.islast
+    f_cell(dash, 0, "Hyper Wave", oscBull ? "ALCISTA" : "BAJISTA", oscCol)
+    f_cell(dash, 1, "Money Flow", mfRaw > 0 ? "POSITIVO" : "NEGATIVO", mfCol)
+    string cnfTxt = cnfStrongBull ? "FUERTE ALCISTA" : cnfStrongBear ? "FUERTE BAJISTA" : cnfBull ? "alcista" : cnfBear ? "bajista" : "neutral"
+    color  cnfCol = cnfStrongBull ? C_BULL : cnfStrongBear ? C_BEAR : color.new(color.gray, 0)
+    f_cell(dash, 2, "Confluencia", cnfTxt, cnfCol)
+
+// ════════════════ MARCA DE AGUA (tabla 1×1) ════════════════
+f_wmPos(p) =>
+    p == "Inferior Izquierda" ? position.bottom_left : p == "Inferior Derecha" ? position.bottom_right : p == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1)
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.normal, bgcolor=color.new(#0b0e16, 100))
+
+// ════════════════ ALERTAS (placeholder; JSON canónico BudAI al ensamblar el pack) ════════════════
+alertcondition(majorBull, title="HyperFlow · reversión mayor alcista", message="BudAI HyperFlow: reversión mayor ALCISTA")
+alertcondition(majorBear, title="HyperFlow · reversión mayor bajista", message="BudAI HyperFlow: reversión mayor BAJISTA")
+alertcondition(cnfStrongBull, title="HyperFlow · confluencia fuerte alcista", message="BudAI HyperFlow: confluencia FUERTE alcista")
+alertcondition(cnfStrongBear, title="HyperFlow · confluencia fuerte bajista", message="BudAI HyperFlow: confluencia FUERTE bajista")

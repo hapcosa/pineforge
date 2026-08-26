@@ -1,0 +1,149 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Panic
+//  Williams Vix Fix — mide el pánico (proxy del VIX) para cazar SUELOS de mercado.
+//  Picos de miedo = oportunidad de compra · euforia extrema = riesgo de techo.
+//  Onda difuminada cyberpunk · (c) BudAI Capital® — Pine v6
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Panic", shorttitle="BudAI Capital® - Panic & Euphoria Radar", overlay=false, precision=2, max_labels_count=300)
+
+// ════════════════ GRUPOS ════════════════
+G_CORE = "① Núcleo (Vix Fix)"
+G_BB   = "② Banda de pánico"
+G_TOP  = "③ Euforia (techo)"
+G_SIG  = "④ Señales"
+G_VIS  = "⑤ Estética"
+G_WM   = "✦ Marca de agua"
+
+// ════════════════ ① NÚCLEO ════════════════
+vixLen  = input.int(22, "Vix Fix período", minval=2, maxval=100, group=G_CORE, tooltip="Williams Vix Fix clásico = 22. Mide la caída desde el máximo reciente.")
+src     = input.source(close, "Fuente", group=G_CORE)
+smoothW = input.int(2, "Suavizado de la onda", minval=1, maxval=10, group=G_CORE)
+
+// ════════════════ ② BANDA DE PÁNICO ════════════════
+bbLen   = input.int(20, "BB período", minval=2, group=G_BB, inline="b")
+bbMult  = input.float(2.0, "Mult", minval=0.5, step=0.1, group=G_BB, inline="b")
+phLen   = input.int(50, "Percentil ventana", minval=10, group=G_BB)
+phUp    = input.float(0.85, "Umbral pánico (percentil)", minval=0.5, maxval=0.99, step=0.01, group=G_BB, tooltip="Pánico extremo cuando el Vix Fix supera este percentil de su rango reciente.")
+
+// ════════════════ ③ EUFORIA (techo) ════════════════
+showTop = input.bool(true, "Detectar euforia (posible techo)", group=G_TOP, tooltip="Inverso del Vix Fix: euforia extrema = riesgo de techo.")
+
+// ════════════════ ④ SEÑALES ════════════════
+showFloor = input.bool(true, "Suelo de pánico (compra)", group=G_SIG, tooltip="Pico de miedo que empieza a ceder = posible suelo.")
+showRoof  = input.bool(true, "Techo de euforia (venta)", group=G_SIG)
+
+// ════════════════ ⑤ ESTÉTICA (cyberpunk · onda difuminada) ════════════════
+panicCol = input.color(#ff1744, "Pánico (rojo neón)", group=G_VIS, inline="c")
+calmCol  = input.color(#00e676, "Calma/euforia (verde)", group=G_VIS, inline="c")
+lineCol  = input.color(#ffffff, "Línea (blanca)", group=G_VIS, inline="ln")
+shadeInt = input.int(45, "Intensidad sombra", minval=20, maxval=85, group=G_VIS, inline="ln")
+sigUp    = input.color(#ffff00, "Suelo (amarillo neón)", group=G_VIS, inline="sg")
+sigDn    = input.color(#ff007f, "Techo (rosa neón)", group=G_VIS, inline="sg")
+glow     = input.bool(true, "Glow neón", group=G_VIS)
+showDash = input.bool(true, "Dashboard minimalista", group=G_VIS)
+dashPos  = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda","Inferior Derecha","Superior Izquierda","Superior Derecha"], group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NÚCLEO — Williams Vix Fix (pánico) + inverso (euforia)
+// ════════════════════════════════════════════════════════════════════════════
+float hh = ta.highest(src, vixLen)
+float vixRaw = hh != 0 ? (hh - low) / hh * 100.0 : 0.0
+float vixFix = ta.ema(vixRaw, smoothW)
+float ll = ta.lowest(src, vixLen)
+float euph = ll != 0 ? (high - ll) / ll * 100.0 : 0.0
+
+// banda de Bollinger sobre el Vix Fix → "pánico" relativo
+float bMid = ta.sma(vixFix, bbLen)
+float bDev = bbMult * ta.stdev(vixFix, bbLen)
+float bUp  = bMid + bDev
+float rangeHi = ta.highest(vixFix, phLen) * phUp
+bool isPanic = vixFix >= bUp or vixFix >= rangeHi
+
+// euforia relativa
+float eMid = ta.sma(euph, bbLen)
+float eDev = bbMult * ta.stdev(euph, bbLen)
+float eUp  = eMid + eDev
+float eRangeHi = ta.highest(euph, phLen) * phUp
+bool isEuph = showTop and (euph >= eUp or euph >= eRangeHi)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PLOTS — ONDA difuminada (en vez de barras) + BARRAS de fondo
+// ════════════════════════════════════════════════════════════════════════════
+// color de la onda: rojo intenso si pánico, atenuado en calma
+color waveCol = isPanic ? panicCol : color.new(panicCol, 45)
+
+// Barras de fondo con diferencia de color para pánico (rojo neón) y calma (verde neón)
+plot(vixFix, "Barras Pánico", style=plot.style_columns, color=isPanic ? color.new(panicCol, 55) : color.new(calmCol, 82))
+
+pVix  = plot(vixFix, "Vix Fix (pánico)", color.new(lineCol, 0), 2)
+pZero = plot(0, "z", color=color.new(color.white, 100), display=display.none)
+// sombra difuminada hacia 0: más intensa cuanto más alto el pánico
+fill(pVix, pZero, top_color=glow ? color.new(panicCol, shadeInt) : na, bottom_color=glow ? color.new(panicCol, 92) : na, title="Onda pánico")
+// glow neón sobre la línea
+plot(glow ? vixFix : na, "Glow", color.new(waveCol, 78), 4)
+
+// umbral de pánico (línea fina) + euforia opcional
+plot(bUp, "Umbral pánico", color=color.new(panicCol, 45), linewidth=1)
+plot(showTop ? euph : na, "Euforia", color=isEuph ? calmCol : color.new(calmCol, 72), linewidth=1)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  SEÑALES — suelo (pánico cede) / techo (euforia cede)
+// ════════════════════════════════════════════════════════════════════════════
+bool conf = barstate.isconfirmed
+bool panicFade = isPanic[1] and vixFix < vixFix[1]
+bool floorSig = showFloor and panicFade and conf
+bool euphFade = showTop and isEuph[1] and euph < euph[1]
+bool roofSig = showRoof and euphFade and conf
+
+// círculos pequeños: suelo abajo (amarillo) / techo arriba (gris)
+plotchar(floorSig, "Suelo (compra)", "•", location.bottom, color=sigUp, size=size.tiny)
+plotchar(roofSig,  "Techo (venta)",  "•", location.top,    color=sigDn, size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD minimalista (tiny)
+// ════════════════════════════════════════════════════════════════════════════
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+var table d = table.new(f_pos(dashPos), 2, 4, bgcolor=color.new(#0b0e16, 14), frame_color=color.new(#546e7a, 40), frame_width=1, border_width=1)
+f_cell(t, r, k, v, vc) =>
+    table.cell(t, 0, r, k, text_color=color.new(#90a4ae, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
+
+if showDash and barstate.islast
+    string estado = isPanic ? "PÁNICO" : isEuph ? "EUFORIA" : "Calma"
+    color  estC = isPanic ? panicCol : isEuph ? calmCol : color.new(#90a4ae,0)
+    string nivel = vixFix > rangeHi ? "Extremo" : vixFix > bUp ? "Alto" : "Normal"
+    string senal = floorSig ? "▲ Suelo" : roofSig ? "▼ Techo" : "—"
+    color  senalC = floorSig ? sigUp : roofSig ? sigDn : color.new(color.white, 35)
+    table.cell(d, 0, 0, "Panic Radar", text_color=color.white, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, str.tostring(vixFix, "#.#"), text_color=waveCol, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(d, 1, "Estado", estado, estC)
+    f_cell(d, 2, "Nivel",  nivel,  color.new(#90a4ae,0))
+    f_cell(d, 3, "Señal",  senal,  senalC)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MARCA DE AGUA — firma BudAI Cripto
+// ════════════════════════════════════════════════════════════════════════════
+f_wmPos(s) => s == "Inferior Izquierda" ? position.bottom_left : s == "Inferior Derecha" ? position.bottom_right : s == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(floorSig, "Suelo de pánico", "Panic Radar · suelo (compra) {{ticker}}")
+alertcondition(roofSig,  "Techo de euforia", "Panic Radar · techo (venta) {{ticker}}")
+

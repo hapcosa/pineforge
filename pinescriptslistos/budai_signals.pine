@@ -1,0 +1,324 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Signals
+//  Motor propio de entradas/salidas al estilo "Signals & Overlays" de LuxAlgo,
+//  estética Kratos/Athenea.
+//
+//  IMPORTANTE — por qué es motor NUEVO y no un port 1:1:
+//  El original importa dos librerías Pine compiladas de terceros
+//  (ayvaliktrading/EyopsTelegram, ayvaliktrading/JoinUsEyopsTelegram) y TODO
+//  su motor real (Smart Trail, Trend Catcher, Trend Tracer, Trend Strength,
+//  Volatility Metric, Squeeze Metric, TP/SL Boxes) son llamadas opacas tipo
+//  `LAF.getSmartTrail(...)`, `LAF.getTrendCatcher()`, etc. — código compilado,
+//  no fórmula visible. No hay nada que "portar": no es legible ni reversable
+//  desde el .pine fuente. Lo que sigue es una recreación funcional propia —
+//  mismo rol (trail rápido + trail lento + fuerza + volatilidad + squeeze +
+//  señal + caja TP/SL), algoritmos públicos y auditables (SuperTrend ATR
+//  clásico ×2, ADX, TTM Squeeze), NO reversados de la librería.
+//
+//  Estudio de emulación por piezas — pieza «Señales». Gemelo Python (futuro):
+//  KryptoLab/indicators/budai_signals.py
+//  (c) BudAI Capital® — Pine v6 · overlay
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Signals", shorttitle="BudAI Capital® - Signals", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=200)
+
+// ════════════════ GRUPOS ════════════════
+G_TC  = "① Trend Catcher (trail rápido)"
+G_TT  = "② Trend Tracer (trail lento)"
+G_SQ  = "③ Squeeze & Volatilidad"
+G_SIG = "④ Señales de Entrada/Salida"
+G_TP  = "⑤ TP / SL automático"
+G_S   = "⑥ Estética"
+G_KT  = "⑦ Kratos Trail (opcional)"
+G_WM  = "✦ Marca de agua"
+
+// ════════════════ ① TREND CATCHER — SuperTrend ATR rápido (clásico, público) ════════════════
+int   tcAtrLen = input.int(10, "ATR length", minval=1, maxval=100, group=G_TC)
+float tcMult   = input.float(2.0, "Multiplicador", minval=0.5, step=0.1, group=G_TC)
+bool  showTC   = input.bool(true, "Mostrar Trend Catcher", group=G_TC)
+
+// ════════════════ ② TREND TRACER — SuperTrend ATR lento (confirmación) ════════════════
+int   ttAtrLen = input.int(21, "ATR length", minval=1, maxval=100, group=G_TT)
+float ttMult   = input.float(3.5, "Multiplicador", minval=0.5, step=0.1, group=G_TT)
+bool  showTT   = input.bool(true, "Mostrar Trend Tracer", group=G_TT)
+
+// ════════════════ ③ SQUEEZE & VOLATILIDAD ════════════════
+int   sqLen     = input.int(20, "Squeeze length (BB/KC)", minval=5, maxval=100, group=G_SQ)
+float sqBbMult  = input.float(2.0, "BB Mult", minval=0.5, step=0.1, group=G_SQ)
+float sqKcMult  = input.float(1.5, "KC Mult", minval=0.5, step=0.1, group=G_SQ)
+int   adxLen    = input.int(14, "ADX length (fuerza de tendencia)", minval=2, maxval=50, group=G_SQ)
+int   volLen    = input.int(100, "Percentil volatilidad (ventana)", minval=20, maxval=300, group=G_SQ)
+bool  showSqDot = input.bool(true, "Marcar liberación de squeeze", group=G_SQ)
+
+// ════════════════ ④ SEÑALES ════════════════
+bool  useEmaConf  = input.bool(true, "Confirmar con EMA 50/200", group=G_SIG)
+float minADX      = input.float(18.0, "ADX mínimo para señal", minval=5, maxval=50, step=1, group=G_SIG)
+bool  reqAlign     = input.bool(true, "Requerir Catcher+Tracer alineados", group=G_SIG)
+int   minBarsGap   = input.int(10, "Mín. barras entre señales", minval=1, maxval=100, group=G_SIG)
+
+// ════════════════ ⑤ TP / SL ════════════════
+bool  showTP    = input.bool(true, "Mostrar cajas TP/SL", group=G_TP)
+float tpAtrMult = input.float(3.0, "TP (mult ATR)", minval=0.5, step=0.1, group=G_TP)
+float slAtrMult = input.float(1.5, "SL (mult ATR)", minval=0.5, step=0.1, group=G_TP)
+
+// ════════════════ ⑥ ESTÉTICA (paleta Athenea) ════════════════
+color C_BULL = input.color(#00e5ff, "Alcista (celeste)", group=G_S, inline="c")
+color C_BEAR = input.color(#ff1e6e, "Bajista (fucsia)", group=G_S, inline="c")
+color C_AMB  = input.color(#ffb300, "Squeeze / neutral", group=G_S)
+
+// ════════════════ ⑦ KRATOS TRAIL — kernel RQ + banda ATR (opcional, activable) ════════════════
+bool  showKT   = input.bool(false, "Mostrar Kratos Trail", group=G_KT)
+float ktH      = input.float(8.0, "Sensitivity (bandwidth)", minval=1.0, maxval=100.0, step=0.5, group=G_KT)
+float ktR      = input.float(1.0, "Peso relativo (r)", minval=0.1, maxval=25.0, step=0.1, group=G_KT)
+int   ktWin    = input.int(50, "Ventana (barras)", minval=10, maxval=300, group=G_KT)
+int   ktAtrLen = input.int(14, "ATR length", minval=1, maxval=100, group=G_KT)
+float ktBMult  = input.float(2.0, "Distancia banda (mult ATR)", minval=0.1, maxval=10.0, step=0.1, group=G_KT)
+float ktCloudW = input.float(1.5, "Grosor de la nube (mult ATR)", minval=0.0, maxval=5.0, step=0.1, group=G_KT)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+bool   showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+string wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda", "Inferior Derecha", "Superior Izquierda", "Superior Derecha"], group=G_WM)
+color  wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+
+// ════════════════ ① TREND CATCHER — cálculo (SuperTrend ATR clásico) ════════════════
+f_supertrend(int len, float mult) =>
+    float atrV = ta.atr(len)
+    float src  = hl2
+    float up   = src + mult * atrV
+    float dn   = src - mult * atrV
+    var float upBand = na
+    var float dnBand = na
+    var int   dir     = 1
+    upBand := close[1] < nz(upBand[1], up) ? math.min(up, nz(upBand[1], up)) : up
+    dnBand := close[1] > nz(dnBand[1], dn) ? math.max(dn, nz(dnBand[1], dn)) : dn
+    dir := close > nz(upBand[1], up) ? 1 : close < nz(dnBand[1], dn) ? -1 : nz(dir[1], 1)
+    float line = dir == 1 ? dnBand : upBand
+    [line, dir, atrV]
+
+[tcLine, tcDir, tcAtr] = f_supertrend(tcAtrLen, tcMult)
+bool tcBull = tcDir == 1
+
+// ════════════════ ② TREND TRACER — cálculo (SuperTrend ATR lento) ════════════════
+[ttLine, ttDir, ttAtr] = f_supertrend(ttAtrLen, ttMult)
+bool ttBull = ttDir == 1
+
+// ════════════════ ⑦ KRATOS TRAIL — kernel rational-quadratic (Nadaraya-Watson) + banda ATR ════════════════
+f_rq(float src, float bw, float r, int win) =>
+    float num = 0.0
+    float den = 0.0
+    for i = 0 to win - 1
+        float w = math.pow(1.0 + (i * i) / (bw * bw * 2.0 * r), -r)
+        num += src[i] * w
+        den += w
+    den == 0.0 ? src : num / den
+
+float ktCenter = showKT ? f_rq(close, ktH, ktR, ktWin) : na
+float ktAtr    = ta.atr(ktAtrLen)
+float ktUp     = ktCenter + ktBMult * ktAtr
+float ktDn     = ktCenter - ktBMult * ktAtr
+var int ktDirV = 1
+ktDirV := showKT and not na(ktUp[1]) ? (close > ktUp[1] ? 1 : (close < ktDn[1] ? -1 : ktDirV)) : ktDirV
+float ktTrail  = ktDirV == 1 ? ktDn : ktUp
+color ktCol    = ktDirV == 1 ? C_BULL : C_BEAR
+float ktEdge   = ktDirV == 1 ? ktTrail - ktCloudW * ktAtr : ktTrail + ktCloudW * ktAtr
+
+// ════════════════ ③ SQUEEZE + FUERZA + VOLATILIDAD ════════════════
+float basis  = ta.sma(close, sqLen)
+float dev    = sqBbMult * ta.stdev(close, sqLen)
+float bbUp   = basis + dev
+float bbDn   = basis - dev
+float kcRng  = ta.atr(sqLen)
+float kcUp   = basis + kcRng * sqKcMult
+float kcDn   = basis - kcRng * sqKcMult
+bool  squeezeOn  = bbDn > kcDn and bbUp < kcUp
+bool  squeezeOff = not squeezeOn and squeezeOn[1]
+
+// fuerza de tendencia (ADX clásico)
+[_diP, _diM, adxV] = ta.dmi(adxLen, adxLen)
+bool  strongTrend = adxV >= minADX
+
+// volatilidad: percentil del ATR actual dentro de la ventana
+float atrNow  = ta.atr(14)
+float volRank = ta.percentrank(atrNow, volLen)
+
+// ════════════════ ④ SEÑALES ════════════════
+float ema50  = ta.ema(close, 50)
+float ema200 = ta.ema(close, 200)
+bool  emaBull = ema50 > ema200
+bool  emaBear = ema50 < ema200
+
+bool tcFlipUp   = tcBull and not tcBull[1]
+bool tcFlipDown = not tcBull and tcBull[1]
+bool aligned    = tcBull == ttBull
+
+var int lastSigBar = 0
+bool barGapOk = bar_index - lastSigBar >= minBarsGap
+
+bool rawBuy  = tcFlipUp   and (not reqAlign or aligned)  and strongTrend and barGapOk
+bool rawSell = tcFlipDown and (not reqAlign or aligned)  and strongTrend and barGapOk
+
+bool buySignal  = rawBuy
+bool sellSignal = rawSell
+
+if buySignal or sellSignal
+    lastSigBar := bar_index
+
+// clasificador de fuerza 1-4 (ADX + volatilidad, mismo espíritu que Kratos/Reversion)
+int strength = (adxV < 20 ? 1 : adxV < 30 ? 2 : adxV < 40 ? 3 : 4)
+
+// ════════════════ PLOTS — Trend Catcher / Tracer (glow multicapa Kratos) ════════════════
+color tcCol = tcBull ? C_BULL : C_BEAR
+color ttCol = ttBull ? C_BULL : C_BEAR
+
+plot(showTC ? tcLine : na, "TC Glow ext", color=color.new(tcCol, 90), linewidth=5)
+plot(showTC ? tcLine : na, "TC Glow",     color=color.new(tcCol, 75), linewidth=2)
+pTC = plot(showTC ? tcLine : na, "Trend Catcher", color=tcCol, linewidth=1, style=plot.style_linebr)
+
+// Trend Tracer ya no es 2da línea — es la nube entre Catcher y Tracer (una sola línea visible)
+pTT = plot(showTT ? ttLine : na, "Trend Tracer (nube)", color=color.new(ttCol, 100), editable=false)
+fill(pTC, pTT, color=showTC and showTT ? color.new(ttCol, 82) : na, title="Nube Catcher-Tracer")
+
+pPrice = plot(close, "Precio (fill)", display=display.none, editable=false)
+fill(pPrice, pTC, color=showTC ? color.new(tcCol, 88) : na, title="Nube Catcher-Precio")
+
+// ════════════════ PLOTS — Kratos Trail (opcional, activable/desactivable) ════════════════
+plot(showKT ? ktTrail : na, "Kratos Glow ext", color=color.new(ktCol, 92), linewidth=6)
+plot(showKT ? ktTrail : na, "Kratos Glow",     color=color.new(ktCol, 80), linewidth=3)
+pKT     = plot(showKT ? ktTrail : na, "Kratos Trail", color=ktCol, linewidth=2)
+pKTEdge = plot(showKT ? ktEdge  : na, "Kratos Nube (borde)", color=color.new(ktCol, 100))
+fill(pKT, pKTEdge, color=showKT ? color.new(ktCol, 82) : na, title="Nube Kratos")
+
+// fondo de squeeze (contexto de compresión, sin invadir demasiado espacio)
+bgcolor(squeezeOn ? color.new(C_AMB, 90) : na, title="Fondo Squeeze")
+plotchar(showSqDot and squeezeOff ? low - tcAtr * 0.5 : na, "Squeeze release", "•", location.absolute, color=C_AMB, size=size.tiny)
+
+// ════════════════ REVERSIÓN — Mean Reversion Channel real (SuperSmoother + zona escalonada, copia fiel de overlay&signals) ════════════════
+// Réplica de la sección "REV ZONES" del original: meanline+meanrange vía SuperSmoother de
+// Ehlers, 2 bandas por lado (upband2/loband2 a mult2=pi*2.415 de distancia) con 3 líneas
+// invisibles escalonadas (±gradsize*4) que arman 2 zonas en degradado por fill() — NO son
+// líneas visibles, son nubes. La zona interna (más cercana al precio) es la más opaca.
+f_ss(float src, int len) =>
+    float a1 = math.exp(-math.sqrt(2) * math.pi / len)
+    float b1 = 2 * a1 * math.cos(math.sqrt(2) * math.pi / len)
+    float c3 = -math.pow(a1, 2)
+    float c2 = b1
+    float c1 = 1 - c2 - c3
+    var float ss = na
+    ss := c1 * src + c2 * nz(ss[1], src[1]) + c3 * nz(ss[2], src[2])
+    ss
+
+float rzMeanline = f_ss(hlc3, 100)
+float rzRange    = f_ss(ta.tr, 100)
+float rzMult2    = math.pi * 2.415
+float rzGrad     = 0.5
+
+float rzUp2   = rzMeanline + rzRange * rzMult2
+float rzDn2   = rzMeanline - rzRange * rzMult2
+float rzUp2_1 = rzUp2 + rzRange * rzGrad * 4
+float rzUp2_5 = rzUp2
+float rzUp2_9 = rzUp2 - rzRange * rzGrad * 4
+float rzDn2_1 = rzDn2 - rzRange * rzGrad * 4
+float rzDn2_5 = rzDn2
+float rzDn2_9 = rzDn2 + rzRange * rzGrad * 4
+
+pRzUp1 = plot(rzUp2_1, "RZ up borde",  color=na, editable=false)
+pRzUp2 = plot(rzUp2_5, "RZ up medio",  color=na, editable=false)
+pRzUp3 = plot(rzUp2_9, "RZ up cercano", color=na, editable=false)
+pRzDn1 = plot(rzDn2_1, "RZ dn borde",  color=na, editable=false)
+pRzDn2 = plot(rzDn2_5, "RZ dn medio",  color=na, editable=false)
+pRzDn3 = plot(rzDn2_9, "RZ dn cercano", color=na, editable=false)
+
+fill(pRzUp1, pRzUp2, color=color.new(C_BEAR, 88), title="Resistencia (externa)")
+fill(pRzUp2, pRzUp3, color=color.new(C_BEAR, 62), title="Resistencia (cercana)")
+fill(pRzDn1, pRzDn2, color=color.new(C_BULL, 88), title="Soporte (externo)")
+fill(pRzDn2, pRzDn3, color=color.new(C_BULL, 62), title="Soporte (cercano)")
+
+// ════════════════ ETIQUETAS DE SEÑAL (estilo Kratos: número + confirmación EMA) ════════════════
+var array<label> sigLabels = array.new_label()
+const int MAX_SIG = 200
+
+f_addSigLabel(txt, y, styleUp, col) =>
+    if array.size(sigLabels) >= MAX_SIG
+        label.delete(array.shift(sigLabels))
+    lbl = label.new(bar_index, y, txt, style=styleUp ? label.style_label_up : label.style_label_down, color=col, textcolor=color.black, size=size.small)
+    array.push(sigLabels, lbl)
+
+if buySignal and barstate.isconfirmed
+    string txt = str.tostring(strength) + (useEmaConf and emaBull ? "+" : "")
+    f_addSigLabel(txt, low - tcAtr * 0.6, true, C_BULL)
+if sellSignal and barstate.isconfirmed
+    string txt = str.tostring(strength) + (useEmaConf and emaBear ? "+" : "")
+    f_addSigLabel(txt, high + tcAtr * 0.6, false, C_BEAR)
+
+plotshape(buySignal,  title="BUY Glow",  style=shape.triangleup,   location=location.belowbar, color=color.new(C_BULL, 55), size=size.small)
+plotshape(buySignal,  title="BUY",       style=shape.triangleup,   location=location.belowbar, color=C_BULL, size=size.tiny)
+plotshape(sellSignal, title="SELL Glow", style=shape.triangledown, location=location.abovebar, color=color.new(C_BEAR, 55), size=size.small)
+plotshape(sellSignal, title="SELL",      style=shape.triangledown, location=location.abovebar, color=C_BEAR, size=size.tiny)
+
+// ════════════════ ⑤ TP / SL — cajas automáticas desde el precio de señal ════════════════
+var box  tpBox = na
+var box  slBox = na
+var line entryLine = na
+
+if showTP and (buySignal or sellSignal)
+    bool isLong = buySignal
+    float entry = close
+    float atrRef = tcAtr
+    float tp = isLong ? entry + atrRef * tpAtrMult : entry - atrRef * tpAtrMult
+    float sl = isLong ? entry - atrRef * slAtrMult : entry + atrRef * slAtrMult
+    int   x1 = bar_index
+    int   x2 = bar_index + minBarsGap
+
+    if not na(tpBox)
+        box.delete(tpBox)
+    if not na(slBox)
+        box.delete(slBox)
+    if not na(entryLine)
+        line.delete(entryLine)
+
+    tpBox := box.new(x1, entry, x2, tp, border_color=na, bgcolor=color.new(C_BULL, 82))
+    slBox := box.new(x1, entry, x2, sl, border_color=na, bgcolor=color.new(C_BEAR, 82))
+    entryLine := line.new(x1, entry, x2, entry, color=color.new(color.white, 30), style=line.style_dashed)
+
+if showTP and not na(tpBox) and barstate.islast
+    box.set_right(tpBox, bar_index + 5)
+    box.set_right(slBox, bar_index + 5)
+    if not na(entryLine)
+        line.set_x2(entryLine, bar_index + 5)
+
+// ════════════════ DASHBOARD ════════════════
+var table dash = table.new(position.top_right, 2, 6, bgcolor=color.new(#0D0D0D, 60), border_width=1, border_color=color.new(color.gray, 70), frame_width=1, frame_color=color.new(color.gray, 50))
+if barstate.islast
+    color hdrCol = #A0A0B0
+    table.cell(dash, 0, 0, "CATCHER", text_color=hdrCol, text_size=size.tiny)
+    table.cell(dash, 1, 0, tcBull ? "▲ BULL" : "▼ BEAR", text_color=tcCol, text_size=size.tiny)
+    table.cell(dash, 0, 1, "TRACER", text_color=hdrCol, text_size=size.tiny)
+    table.cell(dash, 1, 1, ttBull ? "▲ BULL" : "▼ BEAR", text_color=ttCol, text_size=size.tiny)
+    table.cell(dash, 0, 2, "ADX", text_color=hdrCol, text_size=size.tiny)
+    table.cell(dash, 1, 2, str.tostring(adxV, "#.#") + (strongTrend ? " ✔" : " ✘"), text_color=strongTrend ? C_BULL : color.gray, text_size=size.tiny)
+    table.cell(dash, 0, 3, "SQUEEZE", text_color=hdrCol, text_size=size.tiny)
+    table.cell(dash, 1, 3, squeezeOn ? "ON" : "off", text_color=squeezeOn ? C_AMB : color.gray, text_size=size.tiny)
+    table.cell(dash, 0, 4, "VOLATILIDAD", text_color=hdrCol, text_size=size.tiny)
+    table.cell(dash, 1, 4, str.tostring(volRank, "#") + " pct", text_color=color.new(#E8E8F0, 0), text_size=size.tiny)
+    table.cell(dash, 0, 5, "SEÑAL", text_color=hdrCol, text_size=size.tiny)
+    table.cell(dash, 1, 5, buySignal ? "▲ COMPRA" : sellSignal ? "▼ VENTA" : "—", text_color=buySignal ? C_BULL : sellSignal ? C_BEAR : color.gray, text_size=size.tiny)
+
+// ════════════════ MARCA DE AGUA ════════════════
+f_wmPos(p) =>
+    p == "Inferior Izquierda" ? position.bottom_left : p == "Inferior Derecha" ? position.bottom_right : p == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1)
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.normal, bgcolor=color.new(#0b0e16, 100))
+
+// ════════════════ ALERTAS (placeholder; JSON canónico BudAI al ensamblar el pack) ════════════════
+alertcondition(buySignal,  title="Signals · Entrada COMPRA", message="BudAI Signals: entrada COMPRA")
+alertcondition(sellSignal, title="Signals · Entrada VENTA",  message="BudAI Signals: entrada VENTA")
+alertcondition(squeezeOff, title="Signals · liberación de squeeze", message="BudAI Signals: squeeze liberado")

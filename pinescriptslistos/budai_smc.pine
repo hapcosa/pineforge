@@ -1,0 +1,323 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - SMC Structure
+//  Estructura de mercado (BOS/CHoCH) + Order Blocks + Fair Value Gaps + Trend
+//  Matrix (trailing ATR con objetivos infinitos). Fusiona el rol de
+//  "mstrend.pine" y "smartmoneyconcepts - bigbeluga.pine" en una sola pieza,
+//  con motor propio (no reversa del código ofuscado original) y estética
+//  Athenea (celeste/fucsia) — solo se conserva el CONCEPTO visual BOS/FVG/
+//  CHoCH/Order Block de BigBeluga, no su implementación.
+//  Estudio de emulación por piezas — pieza «Estructura». Gemelo Python (futuro):
+//  KryptoLab/indicators/budai_smc.py
+//  (c) BudAI Capital® — Pine v6
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - SMC Structure", shorttitle="BudAI Capital® - SMC", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
+
+// ════════════════ GRUPOS ════════════════
+G_MS  = "① Estructura de Mercado"
+G_OB  = "② Order Blocks"
+G_FVG = "③ Fair Value Gaps"
+G_TM  = "④ Trend Matrix (trailing + objetivos)"
+G_S   = "⑤ Estética"
+G_WM  = "✦ Marca de agua"
+
+// ════════════════ ① ESTRUCTURA DE MERCADO ════════════════
+int  swingLen = input.int(10, "Longitud de swing", minval=2, maxval=50, group=G_MS)
+bool showMS   = input.bool(true, "Mostrar líneas BOS/CHoCH", group=G_MS)
+bool showMSLbl= input.bool(true, "Mostrar etiquetas", group=G_MS)
+
+// ════════════════ ② ORDER BLOCKS ════════════════
+bool   showOB  = input.bool(true, "Mostrar Order Blocks", group=G_OB)
+int    obLast  = input.int(3, "Máximo activos", minval=1, maxval=10, group=G_OB)
+string obMiti  = input.string("Close", "Método de mitigación", options=["Close", "Wick", "Avg"], group=G_OB)
+
+// ════════════════ ③ FAIR VALUE GAPS ════════════════
+bool  showFVG    = input.bool(true, "Mostrar FVG", group=G_FVG)
+int   fvgLast    = input.int(5, "Máximo activos", minval=1, maxval=15, group=G_FVG)
+float fvgThresh  = input.float(0.0, "Umbral (mult ATR)", minval=0.0, step=0.1, group=G_FVG, tooltip="Filtra gaps chicos. 0 = sin filtro.")
+bool  fvgExtend  = input.bool(false, "Extender hasta mitigar", group=G_FVG)
+
+// ════════════════ ④ TREND MATRIX (trailing ATR + objetivos infinitos) ════════════════
+bool  showTM      = input.bool(true, "Mostrar Trend Matrix", group=G_TM)
+int   tmMsLen     = input.int(10, "Longitud de estructura (propia)", minval=2, maxval=50, group=G_TM)
+int   tmAtrLen    = input.int(14, "ATR length", minval=1, maxval=100, group=G_TM)
+float tmAtrMult   = input.float(4.0, "Distancia trailing (mult ATR)", minval=0.1, step=0.1, group=G_TM)
+float tmTgtStep   = input.float(2.0, "Paso de objetivo (mult ATR)", minval=0.1, step=0.1, group=G_TM)
+bool  showTgtHist = input.bool(true, "Mostrar historial de objetivos", group=G_TM)
+bool  showTrail   = input.bool(true, "Mostrar línea trailing", group=G_TM)
+
+// ════════════════ ⑤ ESTÉTICA (paleta neón Athenea) ════════════════
+color C_BULL = input.color(#00e5ff, "Alcista (celeste)", group=G_S, inline="c")
+color C_BEAR = input.color(#ff1e6e, "Bajista (fucsia)", group=G_S, inline="c")
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+bool   showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+string wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda", "Inferior Derecha", "Superior Izquierda", "Superior Derecha"], group=G_WM)
+color  wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+// ════════════════ ① ESTRUCTURA DE MERCADO — cálculo ════════════════
+float ph = ta.pivothigh(high, swingLen, swingLen)
+float pl = ta.pivotlow(low, swingLen, swingLen)
+
+var float lastPH    = na
+var float lastPL    = na
+var int   lastPHBar = na
+var int   lastPLBar = na
+if not na(ph)
+    lastPH    := ph
+    lastPHBar := bar_index - swingLen
+if not na(pl)
+    lastPL    := pl
+    lastPLBar := bar_index - swingLen
+
+var int trendMS = 0
+
+bool bullBreak = not na(lastPH) and ta.crossover(close, lastPH) and barstate.isconfirmed
+bool bearBreak = not na(lastPL) and ta.crossunder(close, lastPL) and barstate.isconfirmed
+
+bool wasBull = trendMS == 1
+bool wasBear = trendMS == -1
+bool isCHoCHUp = bullBreak and not wasBull
+bool isBOSUp   = bullBreak and wasBull
+bool isCHoCHDn = bearBreak and not wasBear
+bool isBOSDn   = bearBreak and wasBear
+
+var array<line>  msLines  = array.new_line()
+var array<label> msLabels = array.new_label()
+const int MAX_MS = 100
+
+f_addMsLine(x1, y1, x2, y2, col) =>
+    if array.size(msLines) >= MAX_MS
+        line.delete(array.shift(msLines))
+    ln = line.new(x1, y1, x2, y2, color=col, style=line.style_dashed, width=2)
+    array.push(msLines, ln)
+
+f_addMsLabel(txt, x, y, styleUp, col) =>
+    if array.size(msLabels) >= MAX_MS
+        label.delete(array.shift(msLabels))
+    lbl = label.new(x, y, txt, style=styleUp ? label.style_label_down : label.style_label_up, color=color.new(color.black, 100), textcolor=col, size=size.small)
+    array.push(msLabels, lbl)
+
+if showMS and bullBreak
+    trendMS := 1
+    f_addMsLine(lastPHBar, lastPH, bar_index, lastPH, C_BULL)
+    if showMSLbl
+        f_addMsLabel(isCHoCHUp ? "CHoCH ↑" : "BOS ↑", bar_index, lastPH, true, C_BULL)
+if not showMS and bullBreak
+    trendMS := 1
+if showMS and bearBreak
+    trendMS := -1
+    f_addMsLine(lastPLBar, lastPL, bar_index, lastPL, C_BEAR)
+    if showMSLbl
+        f_addMsLabel(isCHoCHDn ? "CHoCH ↓" : "BOS ↓", bar_index, lastPL, false, C_BEAR)
+if not showMS and bearBreak
+    trendMS := -1
+
+// ════════════════ ② ORDER BLOCKS — cálculo ════════════════
+f_findOB(bool bull, int startOff) =>
+    int off = na
+    for i = startOff to startOff + swingLen - 1
+        bool isOpp = bull ? close[i] < open[i] : close[i] > open[i]
+        if isOpp and na(off)
+            off := i
+    off
+
+var array<box> obBullBox = array.new_box()
+var array<box> obBearBox = array.new_box()
+
+if showOB and bullBreak
+    int pivOff = bar_index - lastPHBar
+    int obOff  = pivOff <= 500 ? f_findOB(true, pivOff) : na
+    if not na(obOff)
+        if array.size(obBullBox) >= obLast
+            box.delete(array.shift(obBullBox))
+        b = box.new(bar_index - obOff, high[obOff], bar_index, low[obOff], border_color=na, bgcolor=color.new(C_BULL, 85), extend=extend.none)
+        array.push(obBullBox, b)
+
+if showOB and bearBreak
+    int pivOff = bar_index - lastPLBar
+    int obOff  = pivOff <= 500 ? f_findOB(false, pivOff) : na
+    if not na(obOff)
+        if array.size(obBearBox) >= obLast
+            box.delete(array.shift(obBearBox))
+        b = box.new(bar_index - obOff, high[obOff], bar_index, low[obOff], border_color=na, bgcolor=color.new(C_BEAR, 85), extend=extend.none)
+        array.push(obBearBox, b)
+
+if showOB and barstate.isconfirmed
+    if array.size(obBullBox) > 0
+        for i = array.size(obBullBox) - 1 to 0
+            b = array.get(obBullBox, i)
+            float top = box.get_top(b)
+            float btm = box.get_bottom(b)
+            bool mitigated = (obMiti == "Close" ? math.min(close, open) < btm : obMiti == "Wick" ? low < btm : low < math.avg(top, btm))
+            if mitigated
+                box.delete(b)
+                array.remove(obBullBox, i)
+            else
+                box.set_right(b, bar_index)
+    if array.size(obBearBox) > 0
+        for i = array.size(obBearBox) - 1 to 0
+            b = array.get(obBearBox, i)
+            float top = box.get_top(b)
+            float btm = box.get_bottom(b)
+            bool mitigated = (obMiti == "Close" ? math.max(close, open) > top : obMiti == "Wick" ? high > top : high > math.avg(top, btm))
+            if mitigated
+                box.delete(b)
+                array.remove(obBearBox, i)
+            else
+                box.set_right(b, bar_index)
+
+// ════════════════ ③ FAIR VALUE GAPS — cálculo ════════════════
+float fvgAtr  = ta.atr(200)
+bool  bullFVG = low > high[2] and (fvgThresh <= 0.0 or (low - high[2]) > fvgThresh * fvgAtr)
+bool  bearFVG = high < low[2] and (fvgThresh <= 0.0 or (low[2] - high) > fvgThresh * fvgAtr)
+
+var array<box> fvgBullBox = array.new_box()
+var array<box> fvgBearBox = array.new_box()
+
+if showFVG and barstate.isconfirmed and bullFVG
+    if array.size(fvgBullBox) >= fvgLast
+        box.delete(array.shift(fvgBullBox))
+    int rightX = fvgExtend ? bar_index : bar_index + 20
+    b = box.new(bar_index - 1, low, rightX, high[2], border_color=na, bgcolor=color.new(C_BULL, 82), extend=extend.none)
+    array.push(fvgBullBox, b)
+
+if showFVG and barstate.isconfirmed and bearFVG
+    if array.size(fvgBearBox) >= fvgLast
+        box.delete(array.shift(fvgBearBox))
+    int rightX = fvgExtend ? bar_index : bar_index + 20
+    b = box.new(bar_index - 1, low[2], rightX, high, border_color=na, bgcolor=color.new(C_BEAR, 82), extend=extend.none)
+    array.push(fvgBearBox, b)
+
+if showFVG and fvgExtend and barstate.isconfirmed
+    if array.size(fvgBullBox) > 0
+        for i = array.size(fvgBullBox) - 1 to 0
+            b = array.get(fvgBullBox, i)
+            float btm = box.get_bottom(b)
+            if low < btm
+                box.delete(b)
+                array.remove(fvgBullBox, i)
+            else
+                box.set_right(b, bar_index)
+    if array.size(fvgBearBox) > 0
+        for i = array.size(fvgBearBox) - 1 to 0
+            b = array.get(fvgBearBox, i)
+            float top = box.get_top(b)
+            if high > top
+                box.delete(b)
+                array.remove(fvgBearBox, i)
+            else
+                box.set_right(b, bar_index)
+
+// ════════════════ ④ TREND MATRIX — porteado de mstrend.pine, estética propia ════════════════
+float tmPh = ta.pivothigh(tmMsLen, tmMsLen)
+float tmPl = ta.pivotlow(tmMsLen, tmMsLen)
+
+var float tmPhVal = na
+var float tmPlVal = na
+var int   tmPhIdx  = 0
+var int   tmPlIdx  = 0
+var bool  tmDir    = false
+
+float tmAtr = ta.atr(tmAtrLen)
+var float tmTS = na
+
+var float tmEntry  = na
+var float tmTarget = na
+var line  tmTgtLine = na
+var int   tmTrendStart = 0
+
+if not na(tmPh)
+    tmPhVal := high[tmMsLen]
+    tmPhIdx := bar_index[tmMsLen]
+if not na(tmPl)
+    tmPlVal := low[tmMsLen]
+    tmPlIdx := bar_index[tmMsLen]
+
+if showTM and ta.crossover(close, tmPhVal) and not tmDir
+    tmDir    := true
+    tmTS     := close - tmAtr * tmAtrMult
+    tmEntry  := tmPhVal
+    tmTarget := tmEntry + tmAtr * tmTgtStep
+    tmTrendStart := bar_index
+    f_addMsLine(tmPhIdx, tmPhVal, bar_index, tmPhVal, color.new(C_BULL, 40))
+    line.delete(tmTgtLine)
+    tmTgtLine := line.new(bar_index, tmTarget, bar_index + 10, tmTarget, color=color.new(C_BULL, 0), width=1)
+
+if showTM and ta.crossunder(close, tmPlVal) and tmDir
+    tmDir    := false
+    tmTS     := close + tmAtr * tmAtrMult
+    tmEntry  := tmPlVal
+    tmTarget := tmEntry - tmAtr * tmTgtStep
+    tmTrendStart := bar_index
+    f_addMsLine(tmPlIdx, tmPlVal, bar_index, tmPlVal, color.new(C_BEAR, 40))
+    line.delete(tmTgtLine)
+    tmTgtLine := line.new(bar_index, tmTarget, bar_index + 10, tmTarget, color=color.new(C_BEAR, 0), width=1)
+
+bool tmDirChange = tmDir != tmDir[1]
+
+if showTM and tmDir
+    tmTS := math.max(nz(tmTS, close - tmAtr * tmAtrMult), close - tmAtr * tmAtrMult)
+    if high >= tmTarget and not na(tmTarget)
+        line.set_x2(tmTgtLine, bar_index)
+        line.set_style(tmTgtLine, line.style_dashed)
+        line.set_x1(tmTgtLine, tmTrendStart)
+        if showTgtHist
+            float perc = (tmTarget - tmEntry) / tmEntry * 100
+            f_addMsLabel("+" + str.tostring(perc, "#.##") + "%", tmTrendStart, tmTarget, true, C_BULL)
+        tmTarget := tmTarget + tmAtr * tmTgtStep
+        tmTgtLine := line.new(tmTrendStart, tmTarget, bar_index + 10, tmTarget, color=color.new(C_BULL, 40), width=1)
+    else
+        line.set_x2(tmTgtLine, bar_index + 10)
+else if showTM
+    tmTS := math.min(nz(tmTS, close + tmAtr * tmAtrMult), close + tmAtr * tmAtrMult)
+    if low <= tmTarget and not na(tmTarget)
+        line.set_x2(tmTgtLine, bar_index)
+        line.set_style(tmTgtLine, line.style_dashed)
+        line.set_x1(tmTgtLine, tmTrendStart)
+        if showTgtHist
+            float perc = (tmTarget - tmEntry) / tmEntry * 100
+            f_addMsLabel(str.tostring(perc, "#.##") + "%", tmTrendStart, tmTarget, false, C_BEAR)
+        tmTarget := tmTarget - tmAtr * tmTgtStep
+        tmTgtLine := line.new(tmTrendStart, tmTarget, bar_index + 10, tmTarget, color=color.new(C_BEAR, 40), width=1)
+    else
+        line.set_x2(tmTgtLine, bar_index + 10)
+
+// ════════════════ PLOTS ════════════════
+// Trailing con glow multicapa (mismo lenguaje visual que Kratos/Omni) — la
+// estructura BOS/CHoCH/OB/FVG en cajas y líneas se mantiene idéntica a
+// BigBeluga a propósito (es el lenguaje visual reconocible de SMC); el
+// diferenciador es paleta Athenea + este glow, no la geometría.
+color tmCol = tmDir ? C_BULL : C_BEAR
+plot(showTM and showTrail and not tmDirChange ? tmTS : na, "TM glow ext", color=color.new(tmCol, 90), style=plot.style_linebr, linewidth=6)
+plot(showTM and showTrail and not tmDirChange ? tmTS : na, "TM glow",     color=color.new(tmCol, 75), style=plot.style_linebr, linewidth=3)
+plot(showTM and showTrail and not tmDirChange ? tmTS : na, "Trend Matrix trailing", color=tmCol, style=plot.style_linebr, linewidth=2)
+pTmPrice = plot(close, "TM precio", display=display.none, editable=false)
+pTmStop  = plot(showTM and showTrail ? tmTS : na, "TM stop", display=display.none, editable=false)
+fill(pTmPrice, pTmStop, close, tmTS, na, showTM and showTrail ? color.new(tmCol, 70) : na)
+
+// nodo glow en cada quiebre de estructura (BOS/CHoCH) — marca el punto exacto
+plotchar(bullBreak ? lastPH : na, "Break Glow ↑", "•", location.absolute, color=color.new(C_BULL, 60), size=size.small)
+plotchar(bullBreak ? lastPH : na, "Break ↑",      "•", location.absolute, color=C_BULL, size=size.tiny)
+plotchar(bearBreak ? lastPL : na, "Break Glow ↓", "•", location.absolute, color=color.new(C_BEAR, 60), size=size.small)
+plotchar(bearBreak ? lastPL : na, "Break ↓",      "•", location.absolute, color=C_BEAR, size=size.tiny)
+
+// ════════════════ MARCA DE AGUA (tabla 1×1) ════════════════
+f_wmPos(p) =>
+    p == "Inferior Izquierda" ? position.bottom_left : p == "Inferior Derecha" ? position.bottom_right : p == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1)
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.normal, bgcolor=color.new(#0b0e16, 100))
+
+// ════════════════ ALERTAS (placeholder; JSON canónico BudAI al ensamblar el pack) ════════════════
+alertcondition(isBOSUp,   title="SMC · BOS alcista",   message="BudAI SMC: BOS alcista")
+alertcondition(isBOSDn,   title="SMC · BOS bajista",   message="BudAI SMC: BOS bajista")
+alertcondition(isCHoCHUp, title="SMC · CHoCH alcista", message="BudAI SMC: CHoCH alcista (posible reversión)")
+alertcondition(isCHoCHDn, title="SMC · CHoCH bajista", message="BudAI SMC: CHoCH bajista (posible reversión)")

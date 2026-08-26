@@ -1,0 +1,215 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Atlas · Regime Detector
+//  Clasifica el mercado en TENDENCIA / RANGO / VOLÁTIL para saber QUÉ estrategia
+//  aplicar. No da entradas: es un filtro de contexto. Fusiona tres lecturas
+//  independientes — Efficiency Ratio (Kaufman), ADX (DMI) y ancho de Bollinger —
+//  en un veredicto de régimen y una recomendación operativa.
+//  Exporta "Atlas Regime" (oculto) para acoplarlo a Siddharta u otros scripts.
+//  (c) BudAI Capital® — Pine v6 · panel inferior
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Atlas", shorttitle="BudAI · Atlas", overlay=false, precision=1, max_labels_count=100, max_lines_count=100)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  GRUPOS DE INPUTS
+// ════════════════════════════════════════════════════════════════════════════
+G_PROF = "① Perfil"
+G_THR  = "② Umbrales de Régimen"
+G_VIS  = "③ Visual"
+G_COL  = "④ Colores"
+G_WM   = "✦ Marca de agua"
+
+// ════════════════ ① PERFIL ════════════════
+profile = input.string("Day Trader", "Perfil", options=["Scalper","Day Trader","Swing Trader"], group=G_PROF, tooltip="Ajusta automáticamente longitudes y ventanas. Scalper 1-5m · Day 5m-1H · Swing 4H-1D.")
+
+bool isScalp = profile == "Scalper"
+bool isDay   = profile == "Day Trader"
+
+// Longitudes derivadas (simple int → válidas para funciones ta.*)
+int erLen   = isScalp ? 8  : isDay ? 14 : 20     // Efficiency Ratio
+int diLen   = isScalp ? 10 : isDay ? 14 : 20     // DMI / ADX período
+int adxLen  = isScalp ? 10 : isDay ? 14 : 20     // ADX suavizado
+int bbLen   = isScalp ? 14 : isDay ? 20 : 30     // Bollinger basis
+int lookback= isScalp ? 80 : isDay ? 120 : 200   // ventana de percentiles
+float bbMult= 2.0
+
+// ════════════════ ② UMBRALES ════════════════
+// Por defecto del perfil, ajustables si hace falta
+adxTrend = input.float(0.0, "ADX mínimo para tendencia (0 = auto)", minval=0, maxval=60, group=G_THR, tooltip="0 usa el valor del perfil: Scalper 18 · Day 22 · Swing 25.")
+erTrend  = input.float(0.0, "ER mínimo para tendencia (0 = auto)", minval=0, maxval=1, step=0.01, group=G_THR, tooltip="0 usa el valor del perfil: Scalper 0.30 · Day 0.38 · Swing 0.45.")
+volHi    = input.int(80, "Percentil de volatilidad ALTA", minval=50, maxval=99, group=G_THR, tooltip="Ancho de Bollinger por encima de este percentil = expansión / volátil.")
+volLo    = input.int(25, "Percentil de volatilidad BAJA (squeeze)", minval=1, maxval=50, group=G_THR)
+
+float adxMin = adxTrend > 0 ? adxTrend : (isScalp ? 18.0 : isDay ? 22.0 : 25.0)
+float erMin  = erTrend  > 0 ? erTrend  : (isScalp ? 0.30 : isDay ? 0.38 : 0.45)
+
+// ════════════════ ③ VISUAL ════════════════
+showER   = input.bool(true, "Línea Efficiency Ratio", group=G_VIS)
+showADX  = input.bool(true, "Línea ADX (normalizada)", group=G_VIS)
+showVol  = input.bool(true, "Área de volatilidad (base)", group=G_VIS)
+glow     = input.bool(true, "Glow / efecto rayo", group=G_VIS)
+shadeInt = input.int(72, "Opacidad relleno (difuminado)", minval=45, maxval=92, group=G_VIS)
+showDash = input.bool(true, "Dashboard", group=G_VIS)
+dashPos  = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════ ④ COLORES ════════════════
+upCol   = input.color(#00e5ff, "Tendencia alcista (cian)", group=G_COL, inline="c")
+dnCol   = input.color(#ff6a00, "Tendencia bajista (naranjo)", group=G_COL, inline="c")
+rangeCol= input.color(#90a4ae, "Rango (gris)", group=G_COL)
+volCol  = input.color(#ffb300, "Volátil (ámbar)", group=G_COL)
+strongCol = input.color(#ffffff, "Acento fuerte (blanco)", group=G_COL)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda","Inferior Derecha","Superior Izquierda","Superior Derecha"], group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  FUNCIONES
+// ════════════════════════════════════════════════════════════════════════════
+f_norm(float s, simple int len) =>
+    float lo = ta.lowest(s, len)
+    float hi = ta.highest(s, len)
+    hi - lo != 0 ? 100.0 * (s - lo) / (hi - lo) : 50.0
+
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+f_wmPos(s) => s == "Inferior Izquierda" ? position.bottom_left : s == "Inferior Derecha" ? position.bottom_right : s == "Superior Izquierda" ? position.top_left : position.top_right
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MÓDULO 1 — EFFICIENCY RATIO (Kaufman): qué tan limpio es el movimiento
+// ════════════════════════════════════════════════════════════════════════════
+float change = math.abs(close - close[erLen])
+float noise  = math.sum(math.abs(close - close[1]), erLen)
+float er     = noise != 0 ? change / noise : 0.0          // 0 ruido · 1 tendencia pura
+float erPct  = er * 100
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MÓDULO 2 — ADX (DMI): fuerza y dirección de la tendencia
+// ════════════════════════════════════════════════════════════════════════════
+[diPlus, diMinus, adx] = ta.dmi(diLen, adxLen)
+float adxN = math.min(adx / 40.0 * 100.0, 100.0)          // normalizado 0..100 (40 ≈ tendencia muy fuerte)
+bool  diUp = diPlus >= diMinus
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MÓDULO 3 — ANCHO DE BOLLINGER: estado de volatilidad (percentil)
+// ════════════════════════════════════════════════════════════════════════════
+float basis = ta.sma(close, bbLen)
+float dev   = bbMult * ta.stdev(close, bbLen)
+float bbw   = basis != 0 ? (dev * 2) / basis * 100 : 0.0  // ancho relativo %
+float bbwPct = f_norm(bbw, lookback)                      // 0..100 percentil de volatilidad
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  CLASIFICACIÓN DE RÉGIMEN
+//  Prioridad: 1) Tendencia (ADX y ER coinciden)  2) Volátil (expansión sin
+//  eficiencia = whipsaw)  3) Rango (todo lo demás).
+// ════════════════════════════════════════════════════════════════════════════
+// Trendiness (línea principal): media de fuerza (ADX) y limpieza (ER)
+float trendScore = 0.5 * adxN + 0.5 * erPct
+
+bool isTrend    = adx >= adxMin and er >= erMin
+bool volHigh    = bbwPct >= volHi
+bool isVolatile = volHigh and not isTrend
+bool isRange    = not isTrend and not isVolatile
+bool squeeze    = bbwPct <= volLo                         // compresión: posible expansión próxima
+
+int trendDir = isTrend ? (diUp ? 1 : -1) : 0
+
+// Código de régimen exportable: 1 tend↑ · -1 tend↓ · 0 rango · 2 volátil
+int regimeCode = isTrend ? trendDir : isVolatile ? 2 : 0
+
+color regimeCol = isTrend ? (diUp ? upCol : dnCol) : isVolatile ? volCol : rangeCol
+string regimeTxt = isTrend ? (diUp ? "TENDENCIA ↑" : "TENDENCIA ↓") : isVolatile ? "VOLÁTIL" : "RANGO"
+
+// Transiciones (para alertas)
+bool toTrend = isTrend and not isTrend[1]
+bool toRange = isRange and not isRange[1]
+bool toVol   = isVolatile and not isVolatile[1]
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NIVELES (guías sutiles, sin fondo)
+// ════════════════════════════════════════════════════════════════════════════
+hline(100, "Tope", color.new(color.gray, 92), hline.style_dotted)
+hline(50, "Medio", color.new(color.gray, 80), hline.style_dotted)
+hline(0, "Piso", color.new(color.gray, 92), hline.style_dotted)
+// Umbral de tendencia (dinámico por perfil → plot plano, no hline)
+plot(adxMin, "Umbral tendencia", color=color.new(strongCol, 70), linewidth=1, style=plot.style_stepline)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  VISUAL — columnas de volatilidad + líneas ER/ADX + espina de régimen
+// ════════════════════════════════════════════════════════════════════════════
+// ── Piso de volatilidad: área degradada suave (difuminado, no columnas) ──
+plot(showVol ? bbwPct : na, "Volatilidad", color=color.new(squeeze ? strongCol : volCol, 92), style=plot.style_area, histbase=0)
+
+// ── Líneas de contexto: finas, colores variados, halo único ──
+plot(showER ? erPct : na, "ER halo", color=color.new(#b388ff, 84), linewidth=3)
+plot(showER ? erPct : na, "Efficiency Ratio", color=color.new(#d0b3ff, 5), linewidth=1)
+plot(showADX ? adxN : na, "ADX halo", color=color.new(#ffd54f, 86), linewidth=3)
+plot(showADX ? adxN : na, "ADX (norm)", color=color.new(#ffd54f, 15), linewidth=1)
+
+// ── Espina de régimen: efecto rayo (halo único + línea fina + núcleo blanco) ──
+plot(glow ? trendScore : na, "Régimen halo", color=color.new(regimeCol, 82), linewidth=4)
+pTrend = plot(trendScore, "Régimen (Trend Score)", color=color.new(regimeCol, 0), linewidth=2)
+plot(trendScore, "Núcleo rayo", color=color.new(strongCol, 32), linewidth=1)
+pBase  = plot(0, "base", color=color.new(color.white, 100), display=display.none)
+// Relleno degradado difuminado hacia la base (se desvanece)
+fill(pTrend, pBase, top_value=100, bottom_value=0, top_color=glow ? color.new(regimeCol, shadeInt) : na, bottom_color=glow ? color.new(regimeCol, 100) : na, title="Difuminado régimen")
+
+// Nodo de cambio de régimen: punto pequeño con halo, alineado exacto a la espina
+plotchar(toTrend or toRange or toVol ? trendScore : na, "Cambio halo", "•", location.absolute, color=color.new(strongCol, 60), size=size.small)
+plotchar(toTrend or toRange or toVol ? trendScore : na, "Cambio de régimen", "•", location.absolute, color=color.new(strongCol, 0), size=size.tiny)
+
+// ── EXPORTE para otros scripts (Siddharta / Aion): seleccionable como fuente ──
+plot(regimeCode, "Atlas Regime (export)", color=color.new(color.white, 100), display=display.none)
+plot(trendScore, "Atlas Trend Score (export)", color=color.new(color.white, 100), display=display.none)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD COMPACTO
+// ════════════════════════════════════════════════════════════════════════════
+var table d = table.new(f_pos(dashPos), 2, 6, bgcolor=color.new(#0b0e16, 10), frame_color=color.new(upCol, 55), frame_width=1, border_width=1)
+f_cell(t, r, k, v, vc) =>
+    table.cell(t, 0, r, k, text_color=color.new(#90a4ae, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
+
+if showDash and barstate.islast
+    string volTxt = squeeze ? "SQUEEZE (baja)" : volHigh ? "ALTA" : "Normal"
+    color  volC   = squeeze ? strongCol : volHigh ? volCol : color.new(#90a4ae, 0)
+    string rec = isTrend and diUp ? "Seguir momentum ↑" : isTrend and not diUp ? "Seguir momentum ↓" : isVolatile ? "Whipsaw · reducir/esperar" : squeeze ? "Compresión · esperar ruptura" : "Reversión a la media / fade"
+
+    table.cell(d, 0, 0, "ATLAS · " + profile, text_color=color.white, bgcolor=color.new(#1b2030, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, regimeTxt, text_color=regimeCol, bgcolor=color.new(#1b2030, 0), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(d, 1, "Trend Score", str.tostring(trendScore, "#") + "/100", regimeCol)
+    f_cell(d, 2, "ADX / dir", str.tostring(adx, "#") + (diUp ? " ▲" : " ▼"), adx >= adxMin ? regimeCol : color.new(#90a4ae, 0))
+    f_cell(d, 3, "Efficiency", str.tostring(er, "#.##"), er >= erMin ? regimeCol : color.new(#90a4ae, 0))
+    f_cell(d, 4, "Volatilidad", volTxt, volC)
+    f_cell(d, 5, "Acción", rec, regimeCol)
+
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+var table wm = table.new(f_wmPos(wmPos), 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS (contexto, no entradas)
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(toTrend, "Entra en TENDENCIA", "Atlas · Régimen de TENDENCIA {{ticker}}")
+alertcondition(toRange, "Entra en RANGO", "Atlas · Régimen de RANGO {{ticker}}")
+alertcondition(toVol, "Entra en VOLÁTIL", "Atlas · Régimen VOLÁTIL (whipsaw) {{ticker}}")
+alertcondition(isTrend and diUp and not (isTrend[1] and diUp[1]), "Tendencia alcista", "Atlas · Tendencia alcista confirmada {{ticker}}")
+alertcondition(isTrend and not diUp and not (isTrend[1] and not diUp[1]), "Tendencia bajista", "Atlas · Tendencia bajista confirmada {{ticker}}")
+alertcondition(squeeze and not squeeze[1], "Squeeze de volatilidad", "Atlas · Compresión de volatilidad (posible ruptura) {{ticker}}")
+
