@@ -677,3 +677,218 @@ con el `alert()` JSON; **no** son sustituto del webhook.
 
 
 
+
+---
+
+### Sección 2.2 — `fill()` es caro en el límite de 64 outputs (medido en TradingView)
+
+**El Problema**
+El límite de 64 **no cuenta llamadas**, cuenta *outputs internos*. Un `fill()` pesa
+mucho más que un `plot()`, y el degradado pesa más que el plano. Medición real sobre
+`kratos.pine` (el compilador reporta el número exacto en el error):
+
+| Versión | Llamadas de dibujo | TV reportó |
+|---|---|---|
+| 22 plots + 4 shape/char + 7 fills (6 en degradado) | 33 | **86 plots** |
+| igual, con 4 de esos degradados pasados a plano | 33 | **74 plots** |
+| 20 plots + 4 shape/char + 5 fills (1 degradado) | 29 | ~56-58 |
+
+Delta medido: **cambiar 1 `fill()` de degradado a plano ahorra 3 outputs.** Un `fill()`
+plano sigue costando bastante más que un `plot()`. Contar llamadas a mano da un número
+falsamente bajo: 33 llamadas eran 86 outputs.
+
+```pinescript
+// ❌ INCORRECTO – 6 zonas en degradado + anclas invisibles = 86 outputs
+pRevUp0 = plot(showRev ? outerUp : na, "base", color=color.new(C_BEAR, 100), display=display.none)
+fill(pRevUp0, pRevUp1, top_value=revUp1, bottom_value=outerUp, top_color=color.new(C_BEAR, 92), bottom_color=color.new(C_BEAR, 96), title="Zona débil")
+// ... x6
+```
+
+```pinescript
+// ✅ CORRECTO – menos fills; las bandas menores quedan como línea, no como relleno
+pRevUp1 = plot(showRev ? revUp1 : na, "débil",  color=color.new(C_BEAR, 88), linewidth=1)
+pRevUp2 = plot(showRev ? revUp2 : na, "normal", color=color.new(C_BEAR, 80), linewidth=1)
+fill(pRevUp1, pRevUp2, color=color.new(C_BEAR, 90), title="Zona normal")
+fill(pRevUp2, pRevUp3, color=color.new(C_BEAR, 78), title="Zona fuerte")
+```
+
+**Orden de recorte cuando TV reporte >64** (de mayor a menor ahorro):
+1. `fill()` degradado → plano (−3 c/u).
+2. Eliminar `fill()` completos; sustituir la banda por su línea.
+3. Eliminar plots ancla `display=display.none` que solo servían a un fill borrado.
+4. Reducir capas de glow / LED (los `plot()` son lo más barato).
+
+**Regla General**
+> Trata cada `fill()` como el ítem caro del presupuesto de 64 y cada `plot()` como el barato; nunca estimes el conteo a mano — compila, lee el número exacto del error de TradingView, y recorta fills primero.
+
+---
+
+### Sección 4.4 — `if/else` como última expresión de una función: error de tipo de retorno
+
+**El Problema**
+En Pine v6 la última expresión de una función/método **es** su valor de retorno. Si esa
+expresión es un `if/else if/else`, el compilador intenta unificar el tipo de todas las
+ramas. Ramas que terminan en llamadas distintas (una en `label.new()`, otra en
+`label.set_y()`, otra en una asignación bool) no unifican:
+
+```
+Return type of one of the "if" or "switch" blocks is not compatible with return type
+of other block(s) (series label; void; series bool) (CE10235)
+```
+
+```pinescript
+// ❌ INCORRECTO – 3 ramas, 3 tipos de retorno distintos
+method kzDraw(Sess s, bool active, color col, string txt) =>
+    if active and not s.on
+        s.lb := label.new(...)      // -> series label
+    else if active
+        label.set_y(s.lb, s.hi)     // -> void
+    else if s.on
+        s.on := false               // -> series bool
+```
+
+**La Solución**
+Cerrar la función con `na` en su propia línea. Así el `if` deja de ser la última
+expresión y pasa a ser una sentencia; el retorno queda en `na` y no hay nada que unificar.
+
+```pinescript
+// ✅ CORRECTO
+method kzDraw(Sess s, bool active, color col, string txt) =>
+    if active and not s.on
+        s.lb := label.new(...)
+    else if active
+        label.set_y(s.lb, s.hi)
+    else if s.on
+        s.on := false
+    na
+```
+
+**Regla General**
+> Toda función o método cuyo cuerpo termine en un `if/else` de efectos secundarios debe cerrar con `int(na)` en su propia línea, para que el bloque sea sentencia y no valor de retorno.
+
+**Trampa de segundo orden (CE10096)**
+Cerrar con `na` pelado no alcanza: Pine v6 exige que el retorno tenga tipo.
+
+```
+The "kzDraw()" function cannot return "na" values without specified types. (CE10096)
+```
+
+```pinescript
+    else if s.on
+        s.on := false
+    na          // ❌ CE10096 — na sin tipo
+```
+```pinescript
+    else if s.on
+        s.on := false
+    int(na)     // ✅ na casteado
+```
+
+---
+
+### Sección 4.5 — Los métodos SÍ pueden mutar campos de un objeto UDT
+
+**El Problema**
+La regla 4.1 ("las funciones no pueden modificar variables globales") se malinterpreta
+como "una función no puede cambiar nada de fuera". No es así: los objetos de tipos
+definidos por el usuario son **referencias**, y un método puede mutar sus campos.
+
+```pinescript
+// ❌ INCORRECTO – asignar a una var global desde una función
+var int count = 0
+f_inc() =>
+    count := count + 1      // Cannot modify global variable 'count' in function
+
+// ✅ CORRECTO – mutar campos del objeto recibido
+type Sess
+    float hi = na
+    bool  on = false
+
+method update(Sess s, float px) =>
+    s.hi := math.max(nz(s.hi, px), px)   // permitido: s es una referencia
+    s.on := true
+    na
+
+var Sess sesion = Sess.new()
+sesion.update(high)
+```
+
+**Regla General**
+> Cuando necesites estado mutable compartido entre llamadas, encapsúlalo en un objeto UDT y mútalo desde métodos; nunca intentes reasignar una `var` global desde dentro de una función.
+
+---
+
+### Sección 2.3 — `box`, `line`, `label` y `table` NO consumen el presupuesto de 64 plots
+
+**El Problema**
+Al tocar el techo de 64 outputs se asume que ya no se puede agregar nada visual. Falso:
+el límite de 64 aplica solo a las funciones de *plot* (`plot`, `plotshape`, `plotchar`,
+`fill`, `bgcolor`, `barcolor`). Los objetos de dibujo tienen presupuestos separados
+declarados en `indicator()`.
+
+```pinescript
+// ✅ Features enteras sin gastar un solo plot: FVG, order blocks, sesiones, niveles
+indicator("...", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
+// box.new() / line.new() / label.new() -> cuentan contra max_*_count, no contra los 64
+```
+
+**Regla General**
+> Si el script está cerca del límite de 64 outputs, implementa toda zona o nivel nuevo con `box`/`line`/`label` en vez de `plot` + `fill`, y declara los `max_*_count` correspondientes en `indicator()`.
+
+---
+
+### Sección 9.6 — `shorttitle` máximo 10 caracteres
+
+**El Problema**
+```pinescript
+// ⚠️ SHORT_TITLE_TOO_LONG — 23 caracteres
+indicator("BudAI Capital® - Kratos", shorttitle="BudAI Capital® - Kratos", overlay=true)
+```
+
+**La Solución**
+```pinescript
+// ✅ title largo para la lista de indicadores, shorttitle corto para la leyenda del gráfico
+indicator("BudAI Capital® - Kratos", shorttitle="Kratos", overlay=true)
+```
+
+**Regla General**
+> El `title` lleva la marca completa y el `shorttitle` un máximo de 10 caracteres — son campos distintos, no repitas el largo en ambos.
+
+---
+
+### Sección 9.7 — Los strings no pueden partirse en varias líneas (CE10017)
+
+**El Problema**
+Un salto de línea real dentro de un literal de string rompe el parser, aunque sea
+dentro de un `tooltip` largo:
+
+```
+Missing enclosing character in the literal string. Enclose literal strings using
+a set of quotation marks (") or apostrophes (') on the same code line. (CE10017)
+```
+
+```pinescript
+// ❌ INCORRECTO – el string cruza 4 líneas del archivo
+string fvgMit = input.string("Ocultar", "Zonas mitigadas", options=["Ocultar", "Atenuar"], tooltip="Qué hacer cuando la zona muere.
+Ocultar = se borra.
+Atenuar = queda tenue.")
+```
+
+**La Solución**
+Una sola línea física. Si hace falta separar ideas, usar la secuencia de escape
+`\n` (backslash + n literales en el código), nunca un Enter:
+
+```pinescript
+// ✅ CORRECTO – una línea
+string fvgMit = input.string("Ocultar", "Zonas mitigadas", options=["Ocultar", "Atenuar"], tooltip="Qué hacer cuando la zona muere. Ocultar = se borra. Atenuar = queda tenue.")
+
+// ✅ CORRECTO – salto dentro del tooltip vía escape
+string fvgMit = input.string("Ocultar", "Zonas mitigadas", options=["Ocultar", "Atenuar"], tooltip="Ocultar = se borra.\nAtenuar = queda tenue.")
+```
+
+**Auditoría rápida**
+Toda línea del `.pine` debe tener un número PAR de comillas dobles. Una línea con
+número impar es un string partido.
+
+**Regla General**
+> Ningún literal de string puede contener un salto de línea real: mantenelo en una sola línea física y usá `\n` si necesitás varias líneas en el tooltip.

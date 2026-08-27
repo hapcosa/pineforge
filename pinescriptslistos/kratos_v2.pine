@@ -7,23 +7,30 @@
 // ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
 //         C R I P T O   ·   T R A D I N G   C A P I T A L
 // ────────────────────────────────────────────────────────────────────────────
-//  BudAI Capital® - Kratos
-//  Trail dinámico de tendencia (soporte/resistencia algorítmico): kernel
-//  rational-quadratic (Nadaraya-Watson) + banda ATR + nube de glow. Estética Athenea.
-//  Suma bandas de reversión graduadas (agotamiento débil/normal/fuerte) sobre
-//  el mismo kernel — sin depender de librerías externas ni clustering pesado.
-//  Señales adoptadas de Signals & Overlays (LuxAlgo): clasificador de fuerza
-//  1-4 + confirmación EMA 50/200, recalculado sobre el flip del kernel propio
-//  (no se porta su SuperTrend por K-means: sería un segundo motor redundante
-//  con el kernel RQ que Kratos ya tiene).
+//  BudAI Capital® - Kratos V.2
 //  Kratos = la fuerza que sostiene la tendencia.
-//  Arranque limpio: por defecto solo se dibuja el Trail. Reversión, FVG/IFVG
-//  y sesiones se activan desde el panel de configuración.
-//  Estudio de emulación por piezas — pieza «Trail». Gemelo Python (futuro):
-//  KryptoLab/indicators/kratos.py
+//
+//  MOTOR — kernel rational-quadratic (Nadaraya-Watson, endpoint) + banda ATR.
+//  El kernel filtra ruido sin el retardo de una media móvil: el trail se pega a
+//  la tendencia real y solo gira cuando el precio la rompe de verdad.
+//
+//  QUÉ TRAE
+//    ① Trail      · soporte/resistencia dinámico con nube de profundidad
+//    ② Reversión  · 3 zonas de agotamiento graduado sobre el mismo kernel
+//    ③ Señales    · MOTOR PROPIO: flip del kernel + clasificador de fuerza 1-4
+//                   + confirmación de tendencia EMA 50/200  (▲+ / ▼-)
+//    ⑤ FVG/IFVG   · imbalance de 3 velas, con inversión de polaridad al romperse
+//    ⑥ Sesiones   · Asia / Londres / NY con su rango high-low
+//
+//  POR QUÉ FUNCIONA — un solo motor alimenta todo. Trail, zonas de reversión y
+//  fuerza de señal salen del mismo kernel, así que nunca se contradicen entre sí.
+//  Sin repaint: MTF con lookahead_off y señales al cierre de vela confirmada.
+//
+//  Arranque limpio: por defecto solo se dibuja el Trail. El resto se enciende
+//  desde el panel de configuración.
 //  (c) BudAI Capital® — Pine v6
 // ────────────────────────────────────────────────────────────────────────────
-indicator("BudAI Capital® - Kratos", shorttitle="Kratos", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
+indicator("BudAI Capital® - Kratos V.2", shorttitle="KratosV2", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
 
 // ════════════════ GRUPOS ════════════════
 G_T   = "① Kratos Trail"
@@ -44,18 +51,18 @@ float  bMult  = input.float(2.0, "Distancia banda (mult ATR)", minval=0.1, maxva
 float  cloudW = input.float(1.5, "Grosor de la nube (mult ATR)", minval=0.0, maxval=5.0, step=0.1, group=G_T)
 
 // ════════════════ ② BANDAS DE REVERSIÓN (agotamiento graduado) ════════════════
-bool  showRev  = input.bool(false, "Mostrar bandas de reversión", group=G_R, tooltip="Zonas de agotamiento más allá de la banda del trail. Adaptado del concepto de canal de reversión (LuxAlgo), recalculado sobre el kernel de Kratos.")
+bool  showRev  = input.bool(false, "Mostrar bandas de reversión", group=G_R, tooltip="Zonas de agotamiento más allá de la banda del trail, calculadas sobre el mismo kernel.")
 float revStep  = input.float(0.8, "Paso de zona (mult ATR)", minval=0.1, maxval=5.0, step=0.1, group=G_R, tooltip="Ancho de cada escalón débil/normal/fuerte, en múltiplos de ATR más allá de la banda del trail.")
 bool  markRev  = input.bool(true, "Marcar agotamiento extremo", group=G_R)
 color C_REV_HI = input.color(#ff2d55, "Zona superior (rojo)", group=G_R, inline="rc", tooltip="Color propio de las bandas de reversión — independiente de la paleta del trail.")
 color C_REV_LO = input.color(#00e676, "Zona inferior (verde)", group=G_R, inline="rc")
 
-// ════════════════ ③ SEÑALES (adoptado de Signals & Overlays, sobre el kernel Kratos) ════════════════
-bool  showSig    = input.bool(true, "Etiquetas de señal (flip + fuerza)", group=G_SIG, tooltip="Clasificador de fuerza 1-4 y confirmación EMA 50/200, al estilo Signals & Overlays — recalculado sobre el flip del kernel de Kratos.")
+// ════════════════ ③ SEÑALES (motor propio sobre el kernel) ════════════════
+bool  showSig    = input.bool(true, "Etiquetas de señal (flip + fuerza)", group=G_SIG, tooltip="Etiqueta ▲/▼ en cada flip del kernel, con clasificador de fuerza 1-4 y confirmación EMA 50/200.")
 bool  useEmaConf = input.bool(true, "Confirmar con EMA 50/200", group=G_SIG, tooltip="Agrega un '+' a la etiqueta cuando la EMA 50/200 confirma la dirección del flip.")
 int   minStrength= input.int(1, "Fuerza mínima para mostrar", minval=1, maxval=4, group=G_SIG, tooltip="1 = mostrar todas. 4 = solo flips con mayor extensión respecto al kernel.")
 
-// ════════════════ ④ ESTÉTICA (paleta neón Athenea) ════════════════
+// ════════════════ ④ ESTÉTICA ════════════════
 color C_BULL   = input.color(#00e5ff, "Alcista (celeste)", group=G_S, inline="c")
 color C_BEAR   = input.color(#ff1e6e, "Bajista (fucsia)", group=G_S, inline="c")
 bool  glow     = input.bool(true, "Glow (capa de brillo)", group=G_S)
@@ -67,11 +74,12 @@ bool  showFlip = input.bool(false, "Marcar flips", group=G_S, tooltip="Triángul
 // ════════════════ ⑤ FVG · IMBALANCE (hueco de 3 velas) ════════════════
 bool  fvgSH   = input.bool(false, "Mostrar FVG", group=G_FVG, tooltip="Fair Value Gap: hueco entre el máximo de la vela 1 y el mínimo de la vela 3 (o inverso). Se dibuja al cierre de la vela 3 — sin repaint.")
 float fvgMin  = input.float(0.25, "Ancho mínimo (mult ATR)", minval=0.0, maxval=5.0, step=0.05, group=G_FVG, tooltip="0 = sin filtro. Descarta imbalances más finos que ATR(14) × este valor.")
-bool  fvgIFV  = input.bool(true, "Invertir a IFVG al invalidarse", group=G_FVG, tooltip="Inverse FVG: si el precio CIERRA al otro lado del hueco, la zona invierte polaridad y pasa a actuar como resistencia/soporte contrario.")
-bool  fvgDel  = input.bool(true, "Borrar al mitigar", group=G_FVG, tooltip="Con IFVG activo, la zona se borra recién cuando también se invalida el IFVG. OFF = la caja queda congelada donde murió.")
-int   fvgMax  = input.int(10, "Máx. zonas en pantalla", minval=1, maxval=60, group=G_FVG)
-color C_FVG_UP = input.color(color.new(#00e676, 84), "FVG alcista", group=G_FVG, inline="fc")
-color C_FVG_DN = input.color(color.new(#ff2d55, 84), "bajista", group=G_FVG, inline="fc")
+bool  fvgIFV  = input.bool(true, "Invertir a IFVG al invalidarse", group=G_FVG, tooltip="Inverse FVG: si el precio CIERRA al otro lado del hueco, la zona invierte polaridad y pasa a actuar como resistencia/soporte contrario. Recién en la SEGUNDA ruptura se considera mitigada.")
+int    fvgMax = input.int(5, "Cantidad en pantalla", minval=1, maxval=60, group=G_FVG, tooltip="Cuántas zonas FVG/IFVG se mantienen dibujadas a la vez. Al superar el tope se borra la más vieja. Bajo = gráfico limpio.")
+string fvgMit = input.string("Ocultar", "Zonas mitigadas", options=["Ocultar", "Atenuar", "Mantener"], group=G_FVG, tooltip="Qué hacer cuando la zona muere. Ocultar = se borra y libera cupo. Atenuar = queda como huella tenue. Mantener = queda con su color, congelada.")
+bool  fvgCE   = input.bool(true, "Línea 50% (consequent encroachment)", group=G_FVG, tooltip="Mitad del hueco — el nivel donde el precio suele reaccionar al volver a testear el imbalance.")
+color C_FVG_UP = input.color(color.new(#39ff14, 82), "FVG alcista (verde neón)", group=G_FVG, inline="fc")
+color C_FVG_DN = input.color(color.new(#a855f7, 78), "bajista (morado)", group=G_FVG, inline="fc")
 
 // ════════════════ ⑥ SESIONES / KILLZONES (Asia · Londres · NY) ════════════════
 bool   kzSH    = input.bool(false, "Mostrar sesiones", group=G_KZ)
@@ -97,6 +105,8 @@ color  wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
 // ════════════════ TIPOS (FVG / sesiones) ════════════════
 type Gap
     box   bx
+    box   hl
+    line  ce
     float top
     float btm
     bool  bull
@@ -225,14 +235,13 @@ bool revBot = showRev and markRev and low  <= revDn3 and low[1]  > revDn3[1]
 plotchar(revTop ? high : na, "Kratos Agotamiento Sup", "•", location.absolute, color=C_REV_HI, size=size.tiny)
 plotchar(revBot ? low  : na, "Kratos Agotamiento Inf", "•", location.absolute, color=C_REV_LO, size=size.tiny)
 
-// ════════════════ SEÑALES — clasificador de fuerza 1-4 + confirmación EMA (LuxAlgo, kernel Kratos) ════════════════
+// ════════════════ MOTOR DE SEÑALES — flip + fuerza 1-4 + confirmación EMA ════════════════
 float ema50  = ta.ema(close, 50)
 float ema200 = ta.ema(close, 200)
 bool  emaBull = ema50 > ema200
 bool  emaBear = ema50 < ema200
 
-// Fuerza = extensión del precio respecto al kernel, en múltiplos de ATR (mismo espíritu
-// que el perf_idx de LuxAlgo, pero sobre el trail propio en vez de un cluster K-means)
+// Fuerza = extensión del precio respecto al kernel, en múltiplos de ATR.
 float extAtr    = math.abs(close - kernelCenter) / math.max(trailAtr, syminfo.mintick)
 int   strength  = extAtr < 1.0 ? 1 : extAtr < 2.0 ? 2 : extAtr < 3.0 ? 3 : 4
 bool  passStr   = strength >= minStrength
@@ -257,19 +266,30 @@ if showSig and passStr and barstate.isconfirmed and flipDown
 float fvgAtr = ta.atr(14)
 var array<Gap> gaps = array.new<Gap>()
 
-// Detección al cierre de la 3ª vela: hueco entre vela 1 y vela 3.
+// El hueco vive entre la vela 1 y la vela 3; la vela 2 es la que lo deja abierto.
+// Alcista: low(vela3) por encima de high(vela1).  Bajista: high(vela3) por debajo de low(vela1).
 if fvgSH and barstate.isconfirmed
     bool bullGap = low > high[2] and (low - high[2]) >= fvgMin * fvgAtr
     bool bearGap = high < low[2] and (low[2] - high) >= fvgMin * fvgAtr
-    if bullGap
-        box bxU = box.new(bar_index - 2, low, bar_index, high[2], border_color=color.new(C_FVG_UP, 60), border_width=1, bgcolor=C_FVG_UP)
-        array.unshift(gaps, Gap.new(bxU, low, high[2], true))
-    if bearGap
-        box bxD = box.new(bar_index - 2, low[2], bar_index, high, border_color=color.new(C_FVG_DN, 60), border_width=1, bgcolor=C_FVG_DN)
-        array.unshift(gaps, Gap.new(bxD, low[2], high, false))
+    if bullGap or bearGap
+        float gTop = bullGap ? low : low[2]
+        float gBtm = bullGap ? high[2] : high
+        color gCol = bullGap ? C_FVG_UP : C_FVG_DN
+        // Glow del trazo: caja halo (borde grueso, muy transparente, sin relleno)
+        // dibujada ANTES que el core para que el borde nítido quede encima.
+        box gHl = na
+        if glow
+            gHl := box.new(bar_index - 2, gTop, bar_index, gBtm, border_color=color.new(gCol, 72), border_width=4, bgcolor=na)
+        box  gBx = box.new(bar_index - 2, gTop, bar_index, gBtm, border_color=color.new(gCol, 22), border_width=1, bgcolor=gCol)
+        line gCe = na
+        if fvgCE
+            gCe := line.new(bar_index - 2, math.avg(gTop, gBtm), bar_index, math.avg(gTop, gBtm), color=color.new(gCol, 35), style=line.style_dashed, width=1)
+        array.unshift(gaps, Gap.new(gBx, gHl, gCe, gTop, gBtm, bullGap))
     while array.size(gaps) > fvgMax
         Gap oldG = array.pop(gaps)
         box.delete(oldG.bx)
+        box.delete(oldG.hl)
+        line.delete(oldG.ce)
 
 // Extensión + invalidación. Cierre al otro lado del hueco = IFVG (invierte polaridad).
 if fvgSH and array.size(gaps) > 0
@@ -277,6 +297,10 @@ if fvgSH and array.size(gaps) > 0
         Gap g = array.get(gaps, i)
         if g.live
             box.set_right(g.bx, bar_index)
+            if not na(g.hl)
+                box.set_right(g.hl, bar_index)
+            if not na(g.ce)
+                line.set_x2(g.ce, bar_index)
             bool broken = g.bull ? close < g.btm : close > g.top
             if broken
                 if fvgIFV and not g.inv
@@ -284,13 +308,27 @@ if fvgSH and array.size(gaps) > 0
                     g.bull := not g.bull
                     color icol = g.bull ? C_FVG_UP : C_FVG_DN
                     box.set_bgcolor(g.bx, icol)
-                    box.set_border_color(g.bx, color.new(icol, 40))
+                    box.set_border_color(g.bx, color.new(icol, 30))
                     box.set_border_style(g.bx, line.style_dashed)
+                    if not na(g.hl)
+                        box.set_border_color(g.hl, color.new(icol, 74))
+                    if not na(g.ce)
+                        line.set_color(g.ce, color.new(icol, 35))
                 else
                     g.live := false
-                    if fvgDel
+                    color mcol = g.bull ? C_FVG_UP : C_FVG_DN
+                    if fvgMit == "Ocultar"
                         box.delete(g.bx)
+                        box.delete(g.hl)
+                        line.delete(g.ce)
                         array.remove(gaps, i)
+                    else if fvgMit == "Atenuar"
+                        box.set_bgcolor(g.bx, color.new(mcol, 94))
+                        box.set_border_color(g.bx, color.new(mcol, 84))
+                        box.delete(g.hl)
+                        g.hl := na
+                        line.delete(g.ce)
+                        g.ce := na
 
 // ════════════════ SESIONES (Asia · Londres · NY) ════════════════
 bool kzOk = kzSH and timeframe.isintraday and timeframe.multiplier <= kzMaxTf
@@ -312,7 +350,7 @@ var table wm = table.new(f_wmPos(wmPos), 1, 1)
 if showWM and barstate.islast
     table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.normal, bgcolor=color.new(#0b0e16, 100))
 
-// ════════════════ ALERTAS (placeholder; JSON canónico BudAI al ensamblar el pack) ════════════════
+// ════════════════ ALERTAS ════════════════
 alertcondition(flipUp,   title="Kratos Trail · flip alcista", message="Kratos Trail flip BULL")
 alertcondition(flipDown, title="Kratos Trail · flip bajista", message="Kratos Trail flip BEAR")
 alertcondition(flipUp   and strength >= 3, title="Kratos · señal fuerte alcista", message="Kratos Señal BULL (fuerza ≥3)")
