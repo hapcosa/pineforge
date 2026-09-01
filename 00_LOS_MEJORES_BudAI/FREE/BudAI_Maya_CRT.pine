@@ -15,7 +15,7 @@
 //  Oscilador) 100% OPCIONAL: por defecto se ven las señales puras de CRT.
 //  (c) BudAI Capital® — Pine v6 · overlay
 // ────────────────────────────────────────────────────────────────────────────
-indicator("BudAI Capital® - Maya · CRT", shorttitle="BudAI Capital® - Maya · CRT", overlay=true, max_boxes_count=60, max_labels_count=200, max_lines_count=200)
+indicator("BudAI Capital® - Maya · CRT", overlay=true, max_boxes_count=60, max_labels_count=200, max_lines_count=200)
 
 // ════════════════ GRUPOS ════════════════
 G_RNG  = "① Rango / Modo"
@@ -124,13 +124,12 @@ f_addFvg(int dir, float top, float bot) =>
     color c = dir == 1 ? cBull : cBear
     box bx = na
     if showFvg
-        bx := box.new(bar_index - 1, top, bar_index + fvgLen, bot, border_color=color.new(c, 72), border_width=1, bgcolor=color.new(c, 90))
-    FVG nf = FVG.new(bx, top, bot, dir, false, false)
-    array.push(fvgs, nf)
-    if array.size(fvgs) > maxFvg
-        FVG old = array.shift(fvgs)
-        box.delete(old.bx)
+        bx := box.new(bar_index - 2, top, bar_index + fvgLen, bot, border_color=color.new(c, 72), border_width=1, bgcolor=color.new(c, 90))
+    array.unshift(fvgs, FVG.new(bx, top, bot, dir, false, false))
+    int(na)
 
+// El hueco vive entre la vela 1 y la vela 3; la vela 2 es la que lo deja abierto.
+// Alcista: low(vela3) por encima de high(vela1).  Bajista: high(vela3) por debajo de low(vela1).
 bool bullFvg = low > high[2] and (low - high[2]) >= fvgMinAtr * atr
 bool bearFvg = high < low[2] and (low[2] - high) >= fvgMinAtr * atr
 
@@ -140,26 +139,33 @@ if (useFvg or showFvg) and barstate.isconfirmed
     if bearFvg
         f_addFvg(-1, low[2], high)
 
+while array.size(fvgs) > maxFvg
+    FVG oldF = array.pop(fvgs)
+    box.delete(oldF.bx)
+
+// Cierre al otro lado del hueco = IFVG (invierte polaridad). La SEGUNDA ruptura
+// lo mitiga: sale del array y libera cupo, así "FVG activos" cuenta solo los vivos.
 int fvgBias = 0
 if array.size(fvgs) > 0
     for i = array.size(fvgs) - 1 to 0
         FVG f = array.get(fvgs, i)
-        if f.dead
-            continue
-        if not f.inv
-            bool flip = (f.dir == 1 and close < f.bot) or (f.dir == -1 and close > f.top)
-            if flip
-                f.inv := true
-                if not na(f.bx)
-                    box.set_bgcolor(f.bx, color.new(cIfvg, 88))
-                    box.set_border_color(f.bx, color.new(cIfvg, 58))
-        else
-            bool kill = (f.dir == 1 and close > f.top) or (f.dir == -1 and close < f.bot)
-            if kill
-                f.dead := true
-                box.delete(f.bx)
-        if not f.dead and close <= f.top and close >= f.bot
-            fvgBias := f.inv ? -f.dir : f.dir
+        if not f.dead
+            if not f.inv
+                bool flip = (f.dir == 1 and close < f.bot) or (f.dir == -1 and close > f.top)
+                if flip
+                    f.inv := true
+                    if not na(f.bx)
+                        box.set_bgcolor(f.bx, color.new(cIfvg, 88))
+                        box.set_border_color(f.bx, color.new(cIfvg, 58))
+                        box.set_border_style(f.bx, line.style_dashed)
+            else
+                bool kill = (f.dir == 1 and close > f.top) or (f.dir == -1 and close < f.bot)
+                if kill
+                    f.dead := true
+                    box.delete(f.bx)
+                    array.remove(fvgs, i)
+            if not f.dead and close <= f.top and close >= f.bot
+                fvgBias := f.inv ? -f.dir : f.dir
 
 // ════════════════════════════════════════════════════════════════════════════
 //  ESTADO DEL MODELO CRT

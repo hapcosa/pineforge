@@ -297,52 +297,60 @@ type FVG
 
 var array<FVG> fvgs = array.new<FVG>()
 
+// El hueco vive entre la vela 1 y la vela 3; la vela 2 es la que lo deja abierto.
+// Alcista: low(vela3) por encima de high(vela1).  Bajista: high(vela3) por debajo de low(vela1).
 bool fvgUp = low > high[2] and (low - high[2]) >= fvgMin * atr
 bool fvgDn = high < low[2] and (low[2] - high) >= fvgMin * atr
 
 f_addFVG(float top, float bot, int dir) =>
-    if array.size(fvgs) >= fvgMax
-        FVG old = array.shift(fvgs)
-        box.delete(old.bx)
-        line.delete(old.ln)
     color c = dir > 0 ? upCol : dnCol
     float mid = (top + bot) / 2.0
-    int xl = bar_index - 1
+    int xl = bar_index - 2
     int xr = bar_index + fvgLen
     box bx = box.new(xl, top, xr, bot, bgcolor=color.new(c, 90), border_color=color.new(c, 45), border_width=1)
     line ln = line.new(xl, mid, xr, mid, color=color.new(c, 20), style=line.style_solid, width=1)
-    array.push(fvgs, FVG.new(bx, ln, top, bot, dir, false, false))
+    array.unshift(fvgs, FVG.new(bx, ln, top, bot, dir, false, false))
+    int(na)
 
 if showFVG and conf and fvgUp
     f_addFVG(low, high[2], 1)
 if showFVG and conf and fvgDn
     f_addFVG(low[2], high, -1)
 
+while array.size(fvgs) > fvgMax
+    FVG oldF = array.pop(fvgs)
+    box.delete(oldF.bx)
+    line.delete(oldF.ln)
+
+// Cierre al otro lado del hueco = IFVG (invierte polaridad). La SEGUNDA ruptura
+// lo mitiga: la zona se borra y libera cupo, así "Máx FVG" cuenta solo las vivas.
 int fvgBias = 0
 if array.size(fvgs) > 0
     for i = array.size(fvgs) - 1 to 0
         FVG f = array.get(fvgs, i)
-        if f.dead
-            continue
-        if not f.inv
-            bool violated = (f.dir == 1 and close < f.btm) or (f.dir == -1 and close > f.top)
-            if violated and showIFVG
-                f.inv := true
-                box.set_bgcolor(f.bx, color.new(cIfvg, 88))
-                box.set_border_color(f.bx, color.new(cIfvg, 45))
-                line.set_color(f.ln, color.new(cIfvg, 20))
-            else if violated and not showIFVG
-                f.dead := true
-                box.delete(f.bx)
-                line.delete(f.ln)
-        else
-            bool kill = (f.dir == 1 and close > f.top) or (f.dir == -1 and close < f.btm)
-            if kill
-                f.dead := true
-                box.delete(f.bx)
-                line.delete(f.ln)
-        if not f.dead and close <= f.top and close >= f.btm
-            fvgBias := f.inv ? -f.dir : f.dir
+        if not f.dead
+            if not f.inv
+                bool violated = (f.dir == 1 and close < f.btm) or (f.dir == -1 and close > f.top)
+                if violated and showIFVG
+                    f.inv := true
+                    box.set_bgcolor(f.bx, color.new(cIfvg, 88))
+                    box.set_border_color(f.bx, color.new(cIfvg, 45))
+                    box.set_border_style(f.bx, line.style_dashed)
+                    line.set_color(f.ln, color.new(cIfvg, 20))
+                else if violated
+                    f.dead := true
+                    box.delete(f.bx)
+                    line.delete(f.ln)
+                    array.remove(fvgs, i)
+            else
+                bool kill = (f.dir == 1 and close > f.top) or (f.dir == -1 and close < f.btm)
+                if kill
+                    f.dead := true
+                    box.delete(f.bx)
+                    line.delete(f.ln)
+                    array.remove(fvgs, i)
+            if not f.dead and close <= f.top and close >= f.btm
+                fvgBias := f.inv ? -f.dir : f.dir
 
 // ════════════════════════════════════════════════════════════════════════════
 //  ④ RAIDS ($) + nodo glow al combinarse con CHoCH

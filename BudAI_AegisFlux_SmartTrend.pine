@@ -1,0 +1,208 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - Aegis Flux · Smart Trend
+//  Motor de señales todo-en-uno: Confirmación (tendencia) + Contrarian (reversión)
+//  + Exit (salida) + Smart Trail. Confluencia momentum+tendencia. Sello BudAI.
+//  (c) BudAI Capital® — Pine v6 · overlay · cyberpunk
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - Aegis Flux · Smart Trend", shorttitle="BudAI Capital® - Aegis Flux · Smart Trend", overlay=true, max_labels_count=500, max_lines_count=100)
+
+// ════════════════ GRUPOS ════════════════
+G_ENG = "① Motor"
+G_CONF= "② Confirmación (tendencia)"
+G_CONT= "③ Contrarian (reversión)"
+G_TR  = "④ Smart Trail"
+G_VIS = "⑤ Estética"
+G_WM  = "✦ Marca de agua"
+
+// ════════════════ ① MOTOR ════════════════
+sens   = input.float(2.0, "Sensibilidad", minval=1, maxval=20, step=0.5, group=G_ENG, tooltip="Más bajo acerca Smart Trail al precio y genera más señales. Más alto aumenta distancia y filtra ruido.")
+src    = input.source(close, "Fuente", group=G_ENG)
+
+// ════════════════ ② CONFIRMACIÓN ════════════════
+showConf = input.bool(true, "Señales de confirmación (tendencia)", group=G_CONF)
+showStr  = input.bool(true, "Marcar señales fuertes (+)", group=G_CONF, tooltip="'+' cuando la señal coincide con el sesgo mayor (EMA200).")
+
+// ════════════════ ③ CONTRARIAN ════════════════
+showCont = input.bool(true, "Señales contrarian (reversión en extremos)", group=G_CONT)
+rsiLen   = input.int(14, "RSI período", minval=2, group=G_CONT, inline="r")
+obLvl    = input.int(70, "Sobrecompra", minval=55, maxval=95, group=G_CONT, inline="r")
+osLvl    = input.int(30, "Sobreventa",  minval=5,  maxval=45, group=G_CONT, inline="r")
+
+// ════════════════ ④ SMART TRAIL ════════════════
+showTrail = input.bool(true, "Smart Trail (trailing dinámico)", group=G_TR)
+trailLen  = input.int(10, "ATR período", minval=1, group=G_TR, inline="t")
+trailMult = input.float(2.0, "Factor", minval=0.5, step=0.1, group=G_TR, inline="t")
+showCloud = input.bool(true, "Nube Smart Trend superior", group=G_TR, inline="cl")
+cloudMult = input.float(0.8, "Altura ATR", minval=0.1, maxval=5.0, step=0.1, group=G_TR, inline="cl")
+showExit  = input.bool(true, "Señales de salida (x)", group=G_TR)
+
+// ════════════════ ⑤ ESTÉTICA (cyberpunk neón) ════════════════
+upCol   = input.color(#00e676, "Alcista", group=G_VIS, inline="c")
+dnCol   = input.color(#ff1744, "Bajista", group=G_VIS, inline="c")
+contUp  = input.color(#00e5ff, "Contrarian alcista", group=G_VIS, inline="ct")
+contDn  = input.color(#ff1e6e, "Contrarian bajista", group=G_VIS, inline="ct")
+exitCol = input.color(#ffea00, "Salida (x)", group=G_VIS)
+showCandle = input.bool(true, "Colorear velas por tendencia", group=G_VIS)
+showDash = input.bool(true, "Dashboard minimalista", group=G_VIS)
+dashPos  = input.string("Arriba Derecha", "Posición", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ════════════════ ✦ MARCA DE AGUA ════════════════
+showWM = input.bool(true, "Mostrar firma BudAI Cripto", group=G_WM)
+wmPos  = input.string("Inferior Derecha", "Posición", options=["Inferior Izquierda","Inferior Derecha","Superior Izquierda","Superior Derecha"], group=G_WM)
+wmCol  = input.color(color.new(#b6f400, 35), "Color", group=G_WM)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MOTOR DE TENDENCIA — banda adaptativa (ATR) tipo trailing engine
+// ════════════════════════════════════════════════════════════════════════════
+float atr  = ta.atr(trailLen)
+bool  conf = barstate.isconfirmed
+float nLoss = sens * atr * trailMult / 2.0
+
+// trailing stop adaptativo (núcleo del motor de señales)
+var float trail = na
+trail := if src > nz(trail[1], src) and src[1] > nz(trail[1], src)
+    math.max(nz(trail[1]), src - nLoss)
+else if src < nz(trail[1], src) and src[1] < nz(trail[1], src)
+    math.min(nz(trail[1]), src + nLoss)
+else if src > nz(trail[1], src)
+    src - nLoss
+else
+    src + nLoss
+
+int dir = 0
+dir := src > trail ? 1 : src < trail ? -1 : nz(dir[1])
+bool flipUp = dir > 0 and dir[1] <= 0
+bool flipDn = dir < 0 and dir[1] >= 0
+
+// sesgo mayor (EMA200) para señales fuertes
+float ema200 = ta.ema(close, 200)
+bool bigBull = close > ema200
+bool bigBear = close < ema200
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ① CONFIRMACIÓN — flip de tendencia (normal / fuerte con +)
+// ════════════════════════════════════════════════════════════════════════════
+bool confUp = showConf and flipUp and conf
+bool confDn = showConf and flipDn and conf
+bool strongUp = confUp and showStr and bigBull
+bool strongDn = confDn and showStr and bigBear
+
+// Coordenadas exactas: todas las capas de cada señal comparten mismo valor Y.
+float confBuyY = low - atr * 0.18
+float confSellY = high + atr * 0.18
+
+// Confirmación normal: punto tiny. Fuerte: halo ● + núcleo •, ambos tiny.
+plotchar(confUp and not strongUp ? confBuyY : na, "Conf Buy", "•", location.absolute, color=color.new(upCol, 5), size=size.tiny)
+plotchar(confDn and not strongDn ? confSellY : na, "Conf Sell", "•", location.absolute, color=color.new(dnCol, 5), size=size.tiny)
+plotchar(strongUp ? confBuyY : na, "Buy Strong Halo", "●", location.absolute, color=color.new(upCol, 68), size=size.tiny)
+plotchar(strongDn ? confSellY : na, "Sell Strong Halo", "●", location.absolute, color=color.new(dnCol, 68), size=size.tiny)
+plotchar(strongUp ? confBuyY : na, "Buy Strong", "•", location.absolute, color=color.new(color.white, 5), size=size.tiny)
+plotchar(strongDn ? confSellY : na, "Sell Strong", "•", location.absolute, color=color.new(color.white, 5), size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ② CONTRARIAN — reversión en extremos RSI contra la vela
+// ════════════════════════════════════════════════════════════════════════════
+float rsi = ta.rsi(close, rsiLen)
+bool contBuy  = showCont and ta.crossover(rsi, osLvl)  and conf
+bool contSell = showCont and ta.crossunder(rsi, obLvl) and conf
+float contBuyY = low - atr * 0.32
+float contSellY = high + atr * 0.32
+plotchar(contBuy ? contBuyY : na, "Contra Buy Glow", "◆", location.absolute, color=color.new(contUp, 68), size=size.tiny)
+plotchar(contSell ? contSellY : na, "Contra Sell Glow", "◆", location.absolute, color=color.new(contDn, 68), size=size.tiny)
+plotchar(contBuy ? contBuyY : na, "Contra Buy", "·", location.absolute, color=color.new(contUp, 0), size=size.tiny)
+plotchar(contSell ? contSellY : na, "Contra Sell", "·", location.absolute, color=color.new(contDn, 0), size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ③ SMART TRAIL + SALIDAS
+// ════════════════════════════════════════════════════════════════════════════
+color trailCol = dir > 0 ? upCol : dnCol
+float cloudOuter = trail + atr * cloudMult * (dir > 0 ? 1.0 : -1.0)
+float cloudHigh = math.max(trail, cloudOuter)
+float cloudLow = math.min(trail, cloudOuter)
+color cloudTopColor = (dir > 0 ? color.new(trailCol, 100) : color.new(trailCol, 74))
+color cloudBottomColor = (dir > 0 ? color.new(trailCol, 74) : color.new(trailCol, 100))
+
+// Línea rayo CyberCycle: halo exterior + halo medio + línea 1px + núcleo blanco.
+plot(showTrail ? trail : na, "Trail Glow Ext", color=color.new(trailCol, 88), linewidth=8, style=plot.style_linebr)
+plot(showTrail ? trail : na, "Trail Glow", color=color.new(trailCol, 62), linewidth=4, style=plot.style_linebr)
+pTrail = plot(showTrail ? trail : na, "Smart Trail", color=color.new(trailCol, 0), linewidth=1, style=plot.style_linebr)
+plot(showTrail ? trail : na, "Trail Core", color=color.new(color.white, 38), linewidth=1, style=plot.style_linebr)
+
+// Bull: nube arriba. Bear: nube abajo. Junto a trail transp 74; extremo transp 100.
+pCloudOuter = plot(showTrail and showCloud ? cloudOuter : na, "Smart Cloud Outer", color=color.new(trailCol, 100), linewidth=1)
+fill(pCloudOuter, pTrail, top_value=cloudHigh, bottom_value=cloudLow, top_color=(showCloud ? cloudTopColor : na), bottom_color=(showCloud ? cloudBottomColor : na), title="Smart Trend Cloud")
+
+// salida: el precio cruza el trail en contra (sin ser flip completo aún)
+bool exitLong  = showExit and dir[1] > 0 and close < trail and conf
+bool exitShort = showExit and dir[1] < 0 and close > trail and conf
+float exitLongY = high + atr * 0.18
+float exitShortY = low - atr * 0.18
+plotchar(exitLong ? exitLongY : na, "Exit Long", "×", location.absolute, color=color.new(exitCol, 0), size=size.tiny)
+plotchar(exitShort ? exitShortY : na, "Exit Short", "×", location.absolute, color=color.new(exitCol, 0), size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  COLOREADO DE VELAS
+// ════════════════════════════════════════════════════════════════════════════
+barcolor(showCandle ? (dir > 0 ? upCol : dnCol) : na, title="Velas por tendencia")
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ④ DASHBOARD minimalista (tiny)
+// ════════════════════════════════════════════════════════════════════════════
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+var table d = table.new(f_pos(dashPos), 2, 4, bgcolor=color.new(#0b0e16, 14), frame_color=color.new(upCol, 45), frame_width=1, border_width=1)
+f_cell(t, r, k, v, vc) =>
+    table.cell(t, 0, r, k, text_color=color.new(#90a4ae, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
+
+var string lastSig = "—"
+var color  lastSigC = color.gray
+if strongUp
+    lastSig := "BUY+ fuerte"
+    lastSigC := upCol
+else if confUp
+    lastSig := "BUY"
+    lastSigC := upCol
+if strongDn
+    lastSig := "SELL+ fuerte"
+    lastSigC := dnCol
+else if confDn
+    lastSig := "SELL"
+    lastSigC := dnCol
+
+if showDash and barstate.islast
+    string dirTxt = dir > 0 ? "ALCISTA" : "BAJISTA"
+    color  dirC = dir > 0 ? upCol : dnCol
+    string biasTxt = bigBull ? "▲ sobre EMA200" : "▼ bajo EMA200"
+    color  biasC = bigBull ? upCol : dnCol
+    table.cell(d, 0, 0, "AEGIS FLUX", text_color=color.white, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, dirTxt, text_color=dirC, bgcolor=color.new(#1b2030,0), text_size=size.tiny, text_halign=text.align_right)
+    f_cell(d, 1, "Sesgo mayor", biasTxt, biasC)
+    f_cell(d, 2, "RSI", str.tostring(rsi, "#"), rsi >= obLvl ? dnCol : rsi <= osLvl ? upCol : color.new(#90a4ae,0))
+    f_cell(d, 3, "Última señal", lastSig, lastSigC)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MARCA DE AGUA — firma BudAI Cripto
+// ════════════════════════════════════════════════════════════════════════════
+f_wmPos(s) => s == "Inferior Izquierda" ? position.bottom_left : s == "Inferior Derecha" ? position.bottom_right : s == "Superior Izquierda" ? position.top_left : position.top_right
+var table wm = table.new(f_wmPos(wmPos), 1, 1, bgcolor=color.new(color.black, 100))
+if showWM and barstate.islast
+    table.cell(wm, 0, 0, "₿ BudAI Cripto", text_color=wmCol, text_size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ALERTAS
+// ════════════════════════════════════════════════════════════════════════════
+alertcondition(confUp,   "Aegis BUY",       "Aegis Flux · BUY {{ticker}}")
+alertcondition(confDn,   "Aegis SELL",      "Aegis Flux · SELL {{ticker}}")
+alertcondition(strongUp, "Aegis BUY+",      "Aegis Flux · BUY fuerte {{ticker}}")
+alertcondition(strongDn, "Aegis SELL+",     "Aegis Flux · SELL fuerte {{ticker}}")
+alertcondition(contBuy,  "Aegis Reversal+", "Aegis Flux · reversión alcista {{ticker}}")
+alertcondition(contSell, "Aegis Reversal−", "Aegis Flux · reversión bajista {{ticker}}")
+

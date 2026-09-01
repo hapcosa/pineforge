@@ -18,7 +18,7 @@
 //  KryptoLab/indicators/budai_smc.py
 //  (c) BudAI Capital® — Pine v6
 // ────────────────────────────────────────────────────────────────────────────
-indicator("BudAI Capital® - SMC Structure", shorttitle="BudAI Capital® - SMC", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
+indicator("BudAI Capital® - SMC Structure", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
 
 // ════════════════ GRUPOS ════════════════
 G_MS  = "① Estructura de Mercado"
@@ -39,10 +39,13 @@ int    obLast  = input.int(3, "Máximo activos", minval=1, maxval=10, group=G_OB
 string obMiti  = input.string("Close", "Método de mitigación", options=["Close", "Wick", "Avg"], group=G_OB)
 
 // ════════════════ ③ FAIR VALUE GAPS ════════════════
-bool  showFVG    = input.bool(true, "Mostrar FVG", group=G_FVG)
+bool  showFVG    = input.bool(true, "Mostrar FVG", group=G_FVG, tooltip="Fair Value Gap: hueco entre el máximo de la vela 1 y el mínimo de la vela 3 — el espacio que deja abierto la vela 2. Se dibuja al cierre de la vela 3, sin repaint.")
 int   fvgLast    = input.int(5, "Máximo activos", minval=1, maxval=15, group=G_FVG)
 float fvgThresh  = input.float(0.0, "Umbral (mult ATR)", minval=0.0, step=0.1, group=G_FVG, tooltip="Filtra gaps chicos. 0 = sin filtro.")
 bool  fvgExtend  = input.bool(false, "Extender hasta mitigar", group=G_FVG)
+int   fvgPad     = input.int(20, "Extensión derecha (velas)", minval=0, maxval=80, group=G_FVG, tooltip="Solo aplica con 'Extender hasta mitigar' apagado.")
+bool  fvgIFV     = input.bool(true, "Invertir a IFVG al invalidarse", group=G_FVG, tooltip="Inverse FVG: si el precio CIERRA al otro lado del hueco, la zona invierte polaridad y actúa en sentido contrario. Recién en la SEGUNDA ruptura se considera mitigada.")
+color C_IFVG     = input.color(#b388ff, "IFVG (invertido)", group=G_FVG)
 
 // ════════════════ ④ TREND MATRIX (trailing ATR + objetivos infinitos) ════════════════
 bool  showTM      = input.bool(true, "Mostrar Trend Matrix", group=G_TM)
@@ -175,46 +178,54 @@ if showOB and barstate.isconfirmed
                 box.set_right(b, bar_index)
 
 // ════════════════ ③ FAIR VALUE GAPS — cálculo ════════════════
+// El hueco vive entre la vela 1 y la vela 3; la vela 2 es la que lo deja abierto.
+// Alcista: low(vela3) por encima de high(vela1).  Bajista: high(vela3) por debajo de low(vela1).
+type Gap
+    box   bx
+    float top
+    float btm
+    bool  bull
+    bool  inv  = false
+    bool  live = true
+
 float fvgAtr  = ta.atr(200)
 bool  bullFVG = low > high[2] and (fvgThresh <= 0.0 or (low - high[2]) > fvgThresh * fvgAtr)
 bool  bearFVG = high < low[2] and (fvgThresh <= 0.0 or (low[2] - high) > fvgThresh * fvgAtr)
 
-var array<box> fvgBullBox = array.new_box()
-var array<box> fvgBearBox = array.new_box()
+var array<Gap> gaps = array.new<Gap>()
 
-if showFVG and barstate.isconfirmed and bullFVG
-    if array.size(fvgBullBox) >= fvgLast
-        box.delete(array.shift(fvgBullBox))
-    int rightX = fvgExtend ? bar_index : bar_index + 20
-    b = box.new(bar_index - 1, low, rightX, high[2], border_color=na, bgcolor=color.new(C_BULL, 82), extend=extend.none)
-    array.push(fvgBullBox, b)
+if showFVG and barstate.isconfirmed and (bullFVG or bearFVG)
+    float gTop = bullFVG ? low : low[2]
+    float gBtm = bullFVG ? high[2] : high
+    color gCol = bullFVG ? C_BULL : C_BEAR
+    int   gXr  = fvgExtend ? bar_index : bar_index + fvgPad
+    box   gBx  = box.new(bar_index - 2, gTop, gXr, gBtm, border_color=na, bgcolor=color.new(gCol, 82), extend=extend.none)
+    array.unshift(gaps, Gap.new(gBx, gTop, gBtm, bullFVG))
 
-if showFVG and barstate.isconfirmed and bearFVG
-    if array.size(fvgBearBox) >= fvgLast
-        box.delete(array.shift(fvgBearBox))
-    int rightX = fvgExtend ? bar_index : bar_index + 20
-    b = box.new(bar_index - 1, low[2], rightX, high, border_color=na, bgcolor=color.new(C_BEAR, 82), extend=extend.none)
-    array.push(fvgBearBox, b)
+while array.size(gaps) > fvgLast
+    Gap oldG = array.pop(gaps)
+    box.delete(oldG.bx)
 
-if showFVG and fvgExtend and barstate.isconfirmed
-    if array.size(fvgBullBox) > 0
-        for i = array.size(fvgBullBox) - 1 to 0
-            b = array.get(fvgBullBox, i)
-            float btm = box.get_bottom(b)
-            if low < btm
-                box.delete(b)
-                array.remove(fvgBullBox, i)
-            else
-                box.set_right(b, bar_index)
-    if array.size(fvgBearBox) > 0
-        for i = array.size(fvgBearBox) - 1 to 0
-            b = array.get(fvgBearBox, i)
-            float top = box.get_top(b)
-            if high > top
-                box.delete(b)
-                array.remove(fvgBearBox, i)
-            else
-                box.set_right(b, bar_index)
+// Cierre al otro lado del hueco = IFVG (invierte polaridad). La SEGUNDA ruptura
+// lo mitiga y libera cupo. Se evalúa por cierre, no por mecha.
+if showFVG and barstate.isconfirmed and array.size(gaps) > 0
+    for i = array.size(gaps) - 1 to 0
+        Gap g = array.get(gaps, i)
+        if g.live
+            if fvgExtend
+                box.set_right(g.bx, bar_index)
+            bool broken = g.bull ? close < g.btm : close > g.top
+            if broken
+                if fvgIFV and not g.inv
+                    g.inv  := true
+                    g.bull := not g.bull
+                    box.set_bgcolor(g.bx, color.new(C_IFVG, 82))
+                    box.set_border_color(g.bx, color.new(C_IFVG, 45))
+                    box.set_border_style(g.bx, line.style_dashed)
+                else
+                    g.live := false
+                    box.delete(g.bx)
+                    array.remove(gaps, i)
 
 // ════════════════ ④ TREND MATRIX — porteado de mstrend.pine, estética propia ════════════════
 float tmPh = ta.pivothigh(tmMsLen, tmMsLen)

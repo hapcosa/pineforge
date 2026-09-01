@@ -1,0 +1,634 @@
+//@version=6
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - CyberCycle Oscilator
+//  Companion del "CyberCycle Ehlers Combo". Mismo motor Ehlers (Homodyne / MAMA /
+//  Autocorrelation / Kalman) para que los cruces coincidan barra a barra con el
+//  overlay. Suma deteccion de soporte/resistencia por pivotes y clasifica cada
+//  entrada segun DONDE ocurre: soporte, resistencia o zona media.
+//  (c) BudAI Capital® — Pine v6 · estetica futurista limpia
+// ────────────────────────────────────────────────────────────────────────────
+indicator("BudAI Capital® - CyberCycle Oscilator", overlay=false, precision=4, max_labels_count=500)
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  ① NUCLEO  —  debe replicar la config del overlay para que las   ║
+// ║     senales coincidan. Si tuneas per-coin alla, espeja aca.      ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+G_CORE = "① Nucleo (espejar con el overlay)"
+srcCyber    = input.source(hl2, "Fuente", group=G_CORE)
+alphaMethod = input.string("Manual", "Metodo Alpha", options=["Homodyne","MAMA","Autocorrelation","Kalman","Manual"], group=G_CORE)
+manualAlpha = input.float(0.42, "Alpha manual", minval=0.05, maxval=0.80, step=0.01, group=G_CORE)
+alphaFloor  = input.float(0.0,  "Piso de alpha", minval=0.0, maxval=0.50, step=0.01, group=G_CORE)
+trigEma     = input.int(9,  "EMA del trigger", minval=3, maxval=30, group=G_CORE)
+obLevel     = input.float(1.5,  "Sobrecompra", minval=0.3,  maxval=3.0,  step=0.1, group=G_CORE, inline="lv")
+osLevel     = input.float(-1.5, "Sobreventa",  minval=-3.0, maxval=-0.3, step=0.1, group=G_CORE, inline="lv")
+
+G_HD = "── Homodyne ──"
+hdMinPeriod = input.float(3.0,  "Periodo min", minval=2,  maxval=10, step=1, group=G_HD, inline="hd")
+hdMaxPeriod = input.float(40.0, "max",         minval=15, maxval=80, step=5, group=G_HD, inline="hd")
+
+G_MA = "── MAMA ──"
+mamaFastLimit = input.float(0.5,  "Limite rapido", minval=0.2,  maxval=0.8, step=0.05, group=G_MA, inline="ma")
+mamaSlowLimit = input.float(0.05, "lento",         minval=0.01, maxval=0.2, step=0.01, group=G_MA, inline="ma")
+
+G_AC = "── Autocorrelation ──"
+acMinPeriod = input.int(6,  "Periodo min", minval=3,  maxval=15, group=G_AC, inline="ac")
+acMaxPeriod = input.int(48, "max",         minval=20, maxval=80, group=G_AC, inline="ac")
+acAvgLength = input.int(3,  "Ventana",     minval=1,  maxval=5,  group=G_AC)
+
+G_KL = "── Kalman ──"
+kalProcessNoise = input.float(0.01, "Ruido proceso (Q)",  minval=0.001, maxval=0.2, step=0.005, group=G_KL)
+kalMeasNoise    = input.float(0.5,  "Ruido medicion (R)", minval=0.05,  maxval=3.0, step=0.1,   group=G_KL)
+kalAlphaFast    = input.float(0.5,  "Alpha rapido", minval=0.2,  maxval=0.8, step=0.05, group=G_KL, inline="kl")
+kalAlphaSlow    = input.float(0.05, "lento",        minval=0.01, maxval=0.2, step=0.01, group=G_KL, inline="kl")
+kalSensitivity  = input.float(2.0,  "Sensibilidad", minval=0.5,  maxval=5.0, step=0.5,  group=G_KL)
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  ② SOPORTE / RESISTENCIA                                         ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+G_SR = "② Soporte / Resistencia"
+srLen   = input.int(10,  "Pivote (barras a cada lado)", minval=2, maxval=50, group=G_SR)
+srKeep  = input.int(6,   "Niveles en memoria", minval=2, maxval=20, group=G_SR)
+srTolA  = input.float(0.6, "Tolerancia de contacto (× ATR)", minval=0.1, maxval=3.0, step=0.1, group=G_SR, tooltip="Cuan cerca debe estar el precio de un pivote para contar como contacto con el nivel.")
+srAtrLen = input.int(14, "ATR de referencia", minval=5, maxval=50, group=G_SR)
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  ③ SENALES                                                       ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+G_SIG = "③ Senales"
+minBars   = input.int(16, "Barras minimas entre senales", minval=1, maxval=50, group=G_SIG)
+minConf   = input.float(75, "Confianza minima %", minval=30, maxval=95, step=5, group=G_SIG)
+useVol    = input.bool(true,  "Filtro de volumen", group=G_SIG, inline="vf")
+volMult   = input.float(1.5, "×media", minval=0.5, maxval=5.0, step=0.1, group=G_SIG, inline="vf")
+useSRQual = input.bool(true, "Exigir contexto S/R favorable", group=G_SIG, tooltip="Si esta activo, descarta compras pegadas a resistencia y ventas pegadas a soporte.")
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  ④ ESTETICA  —  misma paleta y mismo glow que el overlay         ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+G_VIS = "④ Estetica"
+showGlow   = input.bool(true, "Efecto rayo (glow neon)", group=G_VIS)
+showTrig   = input.bool(true, "Linea trigger", group=G_VIS)
+showBody   = input.bool(true, "Cuerpo ciclo/trigger", group=G_VIS)
+showSig    = input.bool(true, "Entradas", group=G_VIS)
+showWeak   = input.bool(true, "Senales debiles (punto)", group=G_VIS)
+showDash   = input.bool(true, "Dashboard", group=G_VIS)
+dashPos    = input.string("Arriba Derecha", "Posicion dashboard", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=G_VIS)
+
+// ── Fibo: divide el recorrido reciente del ciclo en 0.382 / 0.5 / 0.618 ──
+// Un unico guion "-" por nivel en la barra actual. No se repite a lo largo del
+// panel: marca la division sin ensuciar el recorrido de la onda.
+showFib = input.bool(true, "Niveles Fibo (0.382 · 0.5 · 0.618)", group=G_VIS)
+fibLen  = input.int(60, "Rango del ciclo para Fibo", minval=20, maxval=300, group=G_VIS, tooltip="Barras hacia atras para medir el maximo y minimo del ciclo sobre el que se calculan los fibos.")
+
+// Paleta neon electrica — identica a cybercycle.pine
+color bullColor = #00FFC2
+color bearColor = #FF1053
+color warnColor = #FFD166
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║          ALPHA 1: HOMODYNE DISCRIMINATOR                        ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+f_homodyne() =>
+    var float _hd_smooth = 0.0
+    _hd_smooth := (4.0 * srcCyber + 3.0 * nz(srcCyber[1]) + 2.0 * nz(srcCyber[2]) + nz(srcCyber[3])) / 10.0
+
+    var float _hd_period = 15.0
+    float _hd_adj = 0.075 * nz(_hd_period[1], 15.0) + 0.54
+
+    var float _hd_det = 0.0
+    _hd_det := (0.0962 * _hd_smooth + 0.5769 * nz(_hd_smooth[2]) - 0.5769 * nz(_hd_smooth[4]) - 0.0962 * nz(_hd_smooth[6])) * _hd_adj
+
+    var float _hd_Q1 = 0.0
+    _hd_Q1 := (0.0962 * _hd_det + 0.5769 * nz(_hd_det[2]) - 0.5769 * nz(_hd_det[4]) - 0.0962 * nz(_hd_det[6])) * _hd_adj
+    float _hd_I1 = nz(_hd_det[3])
+
+    var float _hd_jI = 0.0
+    var float _hd_jQ = 0.0
+    _hd_jI := (0.0962 * _hd_I1 + 0.5769 * nz(_hd_I1[2]) - 0.5769 * nz(_hd_I1[4]) - 0.0962 * nz(_hd_I1[6])) * _hd_adj
+    _hd_jQ := (0.0962 * _hd_Q1 + 0.5769 * nz(_hd_Q1[2]) - 0.5769 * nz(_hd_Q1[4]) - 0.0962 * nz(_hd_Q1[6])) * _hd_adj
+
+    var float _hd_I2 = 0.0
+    var float _hd_Q2 = 0.0
+    _hd_I2 := 0.2 * (_hd_I1 - _hd_jQ) + 0.8 * nz(_hd_I2[1])
+    _hd_Q2 := 0.2 * (_hd_Q1 + _hd_jI) + 0.8 * nz(_hd_Q2[1])
+
+    var float _hd_Re = 0.0
+    var float _hd_Im = 0.0
+    _hd_Re := 0.2 * (_hd_I2 * nz(_hd_I2[1]) + _hd_Q2 * nz(_hd_Q2[1])) + 0.8 * nz(_hd_Re[1])
+    _hd_Im := 0.2 * (_hd_I2 * nz(_hd_Q2[1]) - _hd_Q2 * nz(_hd_I2[1])) + 0.8 * nz(_hd_Im[1])
+
+    float _hd_phaseAdv = (math.abs(_hd_Im) > 1e-10 and math.abs(_hd_Re) > 1e-10) ? math.atan(_hd_Im / _hd_Re) : 0.0
+    float _hd_rawPer = _hd_phaseAdv > 0.001 ? 2.0 * math.pi / _hd_phaseAdv : nz(_hd_period[1], 15.0)
+    _hd_rawPer := math.max(_hd_rawPer, 0.67 * nz(_hd_period[1], 15.0))
+    _hd_rawPer := math.min(_hd_rawPer, 1.5 * nz(_hd_period[1], 15.0))
+    _hd_rawPer := math.max(hdMinPeriod, math.min(hdMaxPeriod, _hd_rawPer))
+    _hd_period := 0.2 * _hd_rawPer + 0.8 * nz(_hd_period[1], 15.0)
+
+    var float _hd_smoothPeriod = 15.0
+    _hd_smoothPeriod := 0.33 * _hd_period + 0.67 * nz(_hd_smoothPeriod[1], 15.0)
+    _hd_smoothPeriod := math.max(hdMinPeriod, math.min(hdMaxPeriod, _hd_smoothPeriod))
+
+    float _alpha = 2.0 / (_hd_smoothPeriod + 1.0)
+    [_alpha, _hd_smoothPeriod]
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║          ALPHA 2: MAMA (Phase Rate)                             ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+f_mama() =>
+    float _m_adj = 1.665
+
+    var float _m_smooth = 0.0
+    _m_smooth := (4.0 * srcCyber + 3.0 * nz(srcCyber[1]) + 2.0 * nz(srcCyber[2]) + nz(srcCyber[3])) / 10.0
+
+    var float _m_det = 0.0
+    _m_det := (0.0962 * _m_smooth + 0.5769 * nz(_m_smooth[2]) - 0.5769 * nz(_m_smooth[4]) - 0.0962 * nz(_m_smooth[6])) * _m_adj
+
+    var float _m_Q1 = 0.0
+    _m_Q1 := (0.0962 * _m_det + 0.5769 * nz(_m_det[2]) - 0.5769 * nz(_m_det[4]) - 0.0962 * nz(_m_det[6])) * _m_adj
+    float _m_I1 = nz(_m_det[3])
+
+    var float _m_jI = 0.0
+    var float _m_jQ = 0.0
+    _m_jI := (0.0962 * _m_I1 + 0.5769 * nz(_m_I1[2]) - 0.5769 * nz(_m_I1[4]) - 0.0962 * nz(_m_I1[6])) * _m_adj
+    _m_jQ := (0.0962 * _m_Q1 + 0.5769 * nz(_m_Q1[2]) - 0.5769 * nz(_m_Q1[4]) - 0.0962 * nz(_m_Q1[6])) * _m_adj
+
+    var float _m_I2 = 0.0
+    var float _m_Q2 = 0.0
+    _m_I2 := 0.2 * (_m_I1 - _m_jQ) + 0.8 * nz(_m_I2[1])
+    _m_Q2 := 0.2 * (_m_Q1 + _m_jI) + 0.8 * nz(_m_Q2[1])
+
+    float _m_sumI = _m_I1 + nz(_m_I1[1])
+    float _m_sumQ = _m_Q1 + nz(_m_Q1[1])
+
+    var float _m_phase = 0.0
+    float _m_rawPhase = 0.0
+
+    if math.abs(_m_sumI) > 0.001
+        _m_rawPhase := math.atan(math.abs(_m_sumQ / _m_sumI)) * (180.0 / math.pi)
+    else
+        _m_rawPhase := 90.0
+
+    if _m_sumI < 0 and _m_sumQ > 0
+        _m_rawPhase := 180.0 - _m_rawPhase
+    else if _m_sumI < 0 and _m_sumQ < 0
+        _m_rawPhase := 180.0 + _m_rawPhase
+    else if _m_sumI > 0 and _m_sumQ < 0
+        _m_rawPhase := 360.0 - _m_rawPhase
+
+    _m_phase := _m_rawPhase
+
+    float _m_dp_raw = nz(_m_phase[1], 0.0) - _m_phase
+
+    if _m_dp_raw > 180.0
+        _m_dp_raw := _m_dp_raw - 360.0
+    if _m_dp_raw < -180.0
+        _m_dp_raw := _m_dp_raw + 360.0
+
+    float _m_dp = math.max(1.0, math.min(60.0, _m_dp_raw))
+
+    var float _m_dpSmooth = 5.0
+    _m_dpSmooth := 0.33 * _m_dp + 0.67 * nz(_m_dpSmooth[1], 5.0)
+    _m_dpSmooth := math.max(1.0, math.min(60.0, _m_dpSmooth))
+
+    float _m_alpha = mamaFastLimit / _m_dpSmooth
+    _m_alpha := math.max(mamaSlowLimit, math.min(mamaFastLimit, _m_alpha))
+
+    float _m_periodEst = math.max(2.0, (2.0 / _m_alpha) - 1.0)
+
+    [_m_alpha, _m_periodEst]
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║          ALPHA 3: AUTOCORRELATION PERIODOGRAM                   ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+f_autocorrelation() =>
+    float _ac_a1 = (0.707 * 2.0 * math.pi) / acMaxPeriod
+    float _ac_alphaHP = (math.cos(_ac_a1) + math.sin(_ac_a1) - 1.0) / math.cos(_ac_a1)
+
+    var float _ac_hp = 0.0
+    _ac_hp := (1.0 - _ac_alphaHP / 2.0) * (1.0 - _ac_alphaHP / 2.0) * (srcCyber - 2.0 * nz(srcCyber[1]) + nz(srcCyber[2])) + 2.0 * (1.0 - _ac_alphaHP) * nz(_ac_hp[1]) - (1.0 - _ac_alphaHP) * (1.0 - _ac_alphaHP) * nz(_ac_hp[2])
+
+    float _ac_a1ss = math.exp(-1.414 * math.pi / acMinPeriod)
+    float _ac_b1ss = 2.0 * _ac_a1ss * math.cos(1.414 * math.pi / acMinPeriod)
+    float _ac_c2ss = _ac_b1ss
+    float _ac_c3ss = -_ac_a1ss * _ac_a1ss
+    float _ac_c1ss = 1.0 - _ac_c2ss - _ac_c3ss
+
+    var float _ac_filt = 0.0
+    _ac_filt := _ac_c1ss * (_ac_hp + nz(_ac_hp[1])) / 2.0 + _ac_c2ss * nz(_ac_filt[1]) + _ac_c3ss * nz(_ac_filt[2])
+
+    int _ac_step = math.max(1, (acMaxPeriod - acMinPeriod) / 10)
+
+    var float _ac_bestPeriod = 15.0
+    float _ac_maxCorr = 0.0
+    float _ac_bestP = _ac_bestPeriod
+
+    for p = acMinPeriod to acMaxPeriod by _ac_step
+        float _sx = 0.0
+        float _sy = 0.0
+        float _sxx = 0.0
+        float _syy = 0.0
+        float _sxy = 0.0
+        int _cnt = acAvgLength * p
+        for j = 0 to math.min(_cnt - 1, 199)
+            float _x = nz(_ac_filt[j])
+            float _y = nz(_ac_filt[j + p])
+            _sx += _x
+            _sy += _y
+            _sxx += _x * _x
+            _syy += _y * _y
+            _sxy += _x * _y
+        float _denom = (_cnt * _sxx - _sx * _sx) * (_cnt * _syy - _sy * _sy)
+        float _corr = _denom > 0 ? (_cnt * _sxy - _sx * _sy) / math.sqrt(_denom) : 0.0
+        if _corr > _ac_maxCorr
+            _ac_maxCorr := _corr
+            _ac_bestP := float(p)
+
+    _ac_bestPeriod := 0.25 * _ac_bestP + 0.75 * nz(_ac_bestPeriod[1], 15.0)
+    _ac_bestPeriod := math.max(acMinPeriod, math.min(acMaxPeriod, _ac_bestPeriod))
+
+    float _ac_alpha = 2.0 / (_ac_bestPeriod + 1.0)
+    [_ac_alpha, _ac_bestPeriod]
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║          ALPHA 4: KALMAN INNOVATION-BASED                       ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+f_kalman() =>
+    var float _k_x = srcCyber
+    var float _k_P = 1.0
+    var float _k_innovEma = 0.001
+
+    float _k_xPred = _k_x
+    float _k_PPred = _k_P + kalProcessNoise
+
+    float _k_innovation = srcCyber - _k_xPred
+    float _k_S = _k_PPred + kalMeasNoise
+    float _k_K = _k_S > 1e-12 ? _k_PPred / _k_S : 0.5
+
+    _k_x := _k_xPred + _k_K * _k_innovation
+    _k_P := (1.0 - _k_K) * _k_PPred
+
+    float _k_absInnov = math.abs(_k_innovation)
+    _k_innovEma := 0.05 * _k_absInnov + 0.95 * nz(_k_innovEma[1], 0.001)
+
+    float _k_normInnov = _k_innovEma > 1e-12 ? _k_absInnov / _k_innovEma : 1.0
+    float _k_ratio = (_k_normInnov - 1.0) * kalSensitivity
+    float _k_sigmoid = 1.0 / (1.0 + math.exp(-_k_ratio))
+    float _k_alpha = kalAlphaSlow + (kalAlphaFast - kalAlphaSlow) * _k_sigmoid
+    _k_alpha := math.max(kalAlphaSlow, math.min(kalAlphaFast, _k_alpha))
+
+    float _k_period = math.max(2.0, (2.0 / _k_alpha) - 1.0)
+
+    [_k_alpha, _k_period]
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║                  DISPATCHER + CYBER CYCLE                       ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+[_a_hd, _p_hd] = f_homodyne()
+[_a_ma, _p_ma] = f_mama()
+[_a_ac, _p_ac] = f_autocorrelation()
+[_a_kl, _p_kl] = f_kalman()
+
+float adaptiveAlpha = switch alphaMethod
+    "Homodyne"        => _a_hd
+    "MAMA"            => _a_ma
+    "Autocorrelation" => _a_ac
+    "Kalman"          => _a_kl
+    => manualAlpha
+
+float dominantPeriod = switch alphaMethod
+    "Homodyne"        => _p_hd
+    "MAMA"            => _p_ma
+    "Autocorrelation" => _p_ac
+    "Kalman"          => _p_kl
+    => (2.0 / manualAlpha) - 1.0
+
+if alphaFloor > 0
+    adaptiveAlpha := math.max(adaptiveAlpha, alphaFloor)
+
+f_ema(float src, int len) =>
+    float k = 2.0 / (len + 1)
+    var float out = 0.0
+    out := k * src + (1.0 - k) * nz(out[1])
+    out
+
+var float _mainSmooth = 0.0
+var float _mainCycle  = 0.0
+_mainSmooth := (srcCyber + 2.0 * nz(srcCyber[1]) + 2.0 * nz(srcCyber[2]) + nz(srcCyber[3])) / 6.0
+if bar_index < 7
+    _mainCycle := (srcCyber - 2.0 * nz(srcCyber[1]) + nz(srcCyber[2])) / 4.0
+else
+    float _a1 = (1.0 - 0.5 * adaptiveAlpha) * (1.0 - 0.5 * adaptiveAlpha)
+    float _a2 = 2.0 * (1.0 - adaptiveAlpha)
+    float _a3 = (1.0 - adaptiveAlpha) * (1.0 - adaptiveAlpha)
+    _mainCycle := _a1 * (_mainSmooth - 2.0 * nz(_mainSmooth[1]) + nz(_mainSmooth[2])) + _a2 * nz(_mainCycle[1]) - _a3 * nz(_mainCycle[2])
+
+float cyberCycle = _mainCycle
+float trigger    = f_ema(cyberCycle, trigEma)
+
+// Fisher del ciclo — aporta puntos de confianza igual que en el overlay
+float _fH = ta.highest(cyberCycle, 10)
+float _fL = ta.lowest(cyberCycle, 10)
+float _fR = _fH - _fL
+float _fV = _fR != 0 ? 2.0 * ((cyberCycle - _fL) / _fR - 0.5) : 0.0
+_fV := math.max(-0.999, math.min(0.999, _fV))
+float _fRaw = 0.5 * math.log((1.0 + _fV) / (1.0 - _fV))
+var float fisherT = 0.0
+fisherT := 0.5 * _fRaw + 0.5 * nz(fisherT[1])
+bool fishRising  = fisherT > nz(fisherT[1])
+bool fishFalling = fisherT < nz(fisherT[1])
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║              MOTOR DE SOPORTE / RESISTENCIA                     ║
+// ╚══════════════════════════════════════════════════════════════════╝
+// Pivotes de precio confirmados -> se guardan en dos arrays acotados.
+// El precio "toca" un nivel cuando la distancia es <= tolerancia × ATR.
+
+float atrRef = ta.atr(srAtrLen)
+
+var array<float> resLevels = array.new_float()
+var array<float> supLevels = array.new_float()
+
+// ta.pivothigh/low devuelven float (o na): SIEMPRE validar con not na(), nunca "if ph"
+float ph = ta.pivothigh(high, srLen, srLen)
+float pl = ta.pivotlow(low,  srLen, srLen)
+
+if not na(ph)
+    array.push(resLevels, ph)
+    if array.size(resLevels) > srKeep
+        array.shift(resLevels)
+
+if not na(pl)
+    array.push(supLevels, pl)
+    if array.size(supLevels) > srKeep
+        array.shift(supLevels)
+
+// Nivel mas cercano al precio dentro del array (na si el array esta vacio)
+f_nearest(array<float> arr, float px) =>
+    float best = na
+    float bestDist = 1e20
+    if array.size(arr) > 0
+        for i = 0 to array.size(arr) - 1
+            float lv = array.get(arr, i)
+            float dd = math.abs(px - lv)
+            if dd < bestDist
+                bestDist := dd
+                best := lv
+    best
+
+float nearRes = f_nearest(resLevels, close)
+float nearSup = f_nearest(supLevels, close)
+
+float srTol = atrRef * srTolA
+bool  atRes  = not na(nearRes) and math.abs(close - nearRes) <= srTol
+bool  atSup  = not na(nearSup) and math.abs(close - nearSup) <= srTol
+
+// Distancia normalizada al nivel mas cercano, en multiplos de ATR (para el dash)
+float distRes = not na(nearRes) and atrRef > 0 ? math.abs(close - nearRes) / atrRef : na
+float distSup = not na(nearSup) and atrRef > 0 ? math.abs(close - nearSup) / atrRef : na
+
+// Contexto: compra en soporte = a favor · compra en resistencia = en contra
+bool buyFavorable  = atSup and not atRes
+bool buyAdverse    = atRes and not atSup
+bool sellFavorable = atRes and not atSup
+bool sellAdverse   = atSup and not atRes
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║                     GENERACION DE SENALES                       ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+bool bullCross = ta.crossover(cyberCycle, trigger)
+bool bearCross = ta.crossunder(cyberCycle, trigger)
+
+bool inOB = cyberCycle > obLevel
+bool inOS = cyberCycle < osLevel
+
+float momentum3 = cyberCycle - nz(cyberCycle[3])
+
+float volSma20 = ta.sma(volume, 20)
+float volRatio = volSma20 > 0 ? volume / volSma20 : 0
+bool  volumeOK = not useVol or volRatio >= volMult
+
+// Confianza 0..100 — el bloque S/R aporta 20 puntos, el resto replica el overlay
+float buyConf = 0.0
+buyConf += bullCross      ? 20.0 : 0.0
+buyConf += inOS           ? 15.0 : 0.0
+buyConf += volumeOK       ? 15.0 : 0.0
+buyConf += fishRising     ? 10.0 : 0.0
+buyConf += momentum3 > 0  ? 10.0 : 0.0
+buyConf += buyFavorable   ? 20.0 : buyAdverse ? 0.0 : 10.0
+buyConf += cyberCycle < 0 ? 10.0 : 0.0
+buyConf := math.min(buyConf, 100.0)
+
+float sellConf = 0.0
+sellConf += bearCross      ? 20.0 : 0.0
+sellConf += inOB           ? 15.0 : 0.0
+sellConf += volumeOK       ? 15.0 : 0.0
+sellConf += fishFalling    ? 10.0 : 0.0
+sellConf += momentum3 < 0  ? 10.0 : 0.0
+sellConf += sellFavorable  ? 20.0 : sellAdverse ? 0.0 : 10.0
+sellConf += cyberCycle > 0 ? 10.0 : 0.0
+sellConf := math.min(sellConf, 100.0)
+
+var int lastSigBar = 0
+bool barFilter = bar_index - lastSigBar >= minBars
+
+bool srGateBuy  = not useSRQual or not buyAdverse
+bool srGateSell = not useSRQual or not sellAdverse
+
+bool buySignal  = bullCross and buyConf  >= minConf and barFilter and srGateBuy  and barstate.isconfirmed
+bool sellSignal = bearCross and sellConf >= minConf and barFilter and srGateSell and barstate.isconfirmed
+
+if buySignal or sellSignal
+    lastSigBar := bar_index
+
+bool weakBuy  = showWeak and bullCross and buyConf  >= 30 and buyConf  < minConf and barFilter
+bool weakSell = showWeak and bearCross and sellConf >= 30 and sellConf < minConf and barFilter
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║        PLOTS — mismo rayo neon de 4 capas que el overlay        ║
+// ╚══════════════════════════════════════════════════════════════════╝
+// display=display.pane en las capas de apoyo: solo el nucleo publica valor
+// en la escala y en la linea de estado (si no, la leyenda queda cuadruplicada).
+
+color cycCol = cyberCycle > trigger ? bullColor : bearColor
+
+plot(showGlow ? cyberCycle : na, "Ciclo Glow Ext", color=color.new(cycCol, 88), linewidth=8, display=display.pane)
+plot(showGlow ? cyberCycle : na, "Ciclo Glow",     color=color.new(cycCol, 62), linewidth=4, display=display.pane)
+pCycle = plot(cyberCycle, "Ciclo",                 color=color.new(cycCol, 0),  linewidth=1, display=display.pane)
+plot(showGlow ? cyberCycle : na, "Ciclo Nucleo",   color=color.new(color.white, 35), linewidth=1, display=display.pane)
+
+pTrig = plot(showTrig ? trigger : na, "Trigger", color=color.new(#90a4ae, 45), linewidth=1, display=display.pane)
+plot(0.0, "Cero", color=color.new(#546e7a, 70), linewidth=1, display=display.pane)
+
+// Cuerpo entre ciclo y trigger — el relleno da volumen a la onda sin sumar ruido
+fill(pCycle, pTrig, color=showBody ? color.new(cycCol, 82) : na, title="Cuerpo")
+
+// Niveles OB/OS
+hline(obLevel, "Sobrecompra", color=color.new(bearColor, 70), linestyle=hline.style_dotted)
+hline(osLevel, "Sobreventa",  color=color.new(bullColor, 70), linestyle=hline.style_dotted)
+
+// ── Fibo del recorrido reciente del ciclo ──
+// No se usa hline(): hline exige un valor constante y estos niveles son series
+// (se recalculan con el maximo/minimo movil). Van con plotchar espaciado.
+float cycHi  = ta.highest(cyberCycle, fibLen)
+float cycLo  = ta.lowest(cyberCycle, fibLen)
+float fibRng = cycHi - cycLo
+float fib382 = cycLo + fibRng * 0.382
+float fib500 = cycLo + fibRng * 0.500
+float fib618 = cycLo + fibRng * 0.618
+
+// Un solo guion por nivel, anclado a la barra actual: siempre visible al hacer
+// scroll y sin repetirse a lo ancho del panel.
+bool fibTick = showFib and fibRng > 0 and barstate.islast
+
+plotchar(fibTick ? fib618 : na, "Fibo 0.618", "-", location.absolute, color.new(bearColor, 25), size=size.tiny, display=display.pane)
+plotchar(fibTick ? fib500 : na, "Fibo 0.5",   "-", location.absolute, color.new(#90a4ae, 20),   size=size.tiny, display=display.pane)
+plotchar(fibTick ? fib382 : na, "Fibo 0.382", "-", location.absolute, color.new(bullColor, 25), size=size.tiny, display=display.pane)
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║                     ENTRADAS                                    ║
+// ╚══════════════════════════════════════════════════════════════════╝
+// Mismo lenguaje que el overlay: badge oscuro translucido + glifo neon.
+// El color del glifo codifica el contexto S/R, que es el punto del indicador.
+
+f_ctxTxt(bool fav, bool adv) => fav ? "en nivel a favor" : adv ? "CONTRA el nivel" : "zona media"
+
+if showSig and buySignal
+    color gl = buyFavorable ? bullColor : buyAdverse ? warnColor : bullColor
+    label.new(
+         bar_index, cyberCycle,
+         "▲",
+         style            = label.style_label_up,
+         color            = color.new(gl, 78),
+         textcolor        = gl,
+         text_font_family = font.family_monospace,
+         size             = size.small,
+         tooltip          = "COMPRA  conf=" + str.tostring(buyConf, "#") + "%" +
+              "\nContexto: " + f_ctxTxt(buyFavorable, buyAdverse) +
+              "\nSoporte mas cercano: " + (na(nearSup) ? "—" : str.tostring(nearSup, format.mintick)) +
+              "\nResistencia mas cercana: " + (na(nearRes) ? "—" : str.tostring(nearRes, format.mintick)))
+
+if showSig and sellSignal
+    color gl = sellFavorable ? bearColor : sellAdverse ? warnColor : bearColor
+    label.new(
+         bar_index, cyberCycle,
+         "▼",
+         style            = label.style_label_down,
+         color            = color.new(gl, 78),
+         textcolor        = gl,
+         text_font_family = font.family_monospace,
+         size             = size.small,
+         tooltip          = "VENTA  conf=" + str.tostring(sellConf, "#") + "%" +
+              "\nContexto: " + f_ctxTxt(sellFavorable, sellAdverse) +
+              "\nResistencia mas cercana: " + (na(nearRes) ? "—" : str.tostring(nearRes, format.mintick)) +
+              "\nSoporte mas cercano: " + (na(nearSup) ? "—" : str.tostring(nearSup, format.mintick)))
+
+plotchar(weakBuy  ? cyberCycle : na, "Debil compra", "•", location.absolute, color.new(bullColor, 45), size=size.tiny, display=display.pane)
+plotchar(weakSell ? cyberCycle : na, "Debil venta",  "•", location.absolute, color.new(bearColor, 45), size=size.tiny, display=display.pane)
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║                     DASHBOARD (estilo de la casa)               ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+
+f_cell(t, r, k, v, vc) =>
+    table.cell(t, 0, r, k, text_color=color.new(#90a4ae, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
+
+// Compacto a proposito: 6 filas, etiquetas cortas y valores abreviados.
+// Las distancias van en multiplos de ATR (mucho mas corto que el precio del nivel
+// y mas util: dice "cuan cerca", no "donde").
+var table d = table.new(f_pos(dashPos), 2, 6, bgcolor=color.new(#0b0e16, 14), frame_color=color.new(bullColor, 50), frame_width=1, border_width=1)
+
+if showDash and barstate.islast
+    color dimCol = color.new(#90a4ae, 35)
+
+    table.cell(d, 0, 0, "CC Osc", text_color=color.white, bgcolor=color.new(#1b2030, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, str.tostring(cyberCycle, "#.##"), text_color=cycCol, bgcolor=color.new(#1b2030, 0), text_size=size.tiny, text_halign=text.align_right)
+
+    f_cell(d, 1, "Ciclo", cyberCycle > trigger ? "▲ Sube" : "▼ Baja", cycCol)
+
+    string zona = inOB ? "Sobrecompra" : inOS ? "Sobreventa" : "Neutro"
+    f_cell(d, 2, "Zona", zona, inOB ? bearColor : inOS ? bullColor : dimCol)
+
+    // Contacto: responde "la senal se toma en soporte o en resistencia"
+    string ctx  = atSup and atRes ? "Rango" : atSup ? "SOPORTE" : atRes ? "RESIST." : "Medio"
+    color  ctxC = atSup and atRes ? warnColor : atSup ? bullColor : atRes ? bearColor : dimCol
+    f_cell(d, 3, "Contacto", ctx, ctxC)
+
+    // R/S: distancia al nivel mas cercano de cada lado, en ATR
+    string rsT = (na(distRes) and na(distSup)) ? "—" : na(distRes) ? "— / " + str.tostring(distSup, "#.#") + "×" : na(distSup) ? str.tostring(distRes, "#.#") + "× / —" : str.tostring(distRes, "#.#") + "× / " + str.tostring(distSup, "#.#") + "×"
+    color  rsC = (na(distRes) or na(distSup)) ? dimCol : distRes < distSup ? bearColor : bullColor
+    f_cell(d, 4, "R / S", rsT, rsC)
+
+    // Zona fibo del recorrido reciente del ciclo
+    string fibZ = fibRng <= 0 ? "—" : cyberCycle >= fib618 ? "> .618" : cyberCycle >= fib500 ? ".5–.618" : cyberCycle >= fib382 ? ".382–.5" : "< .382"
+    color  fibC = fibRng <= 0 ? dimCol : cyberCycle >= fib618 ? bearColor : cyberCycle < fib382 ? bullColor : dimCol
+    f_cell(d, 5, "Fibo", fibZ, fibC)
+
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║                     ALERTAS (contrato webhook)                  ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+G_RM = "⑤ Risk plan (alertas)"
+alertSym  = input.symbol("", "Simbolo alerta (vacio = basecurrency+USDT)", group=G_RM, tooltip="Forzar p.ej. BTCUSDT. Vacio -> syminfo.basecurrency + USDT.")
+sl_pct    = input.float(1.5, "SL %", minval=0, step=0.1, group=G_RM)
+tp_pct    = input.float(4.5, "TP %  (R:R sugerido 1:3, rango 1:2 a 1:4)", minval=0, step=0.1, group=G_RM, inline="tp")
+tp_q      = input.float(100, "qty%", minval=0, maxval=100, group=G_RM, inline="tp")
+trail_act = input.float(2.0, "Trailing activacion %", minval=0, step=0.1, group=G_RM, inline="tr")
+trail_cb  = input.float(0.8, "callback %", minval=0, step=0.1, group=G_RM, inline="tr")
+be_trig   = input.float(1.0, "Break-even trigger %", minval=0, step=0.1, group=G_RM, inline="be")
+be_off    = input.float(0.1, "offset %", minval=0, step=0.1, group=G_RM, inline="be")
+
+f_sym() => alertSym != "" ? alertSym : syminfo.basecurrency + "USDT"
+
+f_alertJson(string side) =>
+    string tpJson = '[{"pct":' + str.tostring(tp_pct) + ',"qty_pct":' + str.tostring(tp_q) + '}]'
+    string riskJson = '{"sl_pct":' + str.tostring(sl_pct) + ',"tp":' + tpJson +
+         ',"trailing":{"activation_pct":' + str.tostring(trail_act) + ',"callback_pct":' + str.tostring(trail_cb) + '}' +
+         ',"breakeven":{"trigger_pct":' + str.tostring(be_trig) + ',"offset_pct":' + str.tostring(be_off) + '}}'
+    '{"side":"' + side + '","symbol":"' + f_sym() + '"' +
+         ',"timeframe":"' + timeframe.period + '"' +
+         ',"price":' + str.tostring(close) +
+         ',"risk":' + riskJson + '}'
+
+if buySignal
+    alert(f_alertJson("buy"),  alert.freq_once_per_bar_close)
+if sellSignal
+    alert(f_alertJson("sell"), alert.freq_once_per_bar_close)
+
+alertcondition(buySignal,  "Compra",              "CC Osc: COMPRA")
+alertcondition(sellSignal, "Venta",               "CC Osc: VENTA")
+alertcondition(atSup,      "Contacto soporte",    "CC Osc: precio en soporte")
+alertcondition(atRes,      "Contacto resistencia","CC Osc: precio en resistencia")

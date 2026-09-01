@@ -32,10 +32,12 @@ sdOp    = input.int(82, "Opacidad zona", minval=60, maxval=94, group=G_SD)
 sdExt   = input.int(30, "Extensión derecha (barras)", minval=5, maxval=120, group=G_SD)
 
 // ② FVG multi-TF
-showFvg = input.bool(true,  "Mostrar FVG multi-TF", group=G_FVG)
+showFvg = input.bool(true,  "Mostrar FVG multi-TF", group=G_FVG, tooltip="Fair Value Gap: hueco entre el máximo de la vela 1 y el mínimo de la vela 3 — el espacio que deja abierto la vela 2. Se lee sobre las 3 últimas velas CERRADAS de la TF elegida, sin repaint.")
 fvgTF   = input.timeframe("240", "Temporalidad del FVG", group=G_FVG, tooltip="El FVG se calcula en esta TF y se pinta en tu gráfico (ej. 240 = 4H).")
 fvgMax  = input.int(4, "Máx FVG", minval=1, maxval=10, group=G_FVG)
 fvgExt  = input.int(20, "Extensión derecha (barras)", minval=4, maxval=80, group=G_FVG)
+fvgMin  = input.float(0.25, "Ancho mínimo (mult ATR)", minval=0.0, maxval=5.0, step=0.05, group=G_FVG, tooltip="0 = sin filtro. Descarta imbalances más finos que ATR(14) × este valor.")
+fvgIFV  = input.bool(true, "Invertir a IFVG al invalidarse", group=G_FVG, tooltip="Inverse FVG: si el precio CIERRA al otro lado del hueco, la zona invierte polaridad y actúa en sentido contrario. Recién en la SEGUNDA ruptura se considera mitigada.")
 
 // ③ Volume Profile
 showVP  = input.bool(true,  "Mostrar Volume Profile", group=G_VP)
@@ -172,50 +174,70 @@ if array.size(zones) > 0
 type Fvg
     box   bx
     line  ln
+    label lb
     float top
     float btm
-    bool  dead
+    bool  bull
+    bool  inv  = false
+    bool  dead = false
 
 var array<Fvg> fvgs = array.new<Fvg>()
 
 f_htf(float e) => request.security(syminfo.tickerid, fvgTF, e, lookahead=barmerge.lookahead_off)
-float hHi2 = f_htf(high[2])
-float hLo  = f_htf(low)
-float hHi  = f_htf(high)
-float hLo2 = f_htf(low[2])
+// Al abrir una vela nueva de la HTF, la última CERRADA es [1]; el trío del
+// imbalance es [3] (vela 1) · [2] (vela 2) · [1] (vela 3). Leer [0] tomaría una
+// vela todavía en formación y el hueco repintaría dentro de la HTF.
+float hHi1 = f_htf(high[3])
+float hLo3 = f_htf(low[1])
+float hHi3 = f_htf(high[1])
+float hLo1 = f_htf(low[3])
+float hAtr = f_htf(ta.atr(14))
 bool htfNew = ta.change(time(fvgTF)) != 0
-bool bullFvg = showFvg and htfNew and hLo > hHi2
-bool bearFvg = showFvg and htfNew and hHi < hLo2
+bool bullFvg = showFvg and htfNew and hLo3 > hHi1 and (hLo3 - hHi1) >= fvgMin * hAtr
+bool bearFvg = showFvg and htfNew and hHi3 < hLo1 and (hLo1 - hHi3) >= fvgMin * hAtr
 
-f_addFvg(float top, float btm) =>
-    if array.size(fvgs) >= fvgMax
-        Fvg old = array.shift(fvgs)
-        box.delete(old.bx)
-        line.delete(old.ln)
+f_addFvg(float top, float btm, bool bull) =>
     float mid = (top + btm) / 2.0
     box bx = box.new(bar_index, top, bar_index + fvgExt, btm, bgcolor=color.new(fvgCol, 86), border_color=color.new(fvgCol, 45), border_width=1)
     line ln = line.new(bar_index, mid, bar_index + fvgExt, mid, color=color.new(fvgCol, 25), style=line.style_dotted, width=1)
-    label.new(bar_index + fvgExt, top, "Strong FVG (" + fvgTF + ")", style=label.style_label_left, color=color.new(#000000, 100), textcolor=color.new(fvgCol, 0), size=size.tiny)
-    array.push(fvgs, Fvg.new(bx, ln, top, btm, false))
+    label lb = label.new(bar_index + fvgExt, top, "Strong FVG (" + fvgTF + ")", style=label.style_label_left, color=color.new(#000000, 100), textcolor=color.new(fvgCol, 0), size=size.tiny)
+    array.unshift(fvgs, Fvg.new(bx, ln, lb, top, btm, bull))
+    int(na)
 
 if bullFvg
-    f_addFvg(hLo, hHi2)
+    f_addFvg(hLo3, hHi1, true)
 if bearFvg
-    f_addFvg(hLo2, hHi)
+    f_addFvg(hLo1, hHi3, false)
 
+while array.size(fvgs) > fvgMax
+    Fvg oldF = array.pop(fvgs)
+    box.delete(oldF.bx)
+    line.delete(oldF.ln)
+    label.delete(oldF.lb)
+
+// Cierre al otro lado del hueco = IFVG (invierte polaridad). La SEGUNDA ruptura
+// lo mitiga: sale del array y libera cupo. Un simple toque NO mata la zona.
 if array.size(fvgs) > 0
     for i = array.size(fvgs) - 1 to 0
         Fvg f = array.get(fvgs, i)
-        if f.dead
-            continue
-        bool fill = close <= f.top and close >= f.btm
-        if fill
-            f.dead := true
-            box.delete(f.bx)
-            line.delete(f.ln)
-        else
+        if not f.dead
             box.set_right(f.bx, bar_index + fvgExt)
             line.set_x2(f.ln, bar_index + fvgExt)
+            label.set_x(f.lb, bar_index + fvgExt)
+            bool broken = f.bull ? close < f.btm : close > f.top
+            if broken
+                if fvgIFV and not f.inv
+                    f.inv  := true
+                    f.bull := not f.bull
+                    box.set_border_style(f.bx, line.style_dashed)
+                    line.set_style(f.ln, line.style_dashed)
+                    label.set_text(f.lb, "IFVG (" + fvgTF + ")")
+                else
+                    f.dead := true
+                    box.delete(f.bx)
+                    line.delete(f.ln)
+                    label.delete(f.lb)
+                    array.remove(fvgs, i)
 
 // ════════════════════════════════════════════════════════════════════════════
 //  ③ VOLUME PROFILE — bins a la derecha + POC/VAH/VAL

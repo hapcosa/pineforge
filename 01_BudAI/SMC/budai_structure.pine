@@ -12,7 +12,7 @@
 //  Estructura del mercado en vivo, estética cyberpunk limpia.
 //  (c) BudAI Capital® — Pine v6 · overlay
 // ────────────────────────────────────────────────────────────────────────────
-indicator("BudAI Capital® - Smart Market Structure", shorttitle="BudAI Capital® - Smart Market Structure", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_bars_back=2000)
+indicator("BudAI Capital® - Smart Market Structure", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_bars_back=2000)
 
 // ════════════════ GRUPOS ════════════════
 G_STR = "① Estructura (BOS / CHoCH)"
@@ -35,9 +35,12 @@ obMax    = input.int(6, "Máx OB visibles", minval=1, maxval=20, group=G_OB)
 obMitig  = input.bool(true, "Ocultar OB mitigados", group=G_OB)
 
 // ════════════════ ③ FVG ════════════════
-showFVG  = input.bool(true, "Mostrar FVG", group=G_FVG)
+showFVG  = input.bool(true, "Mostrar FVG", group=G_FVG, tooltip="Fair Value Gap: hueco entre el máximo de la vela 1 y el mínimo de la vela 3 — el espacio que deja abierto la vela 2. Se dibuja al cierre de la vela 3, sin repaint.")
 fvgMax   = input.int(8, "Máx FVG visibles", minval=1, maxval=30, group=G_FVG)
 fvgMitig = input.bool(true, "Ocultar FVG mitigados", group=G_FVG)
+fvgMin   = input.float(0.25, "Ancho mínimo (mult ATR)", minval=0.0, maxval=5.0, step=0.05, group=G_FVG, tooltip="0 = sin filtro. Descarta imbalances más finos que ATR(14) × este valor.")
+fvgIFV   = input.bool(true, "Invertir a IFVG al invalidarse", group=G_FVG, tooltip="Inverse FVG: si el precio CIERRA al otro lado del hueco, la zona invierte polaridad y actúa en sentido contrario. Recién en la SEGUNDA ruptura se considera mitigada.")
+fvgPad   = input.int(4, "Extensión derecha (velas)", minval=0, maxval=30, group=G_FVG)
 
 // ════════════════ ④ LIQUIDEZ EQH/EQL ════════════════
 showEQ   = input.bool(true, "Mostrar EQH / EQL (liquidez)", group=G_EQ)
@@ -54,6 +57,7 @@ obUpCol  = input.color(color.new(#00e676, 82), "OB alcista", group=G_VIS, inline
 obDnCol  = input.color(color.new(#ff1744, 82), "OB bajista", group=G_VIS, inline="ob")
 fvgUpCol = input.color(color.new(#00e5ff, 97), "FVG alcista", group=G_VIS, inline="fv")
 fvgDnCol = input.color(color.new(#ff1e6e, 97), "FVG bajista", group=G_VIS, inline="fv")
+ifvgCol  = input.color(#b388ff, "IFVG (invertido)", group=G_VIS)
 premCol  = input.color(color.new(#ff1744, 92), "Premium", group=G_VIS, inline="pd")
 discCol  = input.color(color.new(#00e676, 92), "Descuento", group=G_VIS, inline="pd")
 showDash = input.bool(true, "Dashboard minimalista", group=G_VIS)
@@ -127,8 +131,17 @@ var array<label> brkLbls  = array.new_label()
 var array<label> hlLbls   = array.new_label()
 var array<box>   obBoxes  = array.new_box()
 var array<int>   obDir    = array.new_int()
-var array<box>   fvgBoxes = array.new_box()
-var array<line>  fvgLines = array.new_line()
+
+type FVG
+    box   bx
+    line  ce
+    float top
+    float btm
+    bool  bull
+    bool  inv  = false
+    bool  live = true
+
+var array<FVG> fvgs = array.new<FVG>()
 
 // ── dibujo BOS/CHoCH (inline, sin función global que reasigne) ──
 f_drawBreak(string txt, float y, int x1, color col) =>
@@ -195,40 +208,54 @@ if array.size(obBoxes) > 0
 // ════════════════════════════════════════════════════════════════════════════
 //  ③ FVG — hueco de 3 velas
 // ════════════════════════════════════════════════════════════════════════════
-bool fvgUp = low > high[2]
-bool fvgDn = high < low[2]
+// El hueco vive entre la vela 1 y la vela 3; la vela 2 es la que lo deja abierto.
+// Alcista: low(vela3) por encima de high(vela1).  Bajista: high(vela3) por debajo de low(vela1).
+if showFVG and conf
+    bool bullGap = low > high[2] and (low - high[2]) >= fvgMin * atr
+    bool bearGap = high < low[2] and (low[2] - high) >= fvgMin * atr
+    if bullGap or bearGap
+        float gTop = bullGap ? low : low[2]
+        float gBtm = bullGap ? high[2] : high
+        color gCol = bullGap ? fvgUpCol : fvgDnCol
+        color gEdge = color.new(bullGap ? upCol : dnCol, 40)
+        int   gXl  = bar_index - 2
+        int   gXr  = bar_index + fvgPad
+        float gMid = math.avg(gTop, gBtm)
+        box  gBx = box.new(gXl, gTop, gXr, gBtm, bgcolor=gCol, border_color=gEdge, border_width=1)
+        // Línea 50% (consequent encroachment) — el nivel de reacción al retestear.
+        line gCe = line.new(gXl, gMid, gXr, gMid, color=color.new(bullGap ? upCol : dnCol, 25), style=line.style_solid, width=1)
+        array.unshift(fvgs, FVG.new(gBx, gCe, gTop, gBtm, bullGap))
+    while array.size(fvgs) > fvgMax
+        FVG oldF = array.pop(fvgs)
+        box.delete(oldF.bx)
+        line.delete(oldF.ce)
 
-f_addFVG(float top, float bot, int dir) =>
-    if array.size(fvgBoxes) >= fvgMax
-        box.delete(array.shift(fvgBoxes))
-        line.delete(array.shift(fvgLines))
-    color col = dir > 0 ? fvgUpCol : fvgDnCol
-    float mid = (top + bot) / 2.0
-    // Línea 50% del FVG — sólida y brillante, da protagonismo a las líneas
-    color lineCol = color.new(dir > 0 ? upCol : dnCol, 25)
-    array.push(fvgBoxes, box.new(bar_index - 2, top, bar_index + 4, bot, bgcolor=col, border_color=color.new(dir > 0 ? upCol : dnCol, 40), border_width=1))
-    array.push(fvgLines, line.new(bar_index - 2, mid, bar_index + 4, mid, color=lineCol, style=line.style_solid, width=1))
-
-if showFVG and conf and fvgUp
-    f_addFVG(low, high[2], 1)
-if showFVG and conf and fvgDn
-    f_addFVG(low[2], high, -1)
-
-if array.size(fvgBoxes) > 0
-    int i = array.size(fvgBoxes) - 1
-    while i >= 0
-        box  bx = array.get(fvgBoxes, i)
-        line ln = array.get(fvgLines, i)
-        bool mit = low <= box.get_top(bx) and high >= box.get_bottom(bx)
-        if fvgMitig and mit
-            box.delete(bx)
-            line.delete(ln)
-            array.remove(fvgBoxes, i)
-            array.remove(fvgLines, i)
-        else
-            box.set_right(bx, bar_index + 4)
-            line.set_x2(ln, bar_index + 4)
-        i := i - 1
+// Extensión + invalidación. Cierre al otro lado del hueco = IFVG (invierte polaridad).
+if showFVG and array.size(fvgs) > 0
+    for i = array.size(fvgs) - 1 to 0
+        FVG f = array.get(fvgs, i)
+        if f.live
+            box.set_right(f.bx, bar_index + fvgPad)
+            line.set_x2(f.ce, bar_index + fvgPad)
+            bool broken = f.bull ? close < f.btm : close > f.top
+            if broken
+                if fvgIFV and not f.inv
+                    f.inv  := true
+                    f.bull := not f.bull
+                    box.set_bgcolor(f.bx, color.new(ifvgCol, 90))
+                    box.set_border_color(f.bx, color.new(ifvgCol, 40))
+                    box.set_border_style(f.bx, line.style_dashed)
+                    line.set_color(f.ce, color.new(ifvgCol, 25))
+                else if fvgMitig
+                    f.live := false
+                    box.delete(f.bx)
+                    line.delete(f.ce)
+                    array.remove(fvgs, i)
+                else
+                    f.live := false
+                    box.set_bgcolor(f.bx, color.new(ifvgCol, 96))
+                    box.set_border_color(f.bx, color.new(ifvgCol, 88))
+                    line.delete(f.ce)
 
 // ════════════════════════════════════════════════════════════════════════════
 //  ④ EQH / EQL — liquidez (máximos/mínimos iguales)
@@ -301,7 +328,7 @@ if showDash and barstate.islast
     f_cell(d, 1, "Último evento", lastBreak, lastBreakC)
     f_cell(d, 2, "Zona", zoneTxt, zoneCol)
     f_cell(d, 3, "OB activos", str.tostring(array.size(obBoxes)), color.new(#90a4ae, 0))
-    f_cell(d, 4, "FVG activos", str.tostring(array.size(fvgBoxes)), color.new(#00e5ff, 0))
+    f_cell(d, 4, "FVG activos", str.tostring(array.size(fvgs)), color.new(#00e5ff, 0))
 
 // ════════════════════════════════════════════════════════════════════════════
 //  MARCA DE AGUA — firma BudAI Cripto

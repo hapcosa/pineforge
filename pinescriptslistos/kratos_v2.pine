@@ -78,8 +78,10 @@ bool  fvgIFV  = input.bool(true, "Invertir a IFVG al invalidarse", group=G_FVG, 
 int    fvgMax = input.int(5, "Cantidad en pantalla", minval=1, maxval=60, group=G_FVG, tooltip="Cuántas zonas FVG/IFVG se mantienen dibujadas a la vez. Al superar el tope se borra la más vieja. Bajo = gráfico limpio.")
 string fvgMit = input.string("Ocultar", "Zonas mitigadas", options=["Ocultar", "Atenuar", "Mantener"], group=G_FVG, tooltip="Qué hacer cuando la zona muere. Ocultar = se borra y libera cupo. Atenuar = queda como huella tenue. Mantener = queda con su color, congelada.")
 bool  fvgCE   = input.bool(true, "Línea 50% (consequent encroachment)", group=G_FVG, tooltip="Mitad del hueco — el nivel donde el precio suele reaccionar al volver a testear el imbalance.")
+int    fvgLen  = input.int(6, "Ancho de la zona (barras)", minval=2, maxval=40, group=G_FVG, tooltip="La caja se recorta a este ancho en vez de estirarse hasta el precio actual. Deja el gráfico limpio.")
 color C_FVG_UP = input.color(color.new(#39ff14, 82), "FVG alcista (verde neón)", group=G_FVG, inline="fc")
 color C_FVG_DN = input.color(color.new(#a855f7, 78), "bajista (morado)", group=G_FVG, inline="fc")
+color C_FVG_IV = input.color(color.new(#b388ff, 78), "IFVG invertido (violeta)", group=G_FVG, tooltip="Al invalidarse, la zona pasa a violeta sin importar su dirección original.")
 
 // ════════════════ ⑥ SESIONES / KILLZONES (Asia · Londres · NY) ════════════════
 bool   kzSH    = input.bool(false, "Mostrar sesiones", group=G_KZ)
@@ -266,8 +268,10 @@ if showSig and passStr and barstate.isconfirmed and flipDown
 float fvgAtr = ta.atr(14)
 var array<Gap> gaps = array.new<Gap>()
 
-// El hueco vive entre la vela 1 y la vela 3; la vela 2 es la que lo deja abierto.
+// El imbalance es el hueco entre la vela 1 y la vela 3; la vela 2 es la que lo origina,
+// y por eso la caja se ancla ahí (bar_index - 1) y no en la vela 1.
 // Alcista: low(vela3) por encima de high(vela1).  Bajista: high(vela3) por debajo de low(vela1).
+// Zona recortada a fvgLen barras: no se estira hasta el precio actual.
 if fvgSH and barstate.isconfirmed
     bool bullGap = low > high[2] and (low - high[2]) >= fvgMin * fvgAtr
     bool bearGap = high < low[2] and (low[2] - high) >= fvgMin * fvgAtr
@@ -275,15 +279,17 @@ if fvgSH and barstate.isconfirmed
         float gTop = bullGap ? low : low[2]
         float gBtm = bullGap ? high[2] : high
         color gCol = bullGap ? C_FVG_UP : C_FVG_DN
+        int   gXl  = bar_index - 1
+        int   gXr  = bar_index + fvgLen
         // Glow del trazo: caja halo (borde grueso, muy transparente, sin relleno)
         // dibujada ANTES que el core para que el borde nítido quede encima.
         box gHl = na
         if glow
-            gHl := box.new(bar_index - 2, gTop, bar_index, gBtm, border_color=color.new(gCol, 72), border_width=4, bgcolor=na)
-        box  gBx = box.new(bar_index - 2, gTop, bar_index, gBtm, border_color=color.new(gCol, 22), border_width=1, bgcolor=gCol)
+            gHl := box.new(gXl, gTop, gXr, gBtm, border_color=color.new(gCol, 72), border_width=4, bgcolor=na)
+        box  gBx = box.new(gXl, gTop, gXr, gBtm, border_color=color.new(gCol, 45), border_width=1, bgcolor=color.new(gCol, 90))
         line gCe = na
         if fvgCE
-            gCe := line.new(bar_index - 2, math.avg(gTop, gBtm), bar_index, math.avg(gTop, gBtm), color=color.new(gCol, 35), style=line.style_dashed, width=1)
+            gCe := line.new(gXl, math.avg(gTop, gBtm), gXr, math.avg(gTop, gBtm), color=color.new(gCol, 20), width=1)
         array.unshift(gaps, Gap.new(gBx, gHl, gCe, gTop, gBtm, bullGap))
     while array.size(gaps) > fvgMax
         Gap oldG = array.pop(gaps)
@@ -291,32 +297,27 @@ if fvgSH and barstate.isconfirmed
         box.delete(oldG.hl)
         line.delete(oldG.ce)
 
-// Extensión + invalidación. Cierre al otro lado del hueco = IFVG (invierte polaridad).
+// Invalidación. Cierre al otro lado del hueco = IFVG: la zona pasa a violeta y recién
+// en la SEGUNDA ruptura se considera mitigada. La caja no se estira: queda recortada.
 if fvgSH and array.size(gaps) > 0
     for i = array.size(gaps) - 1 to 0
         Gap g = array.get(gaps, i)
         if g.live
-            box.set_right(g.bx, bar_index)
-            if not na(g.hl)
-                box.set_right(g.hl, bar_index)
-            if not na(g.ce)
-                line.set_x2(g.ce, bar_index)
             bool broken = g.bull ? close < g.btm : close > g.top
             if broken
                 if fvgIFV and not g.inv
                     g.inv  := true
                     g.bull := not g.bull
-                    color icol = g.bull ? C_FVG_UP : C_FVG_DN
-                    box.set_bgcolor(g.bx, icol)
-                    box.set_border_color(g.bx, color.new(icol, 30))
+                    box.set_bgcolor(g.bx, color.new(C_FVG_IV, 90))
+                    box.set_border_color(g.bx, color.new(C_FVG_IV, 45))
                     box.set_border_style(g.bx, line.style_dashed)
                     if not na(g.hl)
-                        box.set_border_color(g.hl, color.new(icol, 74))
+                        box.set_border_color(g.hl, color.new(C_FVG_IV, 74))
                     if not na(g.ce)
-                        line.set_color(g.ce, color.new(icol, 35))
+                        line.set_color(g.ce, color.new(C_FVG_IV, 20))
                 else
                     g.live := false
-                    color mcol = g.bull ? C_FVG_UP : C_FVG_DN
+                    color mcol = g.inv ? C_FVG_IV : g.bull ? C_FVG_UP : C_FVG_DN
                     if fvgMit == "Ocultar"
                         box.delete(g.bx)
                         box.delete(g.hl)

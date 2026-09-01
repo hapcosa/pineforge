@@ -1,5 +1,20 @@
 //@version=6
-indicator("Ehlers CyberCycle genz", shorttitle="cybercycle GENZ", overlay=true, max_labels_count=500)
+// ██████╗ ██╗   ██╗██████╗  █████╗ ██╗
+// ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
+// ██████╔╝██║   ██║██║  ██║███████║██║
+// ██╔══██╗██║   ██║██║  ██║██╔══██║██║
+// ██████╔╝╚██████╔╝██████╔╝██║  ██║██║
+// ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+//         C R I P T O   ·   T R A D I N G   C A P I T A L
+// ────────────────────────────────────────────────────────────────────────────
+//  BudAI Capital® - CyberCycle Ehlers Combo
+//  Ehlers CyberCycle adaptativo (Homodyne/MAMA/Autocorrelation/Kalman) · iTrend
+//  con efecto rayo neón · per-coin config · alertas webhook.
+//  (c) BudAI Capital® — Pine v6 · estética futurista limpia
+// ────────────────────────────────────────────────────────────────────────────
+// Sin shorttitle: TradingView usa el title completo en el chip del grafico
+// (poner el nombre largo en shorttitle dispara SHORT_TITLE_TOO_LONG; omitirlo no).
+indicator("BudAI Capital® - CyberCycle Ehlers Combo", overlay=true, max_labels_count=500)
 
 // ── GLOBAL SETTINGS ──
 grp_global = "══════ GLOBAL SETTINGS ══════"
@@ -876,7 +891,14 @@ float trigger    = f_ema(cyberCycle, eTrigEma)
 
 var float _iTrend = 0.0
 float _itA = eITrendAlpha
-_iTrend := (_itA - _itA * _itA / 4.0) * close + 0.5 * _itA * _itA * nz(close[1]) - (_itA - 0.75 * _itA * _itA) * nz(close[2]) + 2.0 * (1.0 - _itA) * nz(_iTrend[1]) - (1.0 - _itA) * (1.0 - _itA) * nz(_iTrend[2])
+// Warmup de Ehlers. OJO con la semilla: nz(close[1]) devuelve 0 en la barra 0, y
+// (close + 0 + 0)/4 da un valor al 25% del precio (medido: precio 8000 -> iTrend 2000).
+// Ese outlier es lo que estira el eje de precio. nz(close[1], close) lo evita:
+// en la barra 0 la semilla queda exactamente en close.
+if bar_index < 7
+    _iTrend := (close + 2.0 * nz(close[1], close) + nz(close[2], close)) / 4.0
+else
+    _iTrend := (_itA - _itA * _itA / 4.0) * close + 0.5 * _itA * _itA * nz(close[1]) - (_itA - 0.75 * _itA * _itA) * nz(close[2]) + 2.0 * (1.0 - _itA) * nz(_iTrend[1]) - (1.0 - _itA) * (1.0 - _itA) * nz(_iTrend[2])
 float iTrend   = _iTrend
 bool bullTrend = iTrend > nz(iTrend[2])
 bool bearTrend = iTrend < nz(iTrend[2])
@@ -986,6 +1008,7 @@ f_formatPrice(float p) =>
 
 grp_viz         = "══════ VISUALIZATION ══════"
 showITrend      = input.bool(true,  "Show iTrend",        group=grp_viz)
+showGlow        = input.bool(true,  "Efecto rayo (glow neón)", group=grp_viz)
 showCloud       = input.bool(false, "Show Cloud",         group=grp_viz)  // ← default OFF
 showBuySignals  = input.bool(true,  "Show BUY Signals",   group=grp_viz)
 showSellSignals = input.bool(true,  "Show SELL Signals",  group=grp_viz)
@@ -993,27 +1016,30 @@ showInfoTable   = input.bool(true,  "Show Info Table",    group=grp_viz)
 cloudAtrLen     = input.int(14,     "Cloud ATR Len",      group=grp_viz)
 cloudAtrMult    = input.float(1.5,  "Cloud ATR Mult",     group=grp_viz)
 
-// ── Paleta profesional ──
-color bullColor    = #00E5A0
-color bearColor    = #FF4560
-color bullLbl      = #003D2B
-color bearLbl      = #3D0010
-color cloudBull    = color.new(#00E5A0, 88)
-color cloudBear    = color.new(#FF4560, 88)
+// ── Paleta neón eléctrica ──
+color bullColor    = #00FFC2
+color bearColor    = #FF1053
+color cloudBull    = color.new(#00FFC2, 88)
+color cloudBear    = color.new(#FF1053, 88)
 
 float atr        = ta.atr(cloudAtrLen)
 float cloudUpper = iTrend + atr * cloudAtrMult
 float cloudLower = iTrend - atr * cloudAtrMult
 
-// iTrend line
-plot(showITrend ? iTrend : na, "ITrend",
-     color     = bullTrend ? bullColor : bearColor,
-     linewidth  = 1)
+// ── iTrend: rayo neón (glow difuminado ancho + núcleo brillante) ──
+// display=display.pane en capas de apoyo: evita triplicar la etiqueta de la escala
+// de precio (causa del bug "la onda se mueve/tiembla" al hacer scroll del gráfico).
+color iTrendCol = bullTrend ? bullColor : bearColor
+plot(showITrend and showGlow ? iTrend : na, "ITrend Glow Ext", color=color.new(iTrendCol, 88), linewidth=8, display=display.pane)
+plot(showITrend and showGlow ? iTrend : na, "ITrend Glow",     color=color.new(iTrendCol, 62), linewidth=4, display=display.pane)
+plot(showITrend ? iTrend : na,               "ITrend",          color=color.new(iTrendCol, 0),  linewidth=1, display=display.pane)
+plot(showITrend and showGlow ? iTrend : na, "ITrend Núcleo",   color=color.new(color.white, 35), linewidth=1, display=display.pane)
 
 // Cloud sutil
-pU = plot(showCloud ? cloudUpper : na, "Cloud Upper", color=color.new(color.gray, 95))
-pL = plot(showCloud ? cloudLower : na, "Cloud Lower", color=color.new(color.gray, 95))
-pM = plot(showCloud ? iTrend     : na, "Cloud Mid",   color=na)
+pU = plot(showCloud ? cloudUpper : na, "Cloud Upper", color=color.new(color.gray, 95), display=display.pane)
+pL = plot(showCloud ? cloudLower : na, "Cloud Lower", color=color.new(color.gray, 95), display=display.pane)
+pM = plot(showCloud ? iTrend     : na, "Cloud Mid",   color=na, display=display.pane)
+// fill() solo admite display.none/display.all (CE10068) -> se omite el parametro
 fill(pU, pM, color=bullTrend ? cloudBull : cloudBear, title="Upper Fill")
 fill(pM, pL, color=bullTrend ? cloudBull : cloudBear, title="Lower Fill")
 
@@ -1040,6 +1066,10 @@ if sellSignal and not sellPriceLocked
 // ── Labels elegantes con offset dinámico ──
 float offsetMult = input.float(1.5, "Label Offset (ATR mult)", minval=0.5, maxval=5.0, step=0.5, group=grp_viz)
 
+// ── Señales: badge oscuro translúcido + glifo neón brillante ──
+// Apilar labels de distinto size NO da halo: los badges no anidan, se ven como caja
+// de sombra desplazada. El glow real sale del contraste glifo brillante / fondo oscuro.
+
 // BUY
 if showBuySignals and buySignal
     float dp    = not na(capturedBuyPrice) ? capturedBuyPrice : srcCyber
@@ -1047,12 +1077,13 @@ if showBuySignals and buySignal
     string live = barstate.isrealtime ? "·" : ""
     label.new(
          bar_index, low - atr * offsetMult,
-         "▲ " + pStr + live,
-         style     = label.style_label_up,
-         color     = color.new(bullColor, 15),
-         textcolor = color.white,
-         size      = size.small,
-         tooltip   = "BUY  conf=" + str.tostring(buyConf, "#") + "%")
+         "▲",
+         style            = label.style_label_up,
+         color            = color.new(bullColor, 78),
+         textcolor        = bullColor,
+         text_font_family = font.family_monospace,
+         size             = size.small,
+         tooltip          = "BUY  " + pStr + live + "  conf=" + str.tostring(buyConf, "#") + "%")
 
 // SELL
 if showSellSignals and sellSignal
@@ -1061,110 +1092,81 @@ if showSellSignals and sellSignal
     string live = barstate.isrealtime ? "·" : ""
     label.new(
          bar_index, high + atr * offsetMult,
-         "▼ " + pStr + live,
-         style     = label.style_label_down,
-         color     = color.new(bearColor, 15),
-         textcolor = color.white,
-         size      = size.small,
-         tooltip   = "SELL  conf=" + str.tostring(sellConf, "#") + "%")
+         "▼",
+         style            = label.style_label_down,
+         color            = color.new(bearColor, 78),
+         textcolor        = bearColor,
+         text_font_family = font.family_monospace,
+         size             = size.small,
+         tooltip          = "SELL  " + pStr + live + "  conf=" + str.tostring(sellConf, "#") + "%")
 
-// Weak signals
+// Weak signals: círculo bien diminuto (tiny), sin glow ni triángulo
 bool weakBuy  = bullCross and buyConf  >= 30 and buyConf  < minConf and barFilter and htfAlignBuy
 bool weakSell = bearCross and sellConf >= 30 and sellConf < minConf and barFilter and htfAlignSell
-plotshape(showBuySignals  and weakBuy,  "Weak Buy",
-     shape.circle, location.belowbar, color.new(bullColor, 65), size=size.tiny, offset=0)
-plotshape(showSellSignals and weakSell, "Weak Sell",
-     shape.circle, location.abovebar, color.new(bearColor, 65), size=size.tiny, offset=0)
+plotchar(showBuySignals  and weakBuy,  "Weak Buy",  "•", location.belowbar, color.new(bullColor, 45), size=size.tiny, offset=0, display=display.pane)
+plotchar(showSellSignals and weakSell, "Weak Sell", "•", location.abovebar, color.new(bearColor, 45), size=size.tiny, offset=0, display=display.pane)
 
 // Barcolor sutil
-barcolor(cyberCycle > trigger and bullTrend ? color.new(bullColor, 75) :
-         cyberCycle < trigger and bearTrend  ? color.new(bearColor, 75) : na)
+// barcolor() solo admite display.none/display.all (CE10068) -> se omite el parametro
+color barCol = (cyberCycle > trigger and bullTrend ? color.new(bullColor, 75) : cyberCycle < trigger and bearTrend ? color.new(bearColor, 75) : na)
+barcolor(barCol, title="Bar Color")
 
 
 // ╔══════════════════════════════════════════════════════════════════╗
 // ║                  INFO TABLE — diseño limpio                     ║
 // ╚══════════════════════════════════════════════════════════════════╝
 
+// Estetica de la casa (misma que budai_helix / pulse / momentum3d y otros 22):
+// 2 columnas, etiqueta a la IZQUIERDA en gris azulado, valor a la DERECHA coloreado.
+// Los dos bordes verticales rectos son lo que lo hace escaneable e institucional.
+// Sin iconos, sin zebra: el color del valor ya es el unico acento.
+dashPos   = input.string("Arriba Derecha", "Posicion dashboard", options=["Arriba Derecha","Arriba Izquierda","Abajo Derecha","Abajo Izquierda"], group=grp_viz)
+showDbg   = input.bool(false, "Fila tecnica (config + alphas)", group=grp_viz)
+
+f_pos(s) => (s == "Arriba Derecha" ? position.top_right : s == "Arriba Izquierda" ? position.top_left : s == "Abajo Derecha" ? position.bottom_right : position.bottom_left)
+
+f_cell(t, r, k, v, vc) =>
+    table.cell(t, 0, r, k, text_color=color.new(#90a4ae, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, text_halign=text.align_right)
+
+var table d = table.new(f_pos(dashPos), 2, showDbg ? 10 : 8, bgcolor=color.new(#0b0e16, 14), frame_color=color.new(bullColor, 50), frame_width=1, border_width=1)
+
 if showInfoTable and barstate.islast
-    var table t = table.new(
-         position.top_right, 2, 11,
-         bgcolor       = color.new(#0D0D0D, 60),
-         border_width  = 1,
-         border_color  = color.new(color.gray, 70),
-         frame_width   = 1,
-         frame_color   = color.new(color.gray, 50))
+    color dimCol = color.new(#90a4ae, 35)
 
-    color hdrCol  = #A0A0B0
-    color valCol  = #E8E8F0
-    color accentY = #FFD166
-    color accentG = bullColor
-    color accentR = bearColor
+    // ── Cabecera: marca + valor del ciclo ──
+    color cycCol = cyberCycle > 0 ? bullColor : bearColor
+    table.cell(d, 0, 0, "CyberCycle", text_color=color.white, bgcolor=color.new(#1b2030, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(d, 1, 0, str.tostring(cyberCycle, "#.####"), text_color=cycCol, bgcolor=color.new(#1b2030, 0), text_size=size.tiny, text_halign=text.align_right)
 
-    int row = 0
+    // ── Lectura de mercado ──
+    string sesgo = bullTrend ? "Alcista" : bearTrend ? "Bajista" : "Neutro"
+    color  sesgoC = bullTrend ? bullColor : bearTrend ? bearColor : dimCol
+    f_cell(d, 1, "Sesgo", sesgo + (eUseTrend ? "" : " (off)"), sesgoC)
 
-    table.cell(t, 0, row, "METHOD", text_color=hdrCol,  text_size=size.tiny,  bgcolor=color.new(#1A1A2E, 40))
-    table.cell(t, 1, row,
-         eAlphaMethod + "  α=" + str.tostring(adaptiveAlpha, "#.###") + "  P=" + str.tostring(dominantPeriod, "#.#"),
-         text_color=accentY, text_size=size.tiny, bgcolor=color.new(#1A1A2E, 40))
-    row += 1
+    string ciclo = cyberCycle > trigger ? "▲ Subiendo" : "▼ Bajando"
+    f_cell(d, 2, "Ciclo", ciclo, cyberCycle > trigger ? bullColor : bearColor)
 
-    table.cell(t, 0, row, "COIN",      text_color=hdrCol, text_size=size.tiny)
-    table.cell(t, 1, row,
-         detectedCoin + (eAFloor > 0 ? "  fl=" + str.tostring(eAFloor,"#.##") : "") + "  iT=" + str.tostring(eITrendAlpha,"#.##"),
-         text_color=accentY, text_size=size.tiny)
-    row += 1
+    string zona = inOB ? "Sobrecompra" : inOS ? "Sobreventa" : "Neutro"
+    f_cell(d, 3, "Zona", zona, inOB ? bearColor : inOS ? bullColor : dimCol)
 
-    table.cell(t, 0, row, "CYCLE",     text_color=hdrCol, text_size=size.tiny)
-    table.cell(t, 1, row, str.tostring(cyberCycle, "#.####"),
-         text_color = cyberCycle > 0 ? accentG : accentR, text_size=size.tiny)
-    row += 1
+    float  cConf = bullCross ? buyConf : bearCross ? sellConf : 0
+    string confT = cConf > 0 ? str.tostring(cConf, "#") + "% / " + str.tostring(minConf, "#") + "%" : "—"
+    f_cell(d, 4, "Confianza", confT, cConf >= minConf ? bullColor : cConf >= 30 ? #FFD166 : dimCol)
 
-    string trendStr = bullTrend ? "▲ BULL" : bearTrend ? "▼ BEAR" : "── FLAT"
-    table.cell(t, 0, row, "TREND",     text_color=hdrCol, text_size=size.tiny)
-    table.cell(t, 1, row, trendStr + (eUseTrend ? "" : "  [off]"),
-         text_color = bullTrend ? accentG : bearTrend ? accentR : color.gray, text_size=size.tiny)
-    row += 1
+    string volT = not eUseVol ? "—" : volumeOK ? "OK" : "Bajo"
+    f_cell(d, 5, "Volumen", volT, not eUseVol ? dimCol : volumeOK ? bullColor : bearColor)
 
-    string zoneStr = inOB ? "⬆ OB" : inOS ? "⬇ OS" : "○ NEUTRAL"
-    table.cell(t, 0, row, "ZONE",      text_color=hdrCol, text_size=size.tiny)
-    table.cell(t, 1, row, zoneStr,
-         text_color = inOB ? accentR : inOS ? accentG : color.gray, text_size=size.tiny)
-    row += 1
+    string htfT = not eUseHTF ? "—" : htfBullish ? "Alcista" : "Bajista"
+    f_cell(d, 6, "Filtro HTF", htfT, not eUseHTF ? dimCol : htfBullish ? bullColor : bearColor)
 
-    table.cell(t, 0, row, "DIRECTION", text_color=hdrCol, text_size=size.tiny)
-    table.cell(t, 1, row, cyberCycle > trigger ? "▲ BULLISH" : "▼ BEARISH",
-         text_color = cyberCycle > trigger ? accentG : accentR, text_size=size.tiny)
-    row += 1
+    // ── Motor: metodo + alpha efectivo + moneda detectada ──
+    f_cell(d, 7, "Motor", eAlphaMethod + " α" + str.tostring(adaptiveAlpha, "#.##") + " · " + detectedCoin, #FFD166)
 
-    float cConf = bullCross ? buyConf : bearCross ? sellConf : 0
-    string confStr = cConf > 0 ? str.tostring(cConf,"#") + "%  (min " + str.tostring(minConf,"#") + "%)" : "---"
-    table.cell(t, 0, row, "CONF",      text_color=hdrCol, text_size=size.tiny)
-    table.cell(t, 1, row, confStr,
-         text_color = cConf >= minConf ? accentG : cConf >= 30 ? accentY : color.gray, text_size=size.tiny)
-    row += 1
-
-    table.cell(t, 0, row, eUseVol ? "VOLUME" : "VOL [off]", text_color=hdrCol, text_size=size.tiny)
-    table.cell(t, 1, row, eUseVol ? (volumeOK ? "✔ OK" : "✘ LOW") : "---",
-         text_color = volumeOK ? accentG : accentR, text_size=size.tiny)
-    row += 1
-
-    table.cell(t, 0, row, eUseHTF ? "HTF 4H" : "HTF [off]", text_color=hdrCol, text_size=size.tiny)
-    table.cell(t, 1, row, eUseHTF ? (htfBullish ? "▲ BULL" : "▼ BEAR") : "---",
-         text_color = htfBullish ? accentG : accentR, text_size=size.tiny)
-    row += 1
-
-    table.cell(t, 0, row, "CONFIG",    text_color=hdrCol, text_size=size.tiny)
-    table.cell(t, 1, row,
-         "T=" + str.tostring(eTrigEma) + "  B=" + str.tostring(eMinBars) +
-         "  OB=" + str.tostring(eOB,"#.#") + "  OS=" + str.tostring(eOS,"#.#"),
-         text_color=valCol, text_size=size.tiny)
-    row += 1
-
-    table.cell(t, 0, row, "ALL α",     text_color=hdrCol, text_size=size.tiny)
-    table.cell(t, 1, row,
-         "HD=" + str.tostring(_a_hd,"#.###") + "  MA=" + str.tostring(_a_ma,"#.###") +
-         "  AC=" + str.tostring(_a_ac,"#.###") + "  KL=" + str.tostring(_a_kl,"#.###"),
-         text_color=color.new(color.gray,20), text_size=size.tiny)
+    // ── Filas tecnicas (opt-in) ──
+    if showDbg
+        f_cell(d, 8, "Config", "T" + str.tostring(eTrigEma) + " B" + str.tostring(eMinBars) + " OB" + str.tostring(eOB, "#.#") + " OS" + str.tostring(eOS, "#.#"), dimCol)
+        f_cell(d, 9, "Alphas", "HD" + str.tostring(_a_hd, "#.##") + " MA" + str.tostring(_a_ma, "#.##") + " AC" + str.tostring(_a_ac, "#.##") + " KL" + str.tostring(_a_kl, "#.##"), dimCol)
 
 
 // ╔══════════════════════════════════════════════════════════════════╗
@@ -1175,12 +1177,8 @@ if showInfoTable and barstate.islast
 G_RM = "Risk plan (alertas)"
 alertSym  = input.symbol("", "Simbolo alerta (vacio = basecurrency+USDT)", group=G_RM, tooltip="Forzar p.ej. BTCUSDT. Vacio -> syminfo.basecurrency + USDT.")
 sl_pct    = input.float(1.5, "SL %",  minval=0, step=0.1, group=G_RM)
-tp1_pct   = input.float(1.0, "TP1 %", minval=0, step=0.1, group=G_RM, inline="tp1")
-tp1_q     = input.float(40,  "qty%",  minval=0, maxval=100, group=G_RM, inline="tp1")
-tp2_pct   = input.float(2.0, "TP2 %", minval=0, step=0.1, group=G_RM, inline="tp2")
-tp2_q     = input.float(30,  "qty%",  minval=0, maxval=100, group=G_RM, inline="tp2")
-tp3_pct   = input.float(4.0, "TP3 %", minval=0, step=0.1, group=G_RM, inline="tp3")
-tp3_q     = input.float(30,  "qty%",  minval=0, maxval=100, group=G_RM, inline="tp3")
+tp_pct    = input.float(4.5, "TP %  (R:R sugerido 1:3, rango 1:2 a 1:4)", minval=0, step=0.1, group=G_RM, inline="tp")
+tp_q      = input.float(100, "qty%", minval=0, maxval=100, group=G_RM, inline="tp")
 trail_act = input.float(2.0, "Trailing activacion %", minval=0, step=0.1, group=G_RM, inline="tr")
 trail_cb  = input.float(0.8, "callback %", minval=0, step=0.1, group=G_RM, inline="tr")
 be_trig   = input.float(1.0, "Break-even trigger %", minval=0, step=0.1, group=G_RM, inline="be")
@@ -1189,15 +1187,14 @@ be_off    = input.float(0.1, "offset %", minval=0, step=0.1, group=G_RM, inline=
 f_sym() => alertSym != "" ? alertSym : syminfo.basecurrency + "USDT"
 
 f_alertJson(string side) =>
+    string tpJson = '[{"pct":' + str.tostring(tp_pct) + ',"qty_pct":' + str.tostring(tp_q) + '}]'
+    string riskJson = '{"sl_pct":' + str.tostring(sl_pct) + ',"tp":' + tpJson +
+         ',"trailing":{"activation_pct":' + str.tostring(trail_act) + ',"callback_pct":' + str.tostring(trail_cb) + '}' +
+         ',"breakeven":{"trigger_pct":' + str.tostring(be_trig) + ',"offset_pct":' + str.tostring(be_off) + '}}'
     '{"side":"' + side + '","symbol":"' + f_sym() + '"' +
-      ',"timeframe":"' + timeframe.period + '"' +
-      ',"price":' + str.tostring(close) +
-      ',"risk":{"sl_pct":' + str.tostring(sl_pct) +
-        ',"tp":[{"pct":' + str.tostring(tp1_pct) + ',"qty_pct":' + str.tostring(tp1_q) + '},' +
-              '{"pct":' + str.tostring(tp2_pct) + ',"qty_pct":' + str.tostring(tp2_q) + '},' +
-              '{"pct":' + str.tostring(tp3_pct) + ',"qty_pct":' + str.tostring(tp3_q) + '}]' +
-        ',"trailing":{"activation_pct":' + str.tostring(trail_act) + ',"callback_pct":' + str.tostring(trail_cb) + '}' +
-        ',"breakeven":{"trigger_pct":' + str.tostring(be_trig) + ',"offset_pct":' + str.tostring(be_off) + '}}}'
+         ',"timeframe":"' + timeframe.period + '"' +
+         ',"price":' + str.tostring(close) +
+         ',"risk":' + riskJson + '}'
 
 // Webhook JSON for the stack. Create a TradingView alert using "Any alert() function call".
 if buySignal
